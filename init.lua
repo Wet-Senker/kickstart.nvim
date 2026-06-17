@@ -975,3 +975,42 @@ end
 
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
+-- Prose / Markdown settings (text filetypes only)
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = { 'markdown', 'text', 'gitcommit' },
+  callback = function()
+    vim.opt_local.wrap = true
+    vim.opt_local.linebreak = true
+    vim.opt_local.breakindent = true
+    vim.opt_local.spell = true
+    vim.opt_local.spelllang = 'nl,en_us'
+    vim.opt_local.conceallevel = 2
+    vim.opt_local.textwidth = 0
+    vim.keymap.set('n', 'j', 'gj', { buffer = true })
+    vim.keymap.set('n', 'k', 'gk', { buffer = true })
+    vim.keymap.set('n', '0', 'g0', { buffer = true })
+    vim.keymap.set('n', '$', 'g$', { buffer = true })
+  end,
+})
+-- Zen mode: narrow reading column for prose
+vim.pack.add({ 'https://github.com/folke/zen-mode.nvim' })
+
+require('zen-mode').setup({
+  window = {
+    width = 80,
+    options = { number = false, relativenumber = false },
+  },
+})
+
+vim.keymap.set('n', '<leader>z', '<cmd>ZenMode<cr>', { desc = 'Toggle Zen (narrow column)' })
+-- Copy to system clipboard
+vim.keymap.set('n', '<leader>c', '<cmd>%y+<cr>', { desc = 'Copy whole buffer to clipboard' })
+vim.keymap.set('x', '<leader>c', '"+y', { desc = 'Copy selection to clipboard' })
+
+vim.keymap.set('n', '<leader>m',
+  [[<cmd>w !pandoc -f markdown -t html | textutil -stdin -stdout -format html -convert rtf | pbcopy<cr>]],
+  { desc = 'Markdown buffer to rich-text clipboard' })
+
+vim.keymap.set('n', '<leader>h',
+  [[<cmd>w !pandoc -f markdown -t html | pbcopy<cr>]],
+  { desc = 'Markdown buffer to HTML clipboard' })
