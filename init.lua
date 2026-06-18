@@ -113,7 +113,7 @@ do
   vim.o.number = true
   -- You can also add relative line numbers, to help with jumping.
   --  Experiment for yourself to see if you like it!
-  -- vim.o.relativenumber = true
+  vim.o.relativenumber = true
 
   -- Enable mouse mode, can be useful for resizing splits for example!
   vim.o.mouse = 'a'
@@ -977,7 +977,7 @@ do
 end
 
 -- The line beneath this is called `modeline`. See `:help modeline`
--- vim: ts=2 sts=2 sw=2 et
+
 -- Prose / Markdown settings (text filetypes only)
 vim.api.nvim_create_autocmd('FileType', {
   pattern = { 'markdown', 'text', 'gitcommit' },
@@ -1006,6 +1006,7 @@ require('zen-mode').setup({
 })
 
 vim.keymap.set('n', '<leader>z', '<cmd>ZenMode<cr>', { desc = 'Toggle Zen (narrow column)' })
+
 -- Copy to system clipboard
 vim.keymap.set('n', '<leader>c', '<cmd>%y+<cr>', { desc = 'Copy whole buffer to clipboard' })
 vim.keymap.set('x', '<leader>c', '"+y', { desc = 'Copy selection to clipboard' })
@@ -1014,6 +1015,4 @@ vim.keymap.set('n', '<leader>m',
   [[<cmd>w !pandoc -f markdown -t html | textutil -stdin -stdout -format html -convert rtf | pbcopy<cr>]],
   { desc = 'Markdown buffer to rich-text clipboard' })
 
-vim.keymap.set('n', '<leader>h',
-  [[<cmd>w !pandoc -f markdown -t html | pbcopy<cr>]],
-  { desc = 'Markdown buffer to HTML clipboard' })
+-- vim: ts=2 sts=2 sw=2 et
