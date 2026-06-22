@@ -1012,7 +1012,8 @@ vim.keymap.set('n', '<leader>c', '<cmd>%y+<cr>', { desc = 'Copy whole buffer to 
 vim.keymap.set('x', '<leader>c', '"+y', { desc = 'Copy selection to clipboard' })
 
 vim.keymap.set('n', '<leader>m',
-  [[<cmd>w !pandoc -f markdown -t html | textutil -stdin -stdout -format html -convert rtf | pbcopy<cr>]],
-  { desc = 'Markdown buffer to rich-text clipboard' })
+  [[<cmd>w !LC_CTYPE=UTF-8 pandoc -f markdown-smart -t html --ascii | textutil -stdin -stdout -format html -convert rtf -encoding UTF-8 | pbcopy -Prefer rtf<cr>]],
+  { desc = 'Markdown buffer to rich-text clipboard' }
+)
 
 -- vim: ts=2 sts=2 sw=2 et
