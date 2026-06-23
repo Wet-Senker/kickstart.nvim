@@ -42,6 +42,17 @@ M.templates = {
   },
   },
 
+  {
+    name = 'Column Kamper Ambassadeur',
+    text = {
+    'Kamper Ambassadeur: {{title}}',
+    '',
+    'Brug-columniste en oud-Kampense Margriet Vonno-Landman heeft, na vijf jaar op de Nederlandse ambassade in Singapore, een nieuwe functie bij het ministerie van Buitenlandse Zaken. Ze bezoekt Nederlandse ambassades op alle continenten en blijft in die hoedanigheid verslag doen van haar reizen, en van de verschillen en overeenkomsten met haar geboortestad Kampen. Tot de zomer van 2028 is Margriet Vonno ambassadeur van Nederland in Canada.',
+    '{{body}}',
+    },
+  },
+
+
   -- TIER 2 — stock text + a fixed image copied into the article folder
   {
     name = 'Column Hondenhoek',
