@@ -1016,4 +1016,5 @@ vim.keymap.set('n', '<leader>m',
   { desc = 'Markdown buffer to rich-text clipboard' }
 )
 
+vim.keymap.set('n', '<leader>kt', function() require('krant').menu() end, { desc = '[K]rant [T]emplate' })
 -- vim: ts=2 sts=2 sw=2 et
