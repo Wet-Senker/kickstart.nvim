@@ -34,9 +34,12 @@ M.templates = {
   {
     name = 'Column Natuurvereniging',
     text = {
-      'Maandelijks vertelt een lid van Natuurvereniging IJsseldelta in De Brug iets interessants over de natuur in onze omgeving.',
-      '',
-    },
+  'Column Natuurvereniging: {{title}}',
+  '',
+  'Maandelijks vertelt een lid van Natuurvereniging IJsseldelta in De Brug iets interessants over de natuur in onze omgeving.',
+  '',
+  '{{body}}',
+  },
   },
 
   -- TIER 2 — stock text + a fixed image copied into the article folder
@@ -44,8 +47,8 @@ M.templates = {
     name = 'Column Hondenhoek',
     image = 'hondenhoek.jpg', -- lives in M.config.stock_images
     text = {
-      'In de column Hondenhoek belicht kynologisch gedragstherapeut en doorgewinterd hondenkenner Bert Nieuwenhuis telkens \u00e9\u00e9n actueel gedragsthema. Aan de hand van herkenbare voorbeelden vertaalt hij dat naar heldere, direct toepasbare tips voor een harmonieuzer leven met uw hond.',
-      '',
+      'In de column Hondenhoek belicht kynologisch gedragstherapeut en doorgewinterd hondenkenner Bert Nieuwenhuis telkens één actueel gedragsthema. Aan de hand van herkenbare voorbeelden vertaalt hij dat naar heldere, direct toepasbare tips voor een harmonieuzer leven met uw hond.',
+            '',
     },
   },
 
