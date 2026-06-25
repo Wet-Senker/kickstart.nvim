@@ -1034,4 +1034,7 @@ vim.keymap.set('n', '<leader>m',
 )
 
 vim.keymap.set('n', '<leader>kt', function() require('krant').menu() end, { desc = '[K]rant [T]emplate' })
+
+require("ai_text")
+
 -- vim: ts=2 sts=2 sw=2 et
