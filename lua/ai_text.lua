@@ -98,24 +98,45 @@ vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
 
 
 function M.pubble_send_to_web()
-  local file = vim.fn.expand("%:p")
+  local file_path = vim.api.nvim_buf_get_name(0)
 
-  if file == "" then
-    vim.notify("Current buffer has no file path", vim.log.levels.ERROR)
-    return
-  end
+  local command
+  local options
 
-  if vim.bo.modified then
+  if file_path ~= "" then
     vim.cmd("write")
+
+    command = { pubble_web_draft, file_path, "--create", "--write-id" }
+    options = { text = true }
+
+    vim.notify("Creating inactive Pubble web draft and writing ID back...", vim.log.levels.INFO)
+  else
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    local input = table.concat(lines, "\n")
+
+    if vim.trim(input) == "" then
+      vim.notify("Current buffer is empty", vim.log.levels.ERROR)
+      return
+    end
+
+    command = { pubble_web_draft, "-", "--create" }
+    options = {
+      text = true,
+      stdin = input,
+    }
+
+    vim.notify("Creating inactive Pubble web draft from unsaved buffer...", vim.log.levels.INFO)
   end
 
-  vim.notify("Creating inactive Pubble web draft...", vim.log.levels.INFO)
-
-  vim.system({ pubble_web_draft, file, "--create" }, { text = true }, function(result)
+  vim.system(command, options, function(result)
     vim.schedule(function()
       if result.code == 0 then
         local output = vim.trim(result.stdout or "")
         vim.notify(output ~= "" and output or "Created inactive Pubble web draft", vim.log.levels.INFO)
+
+        if file_path ~= "" then
+          vim.cmd("edit!")
+        end
       else
         local output = vim.trim(result.stderr or result.stdout or "")
         vim.notify(output ~= "" and output or "Pubble web draft failed", vim.log.levels.ERROR)
@@ -123,6 +144,7 @@ function M.pubble_send_to_web()
     end)
   end)
 end
+
 
 vim.api.nvim_create_user_command("PubbleSendToWeb", M.pubble_send_to_web, {
   desc = "Create inactive Pubble web draft for current Markdown file",
