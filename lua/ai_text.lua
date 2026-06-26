@@ -100,6 +100,7 @@ vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
 
 function M.pubble_send_to_web()
   local file_path = vim.api.nvim_buf_get_name(0)
+  local temp_file = nil
 
   local command
   local options
@@ -110,7 +111,7 @@ function M.pubble_send_to_web()
     command = { pubble_send, file_path, "--create", "--write-ids" }
     options = { text = true }
 
-    vim.notify("Creating matching Pubble web and newspaper drafts and writing IDs back...", vim.log.levels.INFO)
+    vim.notify("Creating linked Pubble newspaper and web drafts and writing IDs back...", vim.log.levels.INFO)
   else
     local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
     local input = table.concat(lines, "\n")
@@ -120,31 +121,42 @@ function M.pubble_send_to_web()
       return
     end
 
-    command = { pubble_web_draft, "-", "--create" }
-    options = {
-      text = true,
-      stdin = input,
-    }
+    temp_file = vim.fn.tempname() .. ".md"
+    vim.fn.writefile(lines, temp_file)
 
-    vim.notify("Creating inactive Pubble web draft from unsaved buffer...", vim.log.levels.INFO)
+    command = { pubble_send, temp_file, "--create", "--write-ids" }
+    options = { text = true }
+
+    vim.notify("Creating linked Pubble newspaper and web drafts from unsaved buffer...", vim.log.levels.INFO)
   end
 
   vim.system(command, options, function(result)
     vim.schedule(function()
       if result.code == 0 then
         local output = vim.trim(result.stdout or "")
-        vim.notify(output ~= "" and output or "Created inactive Pubble web draft", vim.log.levels.INFO)
+        vim.notify(output ~= "" and output or "Created linked Pubble drafts", vim.log.levels.INFO)
 
         if file_path ~= "" then
           vim.cmd("edit!")
+        elseif temp_file ~= nil then
+          local updated_lines = vim.fn.readfile(temp_file)
+          vim.api.nvim_buf_set_lines(0, 0, -1, false, updated_lines)
+          vim.bo.modified = true
+          vim.notify("Updated current buffer with generated metadata and Pubble IDs", vim.log.levels.INFO)
+          vim.fn.delete(temp_file)
         end
       else
         local output = vim.trim(result.stderr or result.stdout or "")
-        vim.notify(output ~= "" and output or "Pubble web draft failed", vim.log.levels.ERROR)
+        vim.notify(output ~= "" and output or "Pubble send failed", vim.log.levels.ERROR)
+
+        if temp_file ~= nil then
+          vim.fn.delete(temp_file)
+        end
       end
     end)
   end)
 end
+
 
 
 vim.api.nvim_create_user_command("PubbleSendToWeb", M.pubble_send_to_web, {
