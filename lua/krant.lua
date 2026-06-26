@@ -63,6 +63,15 @@ M.templates = {
     },
   },
 
+  {
+    name = 'Humor met een boodschap',
+    image = 'humor', -- lives in M.config.stock_images
+    text = {
+      '',
+            '',
+    },
+  },
+
   -- TIER 3 — wraps the article body; {{Title}} stays for you to fill
   {
     name = '112 nieuws',
