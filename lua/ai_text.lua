@@ -98,7 +98,7 @@ vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
 })
 
 
-function M.pubble_send_to_web()
+function M.pubble_send()
   local file_path = vim.api.nvim_buf_get_name(0)
   local temp_file = nil
 
@@ -159,12 +159,12 @@ end
 
 
 
-vim.api.nvim_create_user_command("PubbleSendToWeb", M.pubble_send_to_web, {
-  desc = "Create inactive Pubble web draft for current Markdown file",
+vim.api.nvim_create_user_command("PubbleSend", M.pubble_send, {
+  desc = "Send article to linked Pubble drafts",
 })
 
-vim.keymap.set("n", "<leader>aw", M.pubble_send_to_web, {
-  desc = "Send article to Pubble web draft",
+vim.keymap.set("n", "<leader>aw", M.pubble_send, {
+  desc = "Send article to linked Pubble drafts",
 })
 
 return M
