@@ -41,6 +41,16 @@ M.templates = {
   '{{body}}',
   },
   },
+   {
+    name = "Kiek op de wiek (Sander de Rouwe)",
+    text = {
+      "De Kamper 'kiek op de wîêk' van burgemeester Sander de Rouwe",
+      "",
+      "In De Brug kijkt burgemeester Sander de Rouwe wekelijks in fotovorm terug op de afgelopen week.",
+      "",
+      "{{body}}",
+    },
+  },
 
   {
     name = 'Column Kamper Ambassadeur',
@@ -49,6 +59,47 @@ M.templates = {
     '',
     'Brug-columniste en oud-Kampense Margriet Vonno-Landman heeft, na vijf jaar op de Nederlandse ambassade in Singapore, een nieuwe functie bij het ministerie van Buitenlandse Zaken. Ze bezoekt Nederlandse ambassades op alle continenten en blijft in die hoedanigheid verslag doen van haar reizen, en van de verschillen en overeenkomsten met haar geboortestad Kampen. Tot de zomer van 2028 is Margriet Vonno ambassadeur van Nederland in Canada.',
     '{{body}}',
+    },
+  },
+  {
+    name = 'Column Vogelgroep Kampen',
+    text = {
+      "Column Vogelgroep Kampen: {{title}}",
+      "",
+      "De Vogelgroep Kampen en Omstreken zet zich in voor het welzijn van de (water)vogels in Kampen. In De Brug reflecteert zij periodiek op wat er speelt rond vogels in en rondom Kampen.",
+      "",
+      "{{body}}",
+    },
+  },
+  {
+    name = 'Uit de Kunst',
+    text = {
+      "Uit de Kunst",
+      "",
+      "Onze stad bruist van creativiteit. Sta eens stil bij al het moois dat je in onze hartelijke Hanzestad kunt zien, horen en proeven. In de rubriek Uit de Kunst tonen de organisatoren van de Inspiratieroute Kampen periodiek wat er allemaal te zien is. Deze week deelt {{naam}} {{onderwerp/toelichting}}.",
+      "",
+      "{{body}}",
+    },
+  },
+
+ {
+    name = 'Stadsdichter Berber Bouma',
+    text = {
+      "Stadsdichter Berber Bouma geeft woorden aan Kampen",
+      "",
+      "Een stadsdichter kijkt met een scherpe en vaak verrassende blik naar wat er speelt in de stad en de dorpen eromheen. Sinds de verkiezing van Bas Nijhof als eerste stadsdichter van Kampen in 2015 verschijnen in deze krant gedichten over actuele onderwerpen, grote en kleine momenten. Sinds februari 2026 vervult Berber Bouma het stadsdichterschap. De komende twee jaar verschijnen gedichten van haar hand in onze krant. Het gedicht van deze editie heet: {{titel gedicht}}.",
+      "",
+      "{{body}}",
+    },
+  },
+  {
+    name = 'Eregalerij kampioenen',
+    text = {
+      "De Brug zet kampioenen in de eregalerij",
+      "",
+      "Deze zomer geeft De Brug regionale kampioenen opnieuw een plek in de eregalerij. Teams en individuele sporters uit Kampen, IJsselmuiden en omgeving die dit seizoen een titel behaalden, worden met hun kampioensfoto in het zonnetje gezet. Zo maken we samen zichtbaar hoeveel sportief succes er in de regio te vieren valt. Ook op deze pagina staan weer nieuwe kampioenen. Foto's en gegevens kunnen nog steeds worden gestuurd naar redactie.debrug@brugmedia.nl onder vermelding van 'Kampioenen 2026'.",
+      "",
+      "{{body}}",
     },
   },
 
@@ -60,6 +111,17 @@ M.templates = {
     text = {
       'In de column Hondenhoek belicht kynologisch gedragstherapeut en doorgewinterd hondenkenner Bert Nieuwenhuis telkens één actueel gedragsthema. Aan de hand van herkenbare voorbeelden vertaalt hij dat naar heldere, direct toepasbare tips voor een harmonieuzer leven met uw hond.',
             '',
+    },
+  },
+  {
+    name = 'Verslag Open Hof',
+    image = 'open-hof.jpg', -- ~/krant-fotos/stock/open-hof.jpg
+    text = {
+      "Verslag Open Hof: {{title}}",
+      "",
+      "Wijkgemeente Open Hof, onderdeel van de Protestantse Gemeente Kampen, biedt sinds 21 november 2024 kerkasiel aan de familie Babayants, die met uitzetting wordt bedreigd. Kerkasiel is een eeuwenoude traditie waarbij kerken bescherming bieden aan mensen die vervolgd worden of dreigen te worden uitgezet. Op www.brugnieuws.nl doet voormalig predikant Kasper Jager wekelijks verslag van het kerkasiel. Ook in de krant wordt periodiek een editie opgenomen.",
+      "",
+      "{{body}}",
     },
   },
 
