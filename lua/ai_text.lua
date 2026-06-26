@@ -3,6 +3,7 @@ local M = {}
 local aitext = vim.fn.expand("~/workspace/texttools/.venv/bin/aitext")
 local articlemeta = vim.fn.expand("~/workspace/texttools/.venv/bin/articlemeta")
 local pubble_web_draft = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-web-draft")
+local pubble_send = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-send")
 
 local prompts = {
   {
@@ -106,10 +107,10 @@ function M.pubble_send_to_web()
   if file_path ~= "" then
     vim.cmd("write")
 
-    command = { pubble_web_draft, file_path, "--create", "--write-id" }
+    command = { pubble_send, file_path, "--create", "--write-ids" }
     options = { text = true }
 
-    vim.notify("Creating inactive Pubble web draft and writing ID back...", vim.log.levels.INFO)
+    vim.notify("Creating matching Pubble web and newspaper drafts and writing IDs back...", vim.log.levels.INFO)
   else
     local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
     local input = table.concat(lines, "\n")
