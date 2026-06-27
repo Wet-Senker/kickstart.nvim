@@ -6,9 +6,9 @@ local pubble_web_draft = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-w
 local pubble_send = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-send")
 local pubble_media = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-media")
 
-local prompts = {
+local rewrite_prompts = {
   {
-    label = "Journalistiek schrijven",
+    label = "Rewrite to newspaper article",
     name = "journalistiek_schrijven",
     mode = "replace",
   },
@@ -42,23 +42,12 @@ local function run_on_visual_selection(prompt_name, append)
   vim.cmd(cmd)
 end
 
-function M.menu()
-  vim.ui.select(prompts, {
-    prompt = "AI text action:",
-    format_item = function(item)
-      return item.label
-    end,
-  }, function(choice)
-    if not choice then
-      return
-    end
-
-    run_on_buffer(choice.name, choice.mode == "append")
-  end)
+function M.rewrite_article_buffer()
+  run_on_buffer("journalistiek_schrijven", false)
 end
 
 function M.visual_menu()
-  vim.ui.select(prompts, {
+  vim.ui.select(rewrite_prompts, {
     prompt = "AI text action for selection:",
     format_item = function(item)
       return item.label
@@ -72,8 +61,8 @@ function M.visual_menu()
   end)
 end
 
-vim.keymap.set("n", "<leader>ai", M.menu, {
-  desc = "AI text menu for whole buffer",
+vim.keymap.set("n", "<leader>ar", M.rewrite_article_buffer, {
+  desc = "Rewrite to newspaper article",
 })
 
 vim.keymap.set("v", "<leader>ai", M.visual_menu, {
@@ -91,11 +80,11 @@ function M.articlemeta_calendar_buffer()
 end
 
 vim.keymap.set("n", "<leader>am", M.articlemeta_buffer, {
-  desc = "Generate newspaper article metadata",
+  desc = "Add article metadata",
 })
 
 vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
-  desc = "Generate newspaper and calendar metadata",
+  desc = "Add calendar article and metadata",
 })
 
 
@@ -181,11 +170,11 @@ end
 
 
 vim.api.nvim_create_user_command("PubbleSend", M.pubble_send, {
-  desc = "Send article to linked Pubble drafts",
+  desc = "Send to CMS",
 })
 
 vim.keymap.set("n", "<leader>aw", M.pubble_send, {
-  desc = "Send article to linked Pubble drafts",
+  desc = "Send to CMS",
 })
 
 return M
