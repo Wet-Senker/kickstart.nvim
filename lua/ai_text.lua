@@ -98,7 +98,7 @@ function M.pubble_send()
   if file_path ~= "" then
     vim.cmd("write")
 
-    command = { pubble_send, file_path, "--create", "--write-ids" }
+    command = { pubble_send, file_path, "--create", "--write-ids", "--no-open" }
     options = { text = true }
 
     vim.notify("Creating linked Pubble newspaper and web drafts and writing IDs back...", vim.log.levels.INFO)
@@ -114,7 +114,7 @@ function M.pubble_send()
     temp_file = vim.fn.tempname() .. ".md"
     vim.fn.writefile(lines, temp_file)
 
-    command = { pubble_send, temp_file, "--create", "--write-ids" }
+    command = { pubble_send, temp_file, "--create", "--write-ids", "--no-open" }
     options = { text = true }
 
     vim.notify("Creating linked Pubble newspaper and web drafts from unsaved buffer...", vim.log.levels.INFO)
@@ -124,18 +124,16 @@ function M.pubble_send()
 
   vim.system(command, options, function(result)
     vim.schedule(function()
+      vim.fn.writefile({
+        string.format("send code=%s", tostring(result.code)),
+        "send stdout=" .. (result.stdout or ""),
+        "send stderr=" .. (result.stderr or "")
+      }, "/tmp/texttools-pubble.log", "a")
+
       if result.code == 0 then
         local output = vim.trim(result.stdout or "")
+        local internet_article_id = output:match("Created linked Pubble web draft:%s*(%d+)")
         vim.notify(output ~= "" and output or "Created linked Pubble drafts", vim.log.levels.INFO)
-
-        if file_path ~= "" then
-          vim.cmd("edit!")
-        elseif temp_file ~= nil then
-          local updated_lines = vim.fn.readfile(temp_file)
-          vim.api.nvim_buf_set_lines(0, 0, -1, false, updated_lines)
-          vim.bo.modified = true
-          vim.notify("Updated current buffer with generated metadata and Pubble IDs", vim.log.levels.INFO)
-        end
 
         vim.system({ pubble_media, article_path, "--upload", "--json" }, { text = true }, function(media_result)
           vim.schedule(function()
@@ -150,8 +148,20 @@ function M.pubble_send()
               vim.notify(media_output ~= "" and media_output or "Pubble media upload failed", vim.log.levels.WARN)
             end
 
-            if temp_file ~= nil then
+            if file_path ~= "" then
+              vim.cmd("edit!")
+            elseif temp_file ~= nil then
+              local updated_lines = vim.fn.readfile(temp_file)
+              vim.api.nvim_buf_set_lines(0, 0, -1, false, updated_lines)
+              vim.bo.modified = true
+              vim.notify("Updated current buffer with generated metadata and Pubble IDs", vim.log.levels.INFO)
               vim.fn.delete(temp_file)
+            end
+
+            if internet_article_id ~= nil then
+              local article_url = string.format("https://brugmedia.pubble.dev/articles/internet/%s", internet_article_id)
+              vim.ui.open(article_url)
+              vim.notify("Opened Pubble article: " .. article_url, vim.log.levels.INFO)
             end
           end)
         end)
