@@ -4,6 +4,7 @@ local aitext = vim.fn.expand("~/workspace/texttools/.venv/bin/aitext")
 local articlemeta = vim.fn.expand("~/workspace/texttools/.venv/bin/articlemeta")
 local pubble_web_draft = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-web-draft")
 local pubble_send = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-send")
+local pubble_media = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-media")
 
 local prompts = {
   {
@@ -130,6 +131,8 @@ function M.pubble_send()
     vim.notify("Creating linked Pubble newspaper and web drafts from unsaved buffer...", vim.log.levels.INFO)
   end
 
+  local article_path = file_path ~= "" and file_path or temp_file
+
   vim.system(command, options, function(result)
     vim.schedule(function()
       if result.code == 0 then
@@ -143,8 +146,26 @@ function M.pubble_send()
           vim.api.nvim_buf_set_lines(0, 0, -1, false, updated_lines)
           vim.bo.modified = true
           vim.notify("Updated current buffer with generated metadata and Pubble IDs", vim.log.levels.INFO)
-          vim.fn.delete(temp_file)
         end
+
+        vim.system({ pubble_media, article_path, "--upload", "--json" }, { text = true }, function(media_result)
+          vim.schedule(function()
+            if media_result.code == 0 then
+              local decoded = vim.json.decode(media_result.stdout or "{}")
+              local count = #(decoded.uploaded_images or {})
+              if count > 0 then
+                vim.notify(string.format("Pubble: article sent, %d image%s uploaded/linked", count, count == 1 and "" or "s"), vim.log.levels.INFO)
+              end
+            else
+              local media_output = vim.trim(media_result.stderr or media_result.stdout or "")
+              vim.notify(media_output ~= "" and media_output or "Pubble media upload failed", vim.log.levels.WARN)
+            end
+
+            if temp_file ~= nil then
+              vim.fn.delete(temp_file)
+            end
+          end)
+        end)
       else
         local output = vim.trim(result.stderr or result.stdout or "")
         vim.notify(output ~= "" and output or "Pubble send failed", vim.log.levels.ERROR)
