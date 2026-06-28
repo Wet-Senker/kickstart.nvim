@@ -149,4 +149,79 @@ vim.keymap.set("n", "<leader>aw", M.pubble_send, {
   desc = "Send to CMS",
 })
 
+
+-- Strip any previous ## Facebook varianten section appended by generate_facebook.
+local function strip_facebook_section(lines)
+  for i = #lines, 1, -1 do
+    if lines[i] == "## Facebook bericht" then
+      local cut = i - 1
+      -- strip blank lines and the preceding --- separator
+      while cut >= 1 and (lines[cut] == "" or lines[cut] == "---") do
+        cut = cut - 1
+      end
+      local result = {}
+      for j = 1, cut do
+        result[j] = lines[j]
+      end
+      return result
+    end
+  end
+  return lines
+end
+
+function M.generate_facebook()
+  local file_path = vim.api.nvim_buf_get_name(0)
+  if file_path == "" then
+    vim.notify("Buffer has no file — save it first.", vim.log.levels.ERROR)
+    return
+  end
+  vim.cmd("write")
+
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local clean_lines = strip_facebook_section(lines)
+  local article_text = table.concat(clean_lines, "\n")
+
+  vim.notify("Generating Facebook post...", vim.log.levels.INFO)
+
+  vim.system(
+    { aitext, "facebook_bericht" },
+    { text = true, stdin = article_text },
+    function(result)
+      vim.schedule(function()
+        if result.code ~= 0 then
+          local err = vim.trim(result.stderr or result.stdout or "")
+          vim.notify("Facebook AI failed: " .. (err ~= "" and err or "unknown error"), vim.log.levels.ERROR)
+          return
+        end
+
+        local ai_output = vim.trim(result.stdout or "")
+        if ai_output == "" then
+          vim.notify("Facebook AI returned no output.", vim.log.levels.WARN)
+          return
+        end
+
+        -- Use current buffer state (not captured snapshot) so edits made while
+        -- waiting are preserved. Strip any existing Facebook section first.
+        local current_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+        local base_lines = strip_facebook_section(current_lines)
+        table.insert(base_lines, "")
+        table.insert(base_lines, "---")
+        table.insert(base_lines, "")
+        table.insert(base_lines, "## Facebook bericht")
+        table.insert(base_lines, "")
+        for _, line in ipairs(vim.split(ai_output, "\n", { plain = true })) do
+          table.insert(base_lines, line)
+        end
+
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, base_lines)
+        vim.notify("Facebook post added. Edit if needed, then <leader>aw to send.", vim.log.levels.INFO)
+      end)
+    end
+  )
+end
+
+vim.keymap.set("n", "<leader>af", M.generate_facebook, {
+  desc = "Generate Facebook post variants",
+})
+
 return M
