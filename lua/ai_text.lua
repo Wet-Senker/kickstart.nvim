@@ -1,6 +1,7 @@
 local M = {}
 
 local aitext = vim.fn.expand("~/workspace/texttools/.venv/bin/aitext")
+local aichat = vim.fn.expand("~/workspace/texttools/.venv/bin/aichat")
 local articlemeta = vim.fn.expand("~/workspace/texttools/.venv/bin/articlemeta")
 local pubble_web_draft = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-web-draft")
 local pubble_send = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-send")
@@ -222,6 +223,199 @@ end
 
 vim.keymap.set("n", "<leader>af", M.generate_facebook, {
   desc = "Generate Facebook post variants",
+})
+
+
+-- Split buffer on the LAST "***" line.
+-- Returns article (lines before ***) and prompt (text after ***), or nil if no *** found.
+local function split_on_prompt_marker(lines)
+  local marker_idx = nil
+  for i = #lines, 1, -1 do
+    if vim.trim(lines[i]) == "***" then
+      marker_idx = i
+      break
+    end
+  end
+  if not marker_idx then return nil, nil end
+
+  local article_lines = {}
+  for i = 1, marker_idx - 1 do
+    -- Strip trailing blank lines before the marker
+    if not (i == marker_idx - 1 and vim.trim(lines[i]) == "") then
+      table.insert(article_lines, lines[i])
+    end
+  end
+
+  local prompt_lines = {}
+  for i = marker_idx + 1, #lines do
+    table.insert(prompt_lines, lines[i])
+  end
+
+  local article = table.concat(article_lines, "\n")
+  local prompt = vim.trim(table.concat(prompt_lines, "\n"))
+  return article, prompt
+end
+
+
+-- Parse conversation history from buffer.
+-- Returns article text (before first ***) and a history list of {role,content} dicts.
+-- User turns are delimited by ***, assistant turns by ---.
+local function parse_conversation(lines)
+  -- Split into blocks separated by "***" or "---"
+  local article_lines = {}
+  local history = {}
+  local state = "article"   -- article | user | assistant
+  local current_block = {}
+
+  local function flush(role)
+    local text = vim.trim(table.concat(current_block, "\n"))
+    if text ~= "" then
+      table.insert(history, { role = role, content = text })
+    end
+    current_block = {}
+  end
+
+  for _, line in ipairs(lines) do
+    local trimmed = vim.trim(line)
+    if trimmed == "***" then
+      if state == "article" then
+        article_lines = current_block
+        current_block = {}
+        state = "user"
+      elseif state == "assistant" then
+        flush("assistant")
+        state = "user"
+      else
+        -- consecutive *** — start new user block
+        flush("user")
+      end
+    elseif trimmed == "---" and state == "assistant" then
+      -- ignore separator within assistant block
+    elseif trimmed == "---" and state == "user" then
+      flush("user")
+      state = "assistant"
+    else
+      table.insert(current_block, line)
+    end
+  end
+
+  -- The last block is always the current user prompt (not yet answered)
+  local current_prompt = vim.trim(table.concat(current_block, "\n"))
+  local article = vim.trim(table.concat(article_lines, "\n"))
+
+  return article, history, current_prompt
+end
+
+
+-- <leader>ap — Ad-hoc rewrite: replace buffer with AI-rewritten text.
+-- Usage: type *** on a new line, then your instruction, then press <leader>ap.
+function M.ai_prompt_rewrite()
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local article, prompt = split_on_prompt_marker(lines)
+  if not prompt or prompt == "" then
+    vim.notify("Type *** on a new line followed by your instruction first.", vim.log.levels.WARN)
+    return
+  end
+
+  vim.notify("Rewriting...", vim.log.levels.INFO)
+
+  vim.system(
+    { aichat, prompt, "--mode", "rewrite" },
+    { text = true, stdin = article },
+    function(result)
+      vim.schedule(function()
+        if result.code ~= 0 then
+          local err = vim.trim(result.stderr or result.stdout or "")
+          vim.notify("aichat error: " .. (err ~= "" and err or "unknown"), vim.log.levels.ERROR)
+          return
+        end
+        local output = vim.trim(result.stdout or "")
+        if output == "" then
+          vim.notify("AI returned no output.", vim.log.levels.WARN)
+          return
+        end
+        local new_lines = vim.split(output, "\n", { plain = true })
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
+        vim.notify("Done. Use u to undo.", vim.log.levels.INFO)
+      end)
+    end
+  )
+end
+
+vim.keymap.set("n", "<leader>ap", M.ai_prompt_rewrite, {
+  desc = "AI rewrite with inline prompt (*** + instruction)",
+})
+
+
+-- <leader>ag — AI gesprek: append AI answer below current *** prompt.
+-- Builds full conversation history from prior *** / --- blocks.
+function M.ai_chat()
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local article, history, prompt = parse_conversation(lines)
+
+  if prompt == "" then
+    vim.notify("Type *** on a new line followed by your question first.", vim.log.levels.WARN)
+    return
+  end
+
+  vim.notify("Thinking...", vim.log.levels.INFO)
+
+  -- Build history JSON for the CLI. First entry in history must include the article.
+  -- We embed the article in the first user message if history is empty.
+  local history_arg = nil
+  if #history > 0 then
+    -- Prepend article context to the first user message in history.
+    history[1].content = "Hier is de tekst:\n\n" .. article .. "\n\n" .. history[1].content
+    local ok, encoded = pcall(vim.json.encode, history)
+    if ok then history_arg = encoded end
+  end
+
+  local cmd = { aichat, prompt }
+  if history_arg then
+    vim.list_extend(cmd, { "--history", history_arg })
+  end
+
+  vim.system(
+    cmd,
+    { text = true, stdin = article },
+    function(result)
+      vim.schedule(function()
+        if result.code ~= 0 then
+          local err = vim.trim(result.stderr or result.stdout or "")
+          vim.notify("aichat error: " .. (err ~= "" and err or "unknown"), vim.log.levels.ERROR)
+          return
+        end
+        local answer = vim.trim(result.stdout or "")
+        if answer == "" then
+          vim.notify("AI returned no output.", vim.log.levels.WARN)
+          return
+        end
+
+        local current = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+        -- Strip trailing blank lines
+        while #current > 0 and vim.trim(current[#current]) == "" do
+          table.remove(current)
+        end
+        table.insert(current, "")
+        table.insert(current, "---")
+        table.insert(current, "")
+        for _, line in ipairs(vim.split(answer, "\n", { plain = true })) do
+          table.insert(current, line)
+        end
+        table.insert(current, "")
+
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, current)
+        -- Place cursor at end so user can type the next ***
+        local last = #vim.api.nvim_buf_get_lines(0, 0, -1, false)
+        vim.api.nvim_win_set_cursor(0, { last, 0 })
+        vim.notify("Answer added. Type *** + next question, then <leader>ag.", vim.log.levels.INFO)
+      end)
+    end
+  )
+end
+
+vim.keymap.set("n", "<leader>ag", M.ai_chat, {
+  desc = "AI gesprek: append answer to *** prompt",
 })
 
 return M
