@@ -422,6 +422,9 @@ require('catppuccin').setup {
   vim.pack.add { gh 'folke/todo-comments.nvim' }
   require('todo-comments').setup { signs = false }
 
+  vim.pack.add { gh 'j-hui/fidget.nvim' }
+  require('fidget').setup {}
+
   -- [[ mini.nvim ]]
   --  A collection of various small independent plugins/modules
   vim.pack.add { gh 'nvim-mini/mini.nvim' }

@@ -1,5 +1,19 @@
 local M = {}
 
+-- Wrap vim.system with a fidget progress handle so the user sees a spinner
+-- while any AI call is running.
+local function ai_system(cmd, opts, callback, title)
+  local handle = require("fidget.progress").handle.create {
+    title   = title or "AI",
+    message = "bezig...",
+    lsp_client = { name = "aitext" },
+  }
+  return vim.system(cmd, opts, function(result)
+    handle:finish()
+    callback(result)
+  end)
+end
+
 local aitext = vim.fn.expand("~/workspace/texttools/.venv/bin/aitext")
 local aichat = vim.fn.expand("~/workspace/texttools/.venv/bin/aichat")
 local articlemeta = vim.fn.expand("~/workspace/texttools/.venv/bin/articlemeta")
@@ -296,9 +310,7 @@ function M.generate_facebook()
   local clean_lines = strip_facebook_section(lines)
   local article_text = table.concat(clean_lines, "\n")
 
-  vim.notify("Generating Facebook post...", vim.log.levels.INFO)
-
-  vim.system(
+  ai_system(
     { aitext, "facebook_bericht" },
     { text = true, stdin = article_text },
     function(result)
@@ -431,9 +443,7 @@ function M.ai_prompt_rewrite()
     return
   end
 
-  vim.notify("Rewriting...", vim.log.levels.INFO)
-
-  vim.system(
+  ai_system(
     { aichat, prompt, "--mode", "rewrite" },
     { text = true, stdin = article },
     function(result)
@@ -472,7 +482,6 @@ function M.ai_chat()
     return
   end
 
-  vim.notify("Thinking...", vim.log.levels.INFO)
 
   -- Build history JSON for the CLI. First entry in history must include the article.
   -- We embed the article in the first user message if history is empty.
@@ -489,7 +498,7 @@ function M.ai_chat()
     vim.list_extend(cmd, { "--history", history_arg })
   end
 
-  vim.system(
+  ai_system(
     cmd,
     { text = true, stdin = article },
     function(result)
