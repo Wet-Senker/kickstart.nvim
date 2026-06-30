@@ -418,4 +418,87 @@ vim.keymap.set("n", "<leader>ag", M.ai_chat, {
   desc = "AI gesprek: append answer to *** prompt",
 })
 
+
+-- <leader>ah — cheatsheet for article control codes (editie/prio/bijschrift/facebook).
+-- Two-level vim.ui.select: pick a category, then a snippet to insert above the cursor.
+-- Keep in sync with src/texttools/pubble_publications.py and pubble_batch_cli.py.
+local meta_categories = {
+  {
+    label = "Editie (e: code)",
+    items = {
+      { label = "B  - brugnieuws (standaard)", insert = "e: B" },
+      { label = "SW - deswollenaer", insert = "e: SW" },
+      { label = "ST - destadskoerier", insert = "e: ST" },
+      { label = "Z  - zeewolde", insert = "e: Z" },
+      { label = "D  - dedrontenaar", insert = "e: D" },
+      { label = "K  - De Kop van Overijssel", insert = "e: K" },
+      { label = "all - alle edities", insert = "e: all" },
+      { label = "overijssel - B, SW, ST, K", insert = "e: overijssel" },
+      { label = "flevoland - D, Z", insert = "e: flevoland" },
+    },
+  },
+  {
+    label = "Prioriteit (p: 1-5, standaard 3)",
+    items = {
+      { label = "1 - hoogste prioriteit", insert = "p: 1" },
+      { label = "2", insert = "p: 2" },
+      { label = "3 - standaard", insert = "p: 3" },
+      { label = "4", insert = "p: 4" },
+      { label = "5 - laagste prioriteit", insert = "p: 5" },
+    },
+  },
+  {
+    label = "Bijschrift / Credit (alleen herkend in eerste 4 regels)",
+    items = {
+      { label = "Bijschrift: ...", insert = "Bijschrift: " },
+      { label = "Credit: ...", insert = "Credit: " },
+      { label = "Foto: ...", insert = "Foto: " },
+      { label = "Fotograaf: ...", insert = "Fotograaf: " },
+    },
+  },
+  {
+    label = "Facebook",
+    items = {
+      { label = "facebook: ja  (AI genereert post)", insert = "facebook: ja" },
+      { label = "facebook_tekst: ...  (eigen tekst, geen AI)", insert = "facebook_tekst: " },
+    },
+  },
+  {
+    label = "Overig (pubble-batch / articlemeta control lines)",
+    items = {
+      { label = "rewrite: ja  (herschrijven naar krantenstijl)", insert = "rewrite: ja" },
+      { label = "calendar: ja  (kalenderitem meenemen)", insert = "calendar: ja" },
+    },
+  },
+}
+
+local function insert_snippet_above_cursor(text)
+  local row = vim.api.nvim_win_get_cursor(0)[1]
+  vim.api.nvim_buf_set_lines(0, row - 1, row - 1, false, { text })
+  vim.api.nvim_win_set_cursor(0, { row, #text })
+  if text:sub(-1) == " " then
+    vim.cmd("startinsert!")
+  end
+end
+
+function M.show_meta_cheatsheet()
+  vim.ui.select(meta_categories, {
+    prompt = "Pubble cheatsheet:",
+    format_item = function(c) return c.label end,
+  }, function(category)
+    if not category then return end
+    vim.ui.select(category.items, {
+      prompt = category.label .. ":",
+      format_item = function(i) return i.label end,
+    }, function(item)
+      if not item then return end
+      insert_snippet_above_cursor(item.insert)
+    end)
+  end)
+end
+
+vim.keymap.set("n", "<leader>ah", M.show_meta_cheatsheet, {
+  desc = "Cheatsheet: editie/prio/bijschrift/facebook codes",
+})
+
 return M
