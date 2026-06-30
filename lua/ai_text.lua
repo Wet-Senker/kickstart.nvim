@@ -420,54 +420,29 @@ vim.keymap.set("n", "<leader>ag", M.ai_chat, {
 
 
 -- <leader>ah — cheatsheet for article control codes (editie/prio/bijschrift/facebook).
--- Two-level vim.ui.select: pick a category, then a snippet to insert above the cursor.
+-- One flat, fuzzy-searchable vim.ui.select list — type "edit" or "face" to filter.
 -- Keep in sync with src/texttools/pubble_publications.py and pubble_batch_cli.py.
-local meta_categories = {
-  {
-    label = "Editie (editie: code)",
-    items = {
-      { label = "B  - brugnieuws (standaard)", insert = "editie: B" },
-      { label = "SW - deswollenaer", insert = "editie: SW" },
-      { label = "ST - destadskoerier", insert = "editie: ST" },
-      { label = "Z  - zeewolde", insert = "editie: Z" },
-      { label = "D  - dedrontenaar", insert = "editie: D" },
-      { label = "K  - De Kop van Overijssel", insert = "editie: K" },
-      { label = "all - alle edities", insert = "editie: all" },
-      { label = "overijssel - B, SW, ST, K", insert = "editie: overijssel" },
-      { label = "flevoland - D, Z", insert = "editie: flevoland" },
-    },
-  },
-  {
-    label = "Prioriteit (prio: 1-5, standaard 3)",
-    items = {
-      { label = "1 - hoogste prioriteit", insert = "prio: 1" },
-      { label = "2", insert = "prio: 2" },
-      { label = "3 - standaard", insert = "prio: 3" },
-      { label = "4", insert = "prio: 4" },
-      { label = "5 - laagste prioriteit", insert = "prio: 5" },
-    },
-  },
-  {
-    label = "Bijschrift / Foto (alleen herkend in eerste 4 regels)",
-    items = {
-      { label = "Bijschrift: ...", insert = "Bijschrift: " },
-      { label = "Foto: ...  (credit/fotograaf)", insert = "Foto: " },
-    },
-  },
-  {
-    label = "Facebook",
-    items = {
-      { label = "facebook: x  (AI genereert post)", insert = "facebook: x" },
-      { label = "facebook_tekst: ...  (eigen tekst, geen AI)", insert = "facebook_tekst: " },
-    },
-  },
-  {
-    label = "Overig (pubble-batch / articlemeta control lines)",
-    items = {
-      { label = "rewrite: x  (herschrijven naar krantenstijl)", insert = "rewrite: x" },
-      { label = "calendar: x  (kalenderitem meenemen)", insert = "calendar: x" },
-    },
-  },
+local meta_items = {
+  { label = "Editie: B  - brugnieuws (standaard)", insert = "editie: B" },
+  { label = "Editie: SW - deswollenaer", insert = "editie: SW" },
+  { label = "Editie: ST - destadskoerier", insert = "editie: ST" },
+  { label = "Editie: Z  - zeewolde", insert = "editie: Z" },
+  { label = "Editie: D  - dedrontenaar", insert = "editie: D" },
+  { label = "Editie: K  - De Kop van Overijssel", insert = "editie: K" },
+  { label = "Editie: all - alle edities", insert = "editie: all" },
+  { label = "Editie: overijssel - B, SW, ST, K", insert = "editie: overijssel" },
+  { label = "Editie: flevoland - D, Z", insert = "editie: flevoland" },
+  { label = "Prioriteit: 1 - hoogste", insert = "prio: 1" },
+  { label = "Prioriteit: 2", insert = "prio: 2" },
+  { label = "Prioriteit: 3 - standaard", insert = "prio: 3" },
+  { label = "Prioriteit: 4", insert = "prio: 4" },
+  { label = "Prioriteit: 5 - laagste", insert = "prio: 5" },
+  { label = "Bijschrift: ...  (eerste 4 regels)", insert = "Bijschrift: " },
+  { label = "Foto: ...  (credit/fotograaf, eerste 4 regels)", insert = "Foto: " },
+  { label = "Facebook: x  (AI genereert post)", insert = "facebook: x" },
+  { label = "Facebook: eigen tekst  (geen AI)", insert = "facebook_tekst: " },
+  { label = "Overig: rewrite: x  (herschrijven naar krantenstijl)", insert = "rewrite: x" },
+  { label = "Overig: calendar: x  (kalenderitem meenemen)", insert = "calendar: x" },
 }
 
 local function insert_snippet_above_cursor(text)
@@ -479,35 +454,13 @@ local function insert_snippet_above_cursor(text)
   end
 end
 
-local BACK = { label = "\u{2190} Terug", is_back = true }
-
-local function show_category_items(category)
-  local items = { BACK }
-  for _, item in ipairs(category.items) do
-    table.insert(items, item)
-  end
-
-  vim.ui.select(items, {
-    prompt = category.label .. ":",
+function M.show_meta_cheatsheet()
+  vim.ui.select(meta_items, {
+    prompt = "Pubble cheatsheet:",
     format_item = function(i) return i.label end,
   }, function(item)
     if not item then return end
-    if item.is_back then
-      -- Defer so the closing picker fully tears down before the next one opens.
-      vim.schedule(M.show_meta_cheatsheet)
-      return
-    end
     insert_snippet_above_cursor(item.insert)
-  end)
-end
-
-function M.show_meta_cheatsheet()
-  vim.ui.select(meta_categories, {
-    prompt = "Pubble cheatsheet:",
-    format_item = function(c) return c.label end,
-  }, function(category)
-    if not category then return end
-    show_category_items(category)
   end)
 end
 
