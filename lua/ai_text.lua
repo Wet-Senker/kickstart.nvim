@@ -75,9 +75,106 @@ function M.articlemeta_buffer()
   vim.cmd(cmd)
 end
 
+-- Read calendar fields from YAML frontmatter lines.
+local function extract_calendar_frontmatter(lines)
+  local fields = {}
+  local in_fm = false
+  local in_calendar = false
+  local dash_count = 0
+
+  for _, line in ipairs(lines) do
+    if line == "---" then
+      dash_count = dash_count + 1
+      if dash_count == 1 then
+        in_fm = true
+      elseif dash_count == 2 then
+        break
+      end
+    elseif in_fm then
+      if line:match("^calendar:") then
+        in_calendar = true
+      elseif in_calendar then
+        if not line:match("^  ") then
+          in_calendar = false
+        else
+          local key, val = line:match("^  ([%w_]+):%s*(.+)")
+          if key and val and val ~= "null" and val ~= "~" then
+            -- strip surrounding quotes that YAML may have added
+            fields[key] = val:gsub("^[\"']", ""):gsub("[\"']$", "")
+          end
+        end
+      end
+    end
+  end
+  return fields
+end
+
+-- Build lines for the ## Kalender review section from frontmatter fields.
+local function build_calendar_section_lines(lines)
+  local f = extract_calendar_frontmatter(lines)
+  if f.calendar_ready ~= "true" then return nil end
+
+  local section = { "", "---", "", "## Kalender", "" }
+  local function add(label, val)
+    if val and val ~= "" then
+      table.insert(section, label .. ": " .. val)
+    end
+  end
+
+  add("Titel",    f.calendar_title or f.event_title)
+  add("Datum",    f.event_date)
+  add("Tijd",     f.start_time)
+  add("Eindtijd", f.end_time)
+  add("Locatie",  f.location_name)
+  add("Stad",     f.city)
+
+  if f.calendar_body and f.calendar_body ~= "" then
+    table.insert(section, "")
+    table.insert(section, f.calendar_body)
+  end
+
+  -- Section is only useful if we got at least one real field beyond the header
+  if #section <= 5 then return nil end
+  return section
+end
+
+-- Strip an existing ## Kalender section (and preceding --- separator).
+local function strip_calendar_section(lines)
+  for i = #lines, 1, -1 do
+    if lines[i] == "## Kalender" then
+      local cut = i - 1
+      while cut >= 1 and (lines[cut] == "" or lines[cut] == "---") do
+        cut = cut - 1
+      end
+      local result = {}
+      for j = 1, cut do result[j] = lines[j] end
+      return result
+    end
+  end
+  return lines
+end
+
 function M.articlemeta_calendar_buffer()
   local cmd = "%!" .. shellescape(articlemeta) .. " --calendar"
   vim.cmd(cmd)
+
+  -- articlemeta --calendar updated the buffer synchronously via %!.
+  -- Now read back the (possibly updated) frontmatter and append a human-
+  -- readable ## Kalender section for review and editing.
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local base_lines = strip_calendar_section(lines)
+  local section = build_calendar_section_lines(base_lines)
+
+  if section then
+    for _, line in ipairs(section) do
+      table.insert(base_lines, line)
+    end
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, base_lines)
+    vim.notify("Kalenderdata toegevoegd. Controleer en pas aan, dan <leader>aw.", vim.log.levels.INFO)
+  else
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, base_lines)
+    vim.notify("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
+  end
 end
 
 vim.keymap.set("n", "<leader>am", M.articlemeta_buffer, {
