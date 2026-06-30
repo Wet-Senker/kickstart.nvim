@@ -424,50 +424,48 @@ vim.keymap.set("n", "<leader>ag", M.ai_chat, {
 -- Keep in sync with src/texttools/pubble_publications.py and pubble_batch_cli.py.
 local meta_categories = {
   {
-    label = "Editie (e: code)",
+    label = "Editie (editie: code)",
     items = {
-      { label = "B  - brugnieuws (standaard)", insert = "e: B" },
-      { label = "SW - deswollenaer", insert = "e: SW" },
-      { label = "ST - destadskoerier", insert = "e: ST" },
-      { label = "Z  - zeewolde", insert = "e: Z" },
-      { label = "D  - dedrontenaar", insert = "e: D" },
-      { label = "K  - De Kop van Overijssel", insert = "e: K" },
-      { label = "all - alle edities", insert = "e: all" },
-      { label = "overijssel - B, SW, ST, K", insert = "e: overijssel" },
-      { label = "flevoland - D, Z", insert = "e: flevoland" },
+      { label = "B  - brugnieuws (standaard)", insert = "editie: B" },
+      { label = "SW - deswollenaer", insert = "editie: SW" },
+      { label = "ST - destadskoerier", insert = "editie: ST" },
+      { label = "Z  - zeewolde", insert = "editie: Z" },
+      { label = "D  - dedrontenaar", insert = "editie: D" },
+      { label = "K  - De Kop van Overijssel", insert = "editie: K" },
+      { label = "all - alle edities", insert = "editie: all" },
+      { label = "overijssel - B, SW, ST, K", insert = "editie: overijssel" },
+      { label = "flevoland - D, Z", insert = "editie: flevoland" },
     },
   },
   {
-    label = "Prioriteit (p: 1-5, standaard 3)",
+    label = "Prioriteit (prio: 1-5, standaard 3)",
     items = {
-      { label = "1 - hoogste prioriteit", insert = "p: 1" },
-      { label = "2", insert = "p: 2" },
-      { label = "3 - standaard", insert = "p: 3" },
-      { label = "4", insert = "p: 4" },
-      { label = "5 - laagste prioriteit", insert = "p: 5" },
+      { label = "1 - hoogste prioriteit", insert = "prio: 1" },
+      { label = "2", insert = "prio: 2" },
+      { label = "3 - standaard", insert = "prio: 3" },
+      { label = "4", insert = "prio: 4" },
+      { label = "5 - laagste prioriteit", insert = "prio: 5" },
     },
   },
   {
-    label = "Bijschrift / Credit (alleen herkend in eerste 4 regels)",
+    label = "Bijschrift / Foto (alleen herkend in eerste 4 regels)",
     items = {
       { label = "Bijschrift: ...", insert = "Bijschrift: " },
-      { label = "Credit: ...", insert = "Credit: " },
-      { label = "Foto: ...", insert = "Foto: " },
-      { label = "Fotograaf: ...", insert = "Fotograaf: " },
+      { label = "Foto: ...  (credit/fotograaf)", insert = "Foto: " },
     },
   },
   {
     label = "Facebook",
     items = {
-      { label = "facebook: ja  (AI genereert post)", insert = "facebook: ja" },
+      { label = "facebook: x  (AI genereert post)", insert = "facebook: x" },
       { label = "facebook_tekst: ...  (eigen tekst, geen AI)", insert = "facebook_tekst: " },
     },
   },
   {
     label = "Overig (pubble-batch / articlemeta control lines)",
     items = {
-      { label = "rewrite: ja  (herschrijven naar krantenstijl)", insert = "rewrite: ja" },
-      { label = "calendar: ja  (kalenderitem meenemen)", insert = "calendar: ja" },
+      { label = "rewrite: x  (herschrijven naar krantenstijl)", insert = "rewrite: x" },
+      { label = "calendar: x  (kalenderitem meenemen)", insert = "calendar: x" },
     },
   },
 }
