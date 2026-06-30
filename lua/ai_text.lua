@@ -481,19 +481,34 @@ local function insert_snippet_above_cursor(text)
   end
 end
 
+local BACK = { label = "\u{2190} Terug", is_back = true }
+
+local function show_category_items(category)
+  local items = { BACK }
+  for _, item in ipairs(category.items) do
+    table.insert(items, item)
+  end
+
+  vim.ui.select(items, {
+    prompt = category.label .. ":",
+    format_item = function(i) return i.label end,
+  }, function(item)
+    if not item then return end
+    if item.is_back then
+      M.show_meta_cheatsheet()
+      return
+    end
+    insert_snippet_above_cursor(item.insert)
+  end)
+end
+
 function M.show_meta_cheatsheet()
   vim.ui.select(meta_categories, {
     prompt = "Pubble cheatsheet:",
     format_item = function(c) return c.label end,
   }, function(category)
     if not category then return end
-    vim.ui.select(category.items, {
-      prompt = category.label .. ":",
-      format_item = function(i) return i.label end,
-    }, function(item)
-      if not item then return end
-      insert_snippet_above_cursor(item.insert)
-    end)
+    show_category_items(category)
   end)
 end
 
