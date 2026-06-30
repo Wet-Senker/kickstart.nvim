@@ -219,7 +219,24 @@ function M.pubble_send()
         end
 
         if file_path ~= "" then
+          -- Reload so the buffer has the IDs written back by pubble-send.
           vim.cmd("edit!")
+
+          -- Move the file (now with IDs) to Pubble Inbox/used/.
+          local used_dir = vim.fn.expand("~/Desktop/Pubble Inbox/used")
+          vim.fn.mkdir(used_dir, "p")
+          local filename = vim.fn.fnamemodify(file_path, ":t")
+          local dest = used_dir .. "/" .. filename
+          local counter = 1
+          while vim.fn.filereadable(dest) == 1 do
+            local stem = vim.fn.fnamemodify(filename, ":r")
+            local ext  = vim.fn.fnamemodify(filename, ":e")
+            dest = used_dir .. "/" .. stem .. "-" .. counter .. "." .. ext
+            counter = counter + 1
+          end
+          vim.fn.rename(file_path, dest)
+          vim.cmd("enew")
+          vim.notify("Bestand verplaatst naar Pubble Inbox/used/", vim.log.levels.INFO)
         elseif temp_file ~= nil then
           local updated_lines = vim.fn.readfile(temp_file)
           vim.api.nvim_buf_set_lines(0, 0, -1, false, updated_lines)
