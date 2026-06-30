@@ -154,7 +154,7 @@ vim.keymap.set("n", "<leader>aw", M.pubble_send, {
 -- Strip any previous ## Facebook varianten section appended by generate_facebook.
 local function strip_facebook_section(lines)
   for i = #lines, 1, -1 do
-    if lines[i] == "## Facebook bericht" then
+    if lines[i] == "## Facebook" then
       local cut = i - 1
       -- strip blank lines and the preceding --- separator
       while cut >= 1 and (lines[cut] == "" or lines[cut] == "---") do
@@ -208,7 +208,7 @@ function M.generate_facebook()
         table.insert(base_lines, "")
         table.insert(base_lines, "---")
         table.insert(base_lines, "")
-        table.insert(base_lines, "## Facebook bericht")
+        table.insert(base_lines, "## Facebook")
         table.insert(base_lines, "")
         for _, line in ipairs(vim.split(ai_output, "\n", { plain = true })) do
           table.insert(base_lines, line)
