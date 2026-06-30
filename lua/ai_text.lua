@@ -495,7 +495,8 @@ local function show_category_items(category)
   }, function(item)
     if not item then return end
     if item.is_back then
-      M.show_meta_cheatsheet()
+      -- Defer so the closing picker fully tears down before the next one opens.
+      vim.schedule(M.show_meta_cheatsheet)
       return
     end
     insert_snippet_above_cursor(item.insert)
