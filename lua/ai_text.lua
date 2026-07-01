@@ -348,7 +348,7 @@ function M.generate_facebook()
 end
 
 vim.keymap.set("n", "<leader>af", M.generate_facebook, {
-  desc = "Generate Facebook post variants",
+  desc = "Generate Facebook post",
 })
 
 

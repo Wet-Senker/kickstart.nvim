@@ -157,6 +157,133 @@ M.templates = {
 -- LOGIC — you should not need to edit this to add a template.
 -- ============================================================
 
+-- Scan a directory; return sorted list of entries of the given type ('file'/'directory').
+local function scan_dir(path, filter_type)
+  local handle = vim.uv.fs_scandir(path)
+  if not handle then return {} end
+  local entries = {}
+  while true do
+    local name, ftype = vim.uv.fs_scandir_next(handle)
+    if not name then break end
+    if not name:match('^%.') and (filter_type == nil or ftype == filter_type) then
+      table.insert(entries, name)
+    end
+  end
+  table.sort(entries)
+  return entries
+end
+
+function M.raadspraat_menu()
+  local base = vim.fn.expand('~/krant-fotos/raadspraat')
+  local parties = scan_dir(base, 'directory')
+  if #parties == 0 then
+    vim.notify('Geen partijmappen gevonden in ' .. base, vim.log.levels.WARN)
+    return
+  end
+
+  vim.ui.select(parties, { prompt = 'Partij:' }, function(party)
+    if not party then return end
+
+    local party_dir = base .. '/' .. party
+    local all_files = scan_dir(party_dir, 'file')
+    local photos = {}
+    for _, f in ipairs(all_files) do
+      if f:match('%.[jJ][pP][eE]?[gG]$') or f:match('%.[pP][nN][gG]$') then
+        table.insert(photos, f)
+      end
+    end
+
+    if #photos == 0 then
+      vim.notify("Geen foto's gevonden voor " .. party, vim.log.levels.WARN)
+      return
+    end
+
+    vim.ui.select(photos, { prompt = 'Persoon (' .. party .. '):' }, function(photo_file)
+      if not photo_file then return end
+
+      local naam = vim.fn.fnamemodify(photo_file, ':r')
+      local photo_src = party_dir .. '/' .. photo_file
+
+      -- Copy photo to ~/Desktop/raadspraat/
+      local dest_dir = vim.fn.expand('~/Desktop/raadspraat')
+      vim.fn.mkdir(dest_dir, 'p')
+      local photo_dst = dest_dir .. '/' .. photo_file
+      if not vim.uv.fs_copyfile(photo_src, photo_dst) then
+        vim.notify('Foto kopiëren mislukt: ' .. photo_src, vim.log.levels.ERROR)
+        return
+      end
+
+      local bijschrift = 'Deze editie van Raadspraat is geschreven door ' .. naam .. ' van ' .. party .. '.'
+      local working_title = 'z - 1 Raadspraat ' .. party .. ' ' .. naam
+
+      -- Minimal frontmatter stub — articlemeta preserves working_title and caption if set.
+      local fm_lines = {
+        '---',
+        'newspaper:',
+        '  working_title: "' .. working_title .. '"',
+        '  priority: 1',
+        'media:',
+        '  caption: "' .. bijschrift .. '"',
+        '---',
+        '',
+      }
+
+      -- Template ({{body}} seam: existing buffer content stays in between)
+      local template = {
+        'FOTOBIJSCHRIFT: ' .. bijschrift,
+        '',
+        'Raadspraat ' .. party .. ':',
+        '',
+        '{{body}}',
+        '',
+        'Wilt u reageren op deze column van ' .. naam .. '? Stuur dan een reactie naar '
+          .. 'redactie.debrug@brugmedia.nl met als onderwerp: Reactie Raadspraat ' .. party
+          .. '. De interessantste vragen leggen wij voor aan de partij. Uw inzending en de '
+          .. 'reactie van de partij publiceren we op [www.brugnieuws.nl](https://www.brugnieuws.nl) '
+          .. 'of in de volgende krant.',
+      }
+
+      local before, after, in_after = {}, {}, false
+      for _, l in ipairs(template) do
+        if l:match('^%s*{{body}}%s*$') then
+          in_after = true
+        elseif not in_after then
+          table.insert(before, l)
+        else
+          table.insert(after, l)
+        end
+      end
+
+      local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+      local new_lines = {}
+      for _, l in ipairs(fm_lines) do table.insert(new_lines, l) end
+      for _, l in ipairs(before) do table.insert(new_lines, l) end
+      for _, l in ipairs(buf_lines) do table.insert(new_lines, l) end
+      for _, l in ipairs(after) do table.insert(new_lines, l) end
+
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
+
+      -- Save article text to gemeentenieuws folder for layout/vormgeving.
+      local gn_dir = vim.fn.expand('~/Desktop/gemeentenieuws')
+      vim.fn.mkdir(gn_dir, 'p')
+      vim.fn.writefile(new_lines, gn_dir .. '/1.raadspraatFOTO.rtfd')
+      vim.uv.fs_copyfile(photo_src, gn_dir .. '/1.RaadspraatFOTO.jpg')
+
+      -- Copy photo to Pubble Inbox dropzone so <leader>aw picks it up automatically.
+      local inbox = vim.fn.expand('~/Desktop/Pubble Inbox')
+      vim.uv.fs_copyfile(photo_src, inbox .. '/' .. photo_file)
+
+      vim.notify(
+        'Raadspraat: ' .. naam .. ' (' .. party .. ')\n'
+        .. '→ gemeentenieuws/1.raadspraatFOTO.rtfd\n'
+        .. '→ gemeentenieuws/1.RaadspraatFOTO.jpg\n'
+        .. '→ Pubble Inbox/' .. photo_file,
+        vim.log.levels.INFO
+      )
+    end)
+  end)
+end
+
 -- Copy an image into the folder of the article you're editing (the staging
 -- folder), so it travels with the text to the CMS later.
 local function copy_to_staging(src)
@@ -209,15 +336,26 @@ local function apply(t, vars)
     copy_to_staging(M.config.stock_images .. '/' .. t.image)
   end
 
+  -- Rubriek templates always get priority 1 (vaste rubriek = moet mee).
+  vim.api.nvim_buf_set_lines(0, 0, 0, false, { "prio: 1", "" })
+
   vim.notify('Inserted: ' .. t.name)
 end
 
 function M.menu()
-  vim.ui.select(M.templates, {
+  local items = { { name = 'Raadspraat...', _special = 'raadspraat' } }
+  for _, t in ipairs(M.templates) do table.insert(items, t) end
+
+  vim.ui.select(items, {
     prompt = 'Template:',
     format_item = function(t) return t.name end,
   }, function(choice)
-    if choice then apply(choice) end
+    if not choice then return end
+    if choice._special == 'raadspraat' then
+      M.raadspraat_menu()
+    else
+      apply(choice)
+    end
   end)
 end
 
