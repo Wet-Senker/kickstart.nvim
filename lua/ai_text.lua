@@ -248,9 +248,12 @@ function M.pubble_send()
             dest = used_dir .. "/" .. stem .. "-" .. counter .. "." .. ext
             counter = counter + 1
           end
+          -- Save buffer to clipboard before clearing so it can be re-pasted.
+          local buf_content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+          vim.fn.setreg("+", buf_content)
           vim.fn.rename(file_path, dest)
           vim.cmd("enew")
-          vim.notify("Bestand verplaatst naar Pubble Inbox/used/", vim.log.levels.INFO)
+          vim.notify("Bestand verplaatst naar Pubble Inbox/used/ — inhoud staat op klembord", vim.log.levels.INFO)
         elseif temp_file ~= nil then
           local updated_lines = vim.fn.readfile(temp_file)
           vim.api.nvim_buf_set_lines(0, 0, -1, false, updated_lines)
