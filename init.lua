@@ -1020,6 +1020,12 @@ vim.api.nvim_create_autocmd('FileType', {
 -- Zen mode: narrow reading column for prose
 vim.pack.add({ 'https://github.com/folke/zen-mode.nvim' })
 
+-- Add vim-eunuch so Neovim can rename/move the current file with :Rename or :Move.
+vim.pack.add {
+  gh 'tpope/vim-eunuch',
+}
+
+
 require('zen-mode').setup({
   window = {
     width = 80,
