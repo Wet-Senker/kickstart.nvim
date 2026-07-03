@@ -352,6 +352,15 @@ vim.keymap.set("n", "<leader>af", M.generate_facebook, {
 })
 
 
+function M.opmaken()
+  run_on_buffer("opmaken", false)
+end
+
+vim.keymap.set("n", "<leader>ao", M.opmaken, {
+  desc = "Opmaken: spellcheck, tussenkopjes, streamer",
+})
+
+
 -- Split buffer on the LAST "***" line.
 -- Returns article (lines before ***) and prompt (text after ***), or nil if no *** found.
 local function split_on_prompt_marker(lines)
@@ -542,6 +551,66 @@ vim.keymap.set("n", "<leader>ag", M.ai_chat, {
 })
 
 
+-- <leader>ak — scan buffer for suspicious/garbled characters and highlight them.
+local SUSPICIOUS_MATCH_IDS = {}
+
+local function clear_suspicious_highlights()
+  for _, id in ipairs(SUSPICIOUS_MATCH_IDS) do
+    pcall(vim.fn.matchdelete, id)
+  end
+  SUSPICIOUS_MATCH_IDS = {}
+end
+
+function M.check_suspicious_chars()
+  clear_suspicious_highlights()
+
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local text = table.concat(lines, "\n")
+
+  -- Count occurrences of U+FFFD (replacement character, UTF-8: EF BF BD)
+  -- and C0 control chars (except \t \n \r).
+  local replacement_char = "\xef\xbf\xbd"
+  local count = 0
+  local s = text
+  while true do
+    local i = s:find(replacement_char, 1, true)
+    if not i then break end
+    count = count + 1
+    s = s:sub(i + #replacement_char)
+  end
+  for i = 1, #text do
+    local b = text:byte(i)
+    if b < 32 and b ~= 9 and b ~= 10 and b ~= 13 then
+      count = count + 1
+    end
+  end
+
+  if count > 0 then
+    -- Highlight U+FFFD and control chars in red.
+    local id1 = vim.fn.matchadd("ErrorMsg", "\\%xef\\%xbf\\%xbd", 10)
+    local id2 = vim.fn.matchadd("ErrorMsg", "[\\%x01-\\%x08\\%x0b\\%x0c\\%x0e-\\%x1f]", 10)
+    table.insert(SUSPICIOUS_MATCH_IDS, id1)
+    table.insert(SUSPICIOUS_MATCH_IDS, id2)
+    vim.notify(
+      string.format("⚠ %d verdacht(e) teken(s) — zie rode markeringen in de buffer.", count),
+      vim.log.levels.WARN
+    )
+  end
+end
+
+-- Auto-check on every markdown buffer open.
+vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
+  pattern = "*.md",
+  callback = function()
+    M.check_suspicious_chars()
+  end,
+})
+
+vim.keymap.set("n", "<leader>ak", M.check_suspicious_chars, {
+  desc = "Controleer op verdachte/kapotte tekens",
+})
+
+
 -- <leader>ah — cheatsheet for article control codes (editie/prio/bijschrift/facebook).
 -- One flat, fuzzy-searchable vim.ui.select list — type "edit" or "face" to filter.
 -- Keep in sync with src/texttools/pubble_publications.py and pubble_batch_cli.py.
@@ -564,6 +633,8 @@ local meta_items = {
   { label = "Facebook: x  (AI genereert post)", insert = "facebook: x" },
   { label = "Facebook: eigen tekst  (geen AI)", insert = "facebook_tekst: " },
   { label = "Overig: rewrite: x  (herschrijven naar krantenstijl)", insert = "rewrite: x" },
+  { label = "Overig: opmaken (<leader>ao) — spellcheck, tussenkopjes, streamer", insert = "" },
+  { label = "Overig: controleer tekens (<leader>ak) — markeer kapotte/verdachte tekens", insert = "" },
   { label = "Overig: calendar: x  (kalenderitem meenemen)", insert = "calendar: x" },
 }
 
