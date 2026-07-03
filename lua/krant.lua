@@ -266,8 +266,11 @@ function M.raadspraat_menu()
       -- Save article text to gemeentenieuws folder for layout/vormgeving.
       local gn_dir = vim.fn.expand('~/Desktop/gemeentenieuws')
       vim.fn.mkdir(gn_dir, 'p')
+      local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
+      local gn_photo_name = '1.RaadspraatFOTO.' .. photo_ext
+
       vim.fn.writefile(new_lines, gn_dir .. '/1.raadspraatFOTO.rtfd')
-      vim.uv.fs_copyfile(photo_src, gn_dir .. '/1.RaadspraatFOTO.jpg')
+      vim.uv.fs_copyfile(photo_src, gn_dir .. '/' .. gn_photo_name)
 
       -- Copy photo to Pubble Inbox dropzone so <leader>aw picks it up automatically.
       local inbox = vim.fn.expand('~/Desktop/Pubble Inbox')
@@ -276,7 +279,7 @@ function M.raadspraat_menu()
       vim.notify(
         'Raadspraat: ' .. naam .. ' (' .. party .. ')\n'
         .. '→ gemeentenieuws/1.raadspraatFOTO.rtfd\n'
-        .. '→ gemeentenieuws/1.RaadspraatFOTO.jpg\n'
+        .. '→ gemeentenieuws/' .. gn_photo_name .. '\n'
         .. '→ Pubble Inbox/' .. photo_file,
         vim.log.levels.INFO
       )
