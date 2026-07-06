@@ -1,5 +1,15 @@
 local M = {}
 
+-- Maak Pubble Inbox mappenstructuur aan als Keyboard Maestro een paste-bestand opent.
+vim.api.nvim_create_autocmd("BufNewFile", {
+  pattern = vim.fn.expand("~/Desktop") .. "/*.md",
+  callback = function()
+    local inbox = vim.fn.expand("~/Desktop/Pubble Inbox")
+    vim.fn.mkdir(inbox .. "/articles", "p")
+    vim.fn.mkdir(inbox .. "/used", "p")
+  end,
+})
+
 -- Wrap vim.system with a fidget progress handle so the user sees a spinner
 -- while any AI call is running.
 local function ai_system(cmd, opts, callback, title)
@@ -201,74 +211,111 @@ vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
 
 
 function M.pubble_send()
-  local file_path = vim.api.nvim_buf_get_name(0)
-  local temp_file = nil
-  local command
-
-  if file_path ~= "" then
-    vim.cmd("write")
-    command = { pubble_send, file_path, "--create", "--write-ids", "--no-open" }
-    vim.notify("Sending to Pubble...", vim.log.levels.INFO)
-  else
-    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-    if vim.trim(table.concat(lines, "\n")) == "" then
-      vim.notify("Current buffer is empty", vim.log.levels.ERROR)
-      return
-    end
-    temp_file = vim.fn.tempname() .. ".md"
-    vim.fn.writefile(lines, temp_file)
-    command = { pubble_send, temp_file, "--create", "--write-ids", "--no-open" }
-    vim.notify("Sending unsaved buffer to Pubble...", vim.log.levels.INFO)
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  if vim.trim(table.concat(lines, "\n")) == "" then
+    vim.notify("Huidig buffer is leeg", vim.log.levels.ERROR)
+    return
   end
 
-  vim.system(command, { text = true }, function(result)
-    vim.schedule(function()
-      if result.code == 0 then
-        local output = vim.trim(result.stdout or "")
-        vim.notify(output ~= "" and output or "Sent to Pubble", vim.log.levels.INFO)
+  -- Remember the file path so we can delete it from disk after sending.
+  local file_path = vim.api.nvim_buf_get_name(0)
 
-        local article_url = output:match("Pubble article: (https://[^\n]+)")
-        if article_url then
-          vim.ui.open(article_url)
-        end
+  -- Detect what will be sent, so we can build the summary header afterwards.
+  -- editie: B  (raw control code before <leader>am)  OR
+  --   editions: B, SW  (YAML frontmatter after <leader>am)
+  local editie = nil
+  local has_calendar = false
+  local has_facebook = false
+  for _, line in ipairs(lines) do
+    local e = line:match("^editie:%s*(.+)$") or line:match("^%s*editions:%s*(.+)$")
+    if e then
+      local v = vim.trim(e)
+      if v ~= "" and v ~= "null" then editie = v end
+    end
+    if line:match("^## Kalender") then has_calendar = true end
+    if line:match("^## Facebook") then has_facebook = true end
+  end
 
-        if file_path ~= "" then
-          -- Reload so the buffer has the IDs written back by pubble-send.
-          vim.cmd("edit!")
+  local temp_file = vim.fn.tempname() .. ".md"
+  vim.fn.writefile(lines, temp_file)
+  vim.notify("Verzenden naar Pubble...", vim.log.levels.INFO)
 
-          -- Move the file (now with IDs) to Pubble Inbox/used/.
-          local used_dir = vim.fn.expand("~/Desktop/Pubble Inbox/used")
-          vim.fn.mkdir(used_dir, "p")
-          local filename = vim.fn.fnamemodify(file_path, ":t")
-          local dest = used_dir .. "/" .. filename
-          local counter = 1
-          while vim.fn.filereadable(dest) == 1 do
-            local stem = vim.fn.fnamemodify(filename, ":r")
-            local ext  = vim.fn.fnamemodify(filename, ":e")
-            dest = used_dir .. "/" .. stem .. "-" .. counter .. "." .. ext
-            counter = counter + 1
+  vim.system(
+    { pubble_send, temp_file, "--create", "--no-open" },
+    { text = true },
+    function(result)
+      vim.schedule(function()
+        vim.fn.delete(temp_file)
+
+        if result.code == 0 then
+          local output = vim.trim(result.stdout or "")
+          vim.notify(output ~= "" and output or "Verzonden naar Pubble", vim.log.levels.INFO)
+
+          local article_url = output:match("Pubble article: (https://[^\n]+)")
+          if article_url then
+            vim.ui.open(article_url)
           end
-          -- Save buffer to clipboard before clearing so it can be re-pasted.
-          local buf_content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
-          vim.fn.setreg("+", buf_content)
-          vim.fn.rename(file_path, dest)
-          vim.cmd("enew")
-          vim.notify("Bestand verplaatst naar Pubble Inbox/used/ — inhoud staat op klembord", vim.log.levels.INFO)
-        elseif temp_file ~= nil then
-          local updated_lines = vim.fn.readfile(temp_file)
-          vim.api.nvim_buf_set_lines(0, 0, -1, false, updated_lines)
-          vim.bo.modified = true
-          vim.fn.delete(temp_file)
+
+          -- Build summary header lines.
+          local summary = {}
+          table.insert(summary, "**Verzonden naar krant: " .. (editie or "B") .. "**")
+          table.insert(summary, "**Verzonden naar website**")
+          if has_calendar then
+            table.insert(summary, "**Verzonden naar kalender**")
+          end
+          if has_facebook then
+            table.insert(summary, "**Verzonden naar Facebook**")
+          end
+          table.insert(summary, "")
+
+          -- Strip YAML frontmatter from article body.
+          local body_lines = lines
+          if lines[1] == "---" then
+            for i = 2, #lines do
+              if lines[i] == "---" then
+                body_lines = {}
+                for j = i + 1, #lines do
+                  table.insert(body_lines, lines[j])
+                end
+                -- Strip leading blank lines.
+                while #body_lines > 0 and vim.trim(body_lines[1]) == "" do
+                  table.remove(body_lines, 1)
+                end
+                break
+              end
+            end
+          end
+
+          local new_lines = {}
+          for _, l in ipairs(summary) do table.insert(new_lines, l) end
+          for _, l in ipairs(body_lines) do table.insert(new_lines, l) end
+
+          vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
+          vim.bo.modified = false
+
+          -- Verplaats bronbestand naar Pubble Inbox/used/ (pastevim legt dit neer op het bureaublad).
+          if file_path ~= "" and vim.fn.filereadable(file_path) == 1 then
+            local used_dir = vim.fn.expand("~/Desktop/Pubble Inbox/used")
+            vim.fn.mkdir(used_dir, "p")
+            local filename = vim.fn.fnamemodify(file_path, ":t")
+            local dest = used_dir .. "/" .. filename
+            local counter = 1
+            while vim.fn.filereadable(dest) == 1 do
+              local stem = vim.fn.fnamemodify(filename, ":r")
+              local ext  = vim.fn.fnamemodify(filename, ":e")
+              dest = used_dir .. "/" .. stem .. "-" .. counter .. "." .. ext
+              counter = counter + 1
+            end
+            vim.fn.rename(file_path, dest)
+            vim.cmd("file ")  -- ontkoppel buffer van het verplaatste bestand
+          end
+        else
+          local output = vim.trim(result.stderr or result.stdout or "")
+          vim.notify(output ~= "" and output or "Pubble send mislukt", vim.log.levels.ERROR)
         end
-      else
-        local output = vim.trim(result.stderr or result.stdout or "")
-        vim.notify(output ~= "" and output or "Pubble send failed", vim.log.levels.ERROR)
-        if temp_file ~= nil then
-          vim.fn.delete(temp_file)
-        end
-      end
-    end)
-  end)
+      end)
+    end
+  )
 end
 
 
@@ -662,6 +709,45 @@ end
 
 vim.keymap.set("n", "<leader>ah", M.show_meta_cheatsheet, {
   desc = "Cheatsheet: editie/prio/bijschrift/facebook codes",
+})
+
+
+-- <leader>a? — open texttools cheatsheet in a floating window.
+function M.show_cheatsheet()
+  local cheatsheet = vim.fn.expand("~/.config/nvim/texttools-cheatsheet.md")
+  local lines = vim.fn.readfile(cheatsheet)
+
+  local width = 72
+  local height = math.min(#lines, vim.o.lines - 6)
+  local row = math.floor((vim.o.lines - height) / 2)
+  local col = math.floor((vim.o.columns - width) / 2)
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].filetype = "markdown"
+  vim.bo[buf].modifiable = false
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    width = width,
+    height = height,
+    row = row,
+    col = col,
+    style = "minimal",
+    border = "rounded",
+    title = " Texttools cheatsheet ",
+    title_pos = "center",
+  })
+  vim.wo[win].wrap = false
+
+  -- Sluit met q of Escape.
+  for _, key in ipairs({ "q", "<Esc>" }) do
+    vim.keymap.set("n", key, "<cmd>close<cr>", { buffer = buf, silent = true })
+  end
+end
+
+vim.keymap.set("n", "<leader>a?", M.show_cheatsheet, {
+  desc = "Texttools cheatsheet",
 })
 
 return M
