@@ -44,15 +44,21 @@ local function shellescape(value)
 end
 
 local function run_on_buffer(prompt_name, append)
-  local cmd
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local input = table.concat(lines, "\n")
+  local cmd = { aitext, prompt_name }
+  if append then table.insert(cmd, "--append") end
 
-  if append then
-    cmd = "%!" .. shellescape(aitext) .. " " .. shellescape(prompt_name) .. " --append"
-  else
-    cmd = "%!" .. shellescape(aitext) .. " " .. shellescape(prompt_name)
-  end
-
-  vim.cmd(cmd)
+  ai_system(cmd, { text = true, stdin = input }, function(result)
+    vim.schedule(function()
+      if result.code == 0 then
+        local new_lines = vim.split(result.stdout, "\n", { plain = true })
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
+      else
+        vim.notify("AI rewrite mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
+      end
+    end)
+  end, prompt_name)
 end
 
 local function run_on_visual_selection(prompt_name, append)
@@ -95,8 +101,19 @@ vim.keymap.set("v", "<leader>ai", M.visual_menu, {
 })
 
 function M.articlemeta_buffer()
-  local cmd = "%!" .. shellescape(articlemeta)
-  vim.cmd(cmd)
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local input = table.concat(lines, "\n")
+
+  ai_system({ articlemeta }, { text = true, stdin = input }, function(result)
+    vim.schedule(function()
+      if result.code == 0 then
+        local new_lines = vim.split(result.stdout, "\n", { plain = true })
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
+      else
+        vim.notify("articlemeta mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
+      end
+    end)
+  end, "metadata")
 end
 
 -- Read calendar fields from YAML frontmatter lines.
@@ -179,26 +196,32 @@ local function strip_calendar_section(lines)
 end
 
 function M.articlemeta_calendar_buffer()
-  local cmd = "%!" .. shellescape(articlemeta) .. " --calendar"
-  vim.cmd(cmd)
-
-  -- articlemeta --calendar updated the buffer synchronously via %!.
-  -- Now read back the (possibly updated) frontmatter and append a human-
-  -- readable ## Kalender section for review and editing.
   local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-  local base_lines = strip_calendar_section(lines)
-  local section = build_calendar_section_lines(base_lines)
+  local input = table.concat(lines, "\n")
 
-  if section then
-    for _, line in ipairs(section) do
-      table.insert(base_lines, line)
-    end
-    vim.api.nvim_buf_set_lines(0, 0, -1, false, base_lines)
-    vim.notify("Kalenderdata toegevoegd. Controleer en pas aan, dan <leader>aw.", vim.log.levels.INFO)
-  else
-    vim.api.nvim_buf_set_lines(0, 0, -1, false, base_lines)
-    vim.notify("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
-  end
+  ai_system({ articlemeta, "--calendar" }, { text = true, stdin = input }, function(result)
+    vim.schedule(function()
+      if result.code ~= 0 then
+        vim.notify("articlemeta mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
+        return
+      end
+
+      local new_lines = vim.split(result.stdout, "\n", { plain = true })
+      local base_lines = strip_calendar_section(new_lines)
+      local section = build_calendar_section_lines(base_lines)
+
+      if section then
+        for _, line in ipairs(section) do
+          table.insert(base_lines, line)
+        end
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, base_lines)
+        vim.notify("Kalenderdata toegevoegd. Controleer en pas aan, dan <leader>aw.", vim.log.levels.INFO)
+      else
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, base_lines)
+        vim.notify("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
+      end
+    end)
+  end, "kalender")
 end
 
 vim.keymap.set("n", "<leader>am", M.articlemeta_buffer, {
@@ -240,7 +263,7 @@ function M.pubble_send()
   vim.fn.writefile(lines, temp_file)
   vim.notify("Verzenden naar Pubble...", vim.log.levels.INFO)
 
-  vim.system(
+  ai_system(
     { pubble_send, temp_file, "--create", "--no-open" },
     { text = true },
     function(result)
