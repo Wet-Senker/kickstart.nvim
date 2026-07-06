@@ -13,7 +13,6 @@
 | <leader>ap   | Ad-hoc rewrite: typ *** + instructie, buffer wordt vervangen       |
 | <leader>ag   | AI gesprek: typ *** + vraag, antwoord verschijnt eronder           |
 | <leader>ah   | Codes invoegen via zoeklijst                                       |
-| <leader>ak   | Verdachte/kapotte tekens markeren                                  |
 | <leader>a?   | Deze cheatsheet                                                    |
 | <leader>kt   | Rubriektemplate invoegen (Raadspraat, 112, etc.)                   |
 

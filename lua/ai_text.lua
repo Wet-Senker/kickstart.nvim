@@ -648,16 +648,12 @@ function M.check_suspicious_chars()
   end
 end
 
--- Auto-check on every markdown buffer open.
-vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
-  pattern = "*.md",
+-- Automatisch controleren bij paste via pv (bestanden op ~/Desktop/).
+vim.api.nvim_create_autocmd("BufNewFile", {
+  pattern = vim.fn.expand("~/Desktop") .. "/*.md",
   callback = function()
     M.check_suspicious_chars()
   end,
-})
-
-vim.keymap.set("n", "<leader>ak", M.check_suspicious_chars, {
-  desc = "Controleer op verdachte/kapotte tekens",
 })
 
 
