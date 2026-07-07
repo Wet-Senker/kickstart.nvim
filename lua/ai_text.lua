@@ -259,12 +259,15 @@ function M.pubble_send()
     if line:match("^## Facebook") then has_facebook = true end
   end
 
-  local temp_file = vim.fn.tempname() .. ".md"
+  -- Write the temp file inside Pubble Inbox so pubble-media can find photos
+  -- in the same dropzone folder when --write-ids triggers the media upload.
+  local inbox = vim.fn.expand("~/Desktop/Pubble Inbox")
+  local temp_file = inbox .. "/verzenden-" .. os.time() .. ".md"
   vim.fn.writefile(lines, temp_file)
   vim.notify("Verzenden naar Pubble...", vim.log.levels.INFO)
 
   ai_system(
-    { pubble_send, temp_file, "--create", "--no-open" },
+    { pubble_send, temp_file, "--create", "--no-open", "--write-ids" },
     { text = true },
     function(result)
       vim.schedule(function()
