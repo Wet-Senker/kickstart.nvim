@@ -1013,10 +1013,12 @@ require("ai_text")
 
 -- Start a named server socket so external tools (pastevim) can open files
 -- in this instance instead of spawning a new Neovim window.
--- The socket is only created for the first instance; subsequent instances
--- get their own random socket and won't claim the fixed path.
+-- serverstart() returns "" when the path is already claimed by a live process.
+-- If it fails, delete a possible stale socket left behind by a crashed instance
+-- and try once more. Subsequent Neovim instances silently skip this block.
 local _nvim_socket = vim.fn.expand("~/.cache/nvim/main.sock")
-if vim.fn.filereadable(_nvim_socket) == 0 then
+if vim.fn.serverstart(_nvim_socket) == "" then
+  vim.fn.delete(_nvim_socket)
   vim.fn.serverstart(_nvim_socket)
 end
 
