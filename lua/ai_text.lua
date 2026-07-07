@@ -275,49 +275,15 @@ function M.pubble_send()
 
         if result.code == 0 then
           local output = vim.trim(result.stdout or "")
-          vim.notify(output ~= "" and output or "Verzonden naar Pubble", vim.log.levels.INFO)
-
           local article_url = output:match("Pubble article: (https://[^\n]+)")
           if article_url then
             vim.ui.open(article_url)
           end
 
-          -- Build summary header lines.
-          local summary = {}
-          table.insert(summary, "**Verzonden naar krant: " .. (editie or "B") .. "**")
-          table.insert(summary, "**Verzonden naar website**")
-          if has_calendar then
-            table.insert(summary, "**Verzonden naar kalender**")
-          end
-          if has_facebook then
-            table.insert(summary, "**Verzonden naar Facebook**")
-          end
-          table.insert(summary, "")
-
-          -- Strip YAML frontmatter from article body.
-          local body_lines = lines
-          if lines[1] == "---" then
-            for i = 2, #lines do
-              if lines[i] == "---" then
-                body_lines = {}
-                for j = i + 1, #lines do
-                  table.insert(body_lines, lines[j])
-                end
-                -- Strip leading blank lines.
-                while #body_lines > 0 and vim.trim(body_lines[1]) == "" do
-                  table.remove(body_lines, 1)
-                end
-                break
-              end
-            end
-          end
-
-          local new_lines = {}
-          for _, l in ipairs(summary) do table.insert(new_lines, l) end
-          for _, l in ipairs(body_lines) do table.insert(new_lines, l) end
-
-          vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
-          vim.bo.modified = false
+          local msg = "Verzonden naar krant: " .. (editie or "B") .. " | website"
+          if has_calendar then msg = msg .. " | kalender" end
+          if has_facebook then msg = msg .. " | Facebook" end
+          vim.notify(msg, vim.log.levels.INFO)
 
           -- Verplaats bronbestand naar used/ naast de map waar het artikel stond.
           if file_path ~= "" and vim.fn.filereadable(file_path) == 1 then
