@@ -319,9 +319,9 @@ function M.pubble_send()
           vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
           vim.bo.modified = false
 
-          -- Verplaats bronbestand naar Pubble Inbox/used/ (pastevim legt dit neer op het bureaublad).
+          -- Verplaats bronbestand naar used/ naast de map waar het artikel stond.
           if file_path ~= "" and vim.fn.filereadable(file_path) == 1 then
-            local used_dir = vim.fn.expand("~/Desktop/Pubble Inbox/used")
+            local used_dir = vim.fn.fnamemodify(file_path, ":h") .. "/used"
             vim.fn.mkdir(used_dir, "p")
             local filename = vim.fn.fnamemodify(file_path, ":t")
             local dest = used_dir .. "/" .. filename
