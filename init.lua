@@ -1011,4 +1011,13 @@ vim.keymap.set('n', '<leader>kt', function() require('krant').menu() end, { desc
 
 require("ai_text")
 
+-- Start a named server socket so external tools (pastevim) can open files
+-- in this instance instead of spawning a new Neovim window.
+-- The socket is only created for the first instance; subsequent instances
+-- get their own random socket and won't claim the fixed path.
+local _nvim_socket = vim.fn.expand("~/.cache/nvim/main.sock")
+if vim.fn.filereadable(_nvim_socket) == 0 then
+  vim.fn.serverstart(_nvim_socket)
+end
+
 -- vim: ts=2 sts=2 sw=2 et
