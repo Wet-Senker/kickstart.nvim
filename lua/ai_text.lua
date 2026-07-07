@@ -261,8 +261,10 @@ function M.pubble_send()
 
   -- Write the temp file inside Pubble Inbox so pubble-media can find photos
   -- in the same dropzone folder when --write-ids triggers the media upload.
+  -- Use the original file's stem so photos get renamed to match in used/.
   local inbox = vim.fn.expand("~/Desktop/Pubble Inbox")
-  local temp_file = inbox .. "/verzenden-" .. os.time() .. ".md"
+  local stem = (file_path ~= "") and vim.fn.fnamemodify(file_path, ":t:r") or ("verzenden-" .. os.time())
+  local temp_file = inbox .. "/" .. stem .. ".md"
   vim.fn.writefile(lines, temp_file)
   vim.notify("Verzenden naar Pubble...", vim.log.levels.INFO)
 
@@ -285,9 +287,9 @@ function M.pubble_send()
           if has_facebook then msg = msg .. " | Facebook" end
           vim.notify(msg, vim.log.levels.INFO)
 
-          -- Verplaats bronbestand naar used/ naast de map waar het artikel stond.
+          -- Verplaats bronbestand altijd naar Pubble Inbox/used/.
           if file_path ~= "" and vim.fn.filereadable(file_path) == 1 then
-            local used_dir = vim.fn.fnamemodify(file_path, ":h") .. "/used"
+            local used_dir = inbox .. "/used"
             vim.fn.mkdir(used_dir, "p")
             local filename = vim.fn.fnamemodify(file_path, ":t")
             local dest = used_dir .. "/" .. filename
