@@ -1,52 +1,3 @@
---[[
-    After understanding a bit more about Lua, you can use `:help lua-guide` as a
-    reference for how Neovim integrates Lua.
-    - :help lua-guide
-    - (or HTML version): https://neovim.io/doc/user/lua-guide.html
-
-Kickstart Guide:
-
-  TODO: The very first thing you should do is to run the command `:Tutor` in Neovim.
-
-    If you don't know what this means, type the following:
-      - <escape key>
-      - :
-      - Tutor
-      - <enter key>
-
-    (If you already know the Neovim basics, you can skip this step.)
-
-  Once you've completed that, you can continue working through **AND READING** the rest
-  of the kickstart init.lua.
-
-  Next, run AND READ `:help`.
-    This will open up a help window with some basic information
-    about reading, navigating and searching the builtin help documentation.
-
-    This should be the first place you go to look when you're stuck or confused
-    with something. It's one of my favorite Neovim features.
-
-    MOST IMPORTANTLY, we provide a keymap "<space>sh" to [s]earch the [h]elp documentation,
-    which is very useful when you're not exactly sure of what you're looking for.
-
-  I have left several `:help X` comments throughout the init.lua
-    These are hints about where to find more information about the relevant settings,
-    plugins or Neovim features used in Kickstart.
-
-   NOTE: Look for lines like this
-
-    Throughout the file. These are for you, the reader, to help you understand what is happening.
-    Feel free to delete them once you know what you're doing, but they should serve as a guide
-    for when you are first encountering a few different constructs in your Neovim config.
-
-If you experience any errors while trying to install kickstart, run `:checkhealth` for more info.
-
-I hope you enjoy your Neovim journey,
-- TJ
-
-P.S. You can delete this when you're done too. It's your config now! :)
---]]
-
 -- ============================================================
 -- SECTION 1: FOUNDATION
 -- Core Neovim settings, leaders, options, basic keymaps, basic autocmds
@@ -65,7 +16,7 @@ do
   vim.g.loaded_zip = 1
 
   -- Set to true if you have a Nerd Font installed and selected in the terminal
-  vim.g.have_nerd_font = false
+  vim.g.have_nerd_font = true
 
   -- [[ Setting options ]]
   --  See `:help vim.o`
@@ -384,9 +335,6 @@ require('catppuccin').setup {
   -- Highlight todo, notes, etc in comments
   vim.pack.add { gh 'folke/todo-comments.nvim' }
   require('todo-comments').setup { signs = false }
-
-  vim.pack.add { gh 'j-hui/fidget.nvim' }
-  require('fidget').setup {}
 
   -- [[ mini.nvim ]]
   --  A collection of various small independent plugins/modules
@@ -980,6 +928,14 @@ vim.api.nvim_create_autocmd('FileType', {
     vim.keymap.set('n', '$', 'g$', { buffer = true })
   end,
 })
+-- render-markdown.nvim: renders markdown inline while editing (headers,
+-- checkboxes, tables, --- rules, code blocks) instead of showing raw
+-- markup. Uses 'conceallevel', which is set to 2 for markdown buffers
+-- above. TRYING OUT (added 2026-07-07) — comment out these two lines
+-- and restart Neovim to turn it off again if it doesn't stick.
+-- vim.pack.add { gh 'MeanderingProgrammer/render-markdown.nvim' }
+-- require('render-markdown').setup {}
+
 -- Zen mode: narrow reading column for prose
 vim.pack.add({ 'https://github.com/folke/zen-mode.nvim' })
 
@@ -987,6 +943,14 @@ vim.pack.add({ 'https://github.com/folke/zen-mode.nvim' })
 vim.pack.add {
   gh 'tpope/vim-eunuch',
 }
+
+-- oil.nvim: browse/rename/delete/move files by editing a directory as a
+-- normal text buffer (dd to delete, edit a line to rename, :w to confirm).
+-- Complements Telescope (fuzzy-find a known file/text) and vim-eunuch
+-- (rename/move the file you're currently in) rather than replacing them.
+vim.pack.add { gh 'stevearc/oil.nvim' }
+require('oil').setup {}
+vim.keymap.set('n', '-', '<CMD>Oil<CR>', { desc = 'Open parent directory (oil)' })
 
 
 require('zen-mode').setup({
