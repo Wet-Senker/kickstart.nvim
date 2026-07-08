@@ -287,22 +287,53 @@ function M.pubble_send()
           if has_facebook then msg = msg .. " | Facebook" end
           vim.notify(msg, vim.log.levels.INFO)
 
-          -- Verplaats bronbestand altijd naar Pubble Inbox/used/.
-          if file_path ~= "" and vim.fn.filereadable(file_path) == 1 then
-            local used_dir = inbox .. "/used"
-            vim.fn.mkdir(used_dir, "p")
-            local filename = vim.fn.fnamemodify(file_path, ":t")
-            local dest = used_dir .. "/" .. filename
-            local counter = 1
-            while vim.fn.filereadable(dest) == 1 do
-              local stem = vim.fn.fnamemodify(filename, ":r")
-              local ext  = vim.fn.fnamemodify(filename, ":e")
-              dest = used_dir .. "/" .. stem .. "-" .. counter .. "." .. ext
-              counter = counter + 1
+          -- Schrijf opgeschoonde buffer naar Pubble Inbox/used/.
+          -- Strip YAML frontmatter en controleregels; bewaar kop, body en Facebook.
+          -- Verwijder het originele bestand op het bureaublad.
+          local used_dir = inbox .. "/used"
+          vim.fn.mkdir(used_dir, "p")
+
+          local clean = lines
+          -- Strip YAML frontmatter (--- ... ---)
+          if clean[1] == "---" then
+            for i = 2, #clean do
+              if clean[i] == "---" then
+                local after = {}
+                for j = i + 1, #clean do table.insert(after, clean[j]) end
+                clean = after
+                break
+              end
             end
-            vim.fn.rename(file_path, dest)
-            vim.cmd("file ")  -- ontkoppel buffer van het verplaatste bestand
           end
+          -- Strip leading control lines (e:, p:, b:, bijschrift:, etc.) and blank lines
+          local ctrl = "^%s*[%a][%a%d]*%s*:"
+          local s = 1
+          while s <= #clean do
+            local l = vim.trim(clean[s])
+            if l == "" or l:match(ctrl) then s = s + 1 else break end
+          end
+          clean = vim.list_slice(clean, s)
+
+          -- Prepend editie-regel
+          local header = { "Editie: " .. (editie or "B"), "" }
+          local out = {}
+          for _, l in ipairs(header) do table.insert(out, l) end
+          for _, l in ipairs(clean) do table.insert(out, l) end
+
+          local filename = vim.fn.fnamemodify(stem .. ".md", ":t")
+          local dest = used_dir .. "/" .. filename
+          local counter = 1
+          while vim.fn.filereadable(dest) == 1 do
+            dest = used_dir .. "/" .. stem .. "-" .. counter .. ".md"
+            counter = counter + 1
+          end
+          vim.fn.writefile(out, dest)
+
+          -- Verwijder origineel op bureaublad en ontkoppel buffer
+          if file_path ~= "" and vim.fn.filereadable(file_path) == 1 then
+            vim.fn.delete(file_path)
+          end
+          vim.cmd("file ")  -- ontkoppel buffer van het bestandspad
         else
           local output = vim.trim(result.stderr or result.stdout or "")
           vim.notify(output ~= "" and output or "Pubble send mislukt", vim.log.levels.ERROR)
