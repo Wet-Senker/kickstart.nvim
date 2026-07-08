@@ -265,6 +265,12 @@ function M.pubble_send()
   local inbox = vim.fn.expand("~/Desktop/Pubble Inbox")
   local stem = (file_path ~= "") and vim.fn.fnamemodify(file_path, ":t:r") or ("verzenden-" .. os.time())
   local temp_file = inbox .. "/" .. stem .. ".md"
+  -- Avoid overwriting an existing file (e.g. leftover from a failed previous run)
+  local tc = 1
+  while vim.fn.filereadable(temp_file) == 1 do
+    temp_file = inbox .. "/" .. stem .. "-" .. tc .. ".md"
+    tc = tc + 1
+  end
   vim.fn.writefile(lines, temp_file)
   vim.notify("Verzenden naar Pubble...", vim.log.levels.INFO)
 
