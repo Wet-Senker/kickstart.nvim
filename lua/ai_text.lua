@@ -285,18 +285,28 @@ function M.articlemeta_calendar_buffer()
         return
       end
 
-      local new_lines = vim.split(result.stdout, "\n", { plain = true })
-      local base_lines = strip_calendar_section(new_lines)
-      local section = build_calendar_section_lines(base_lines)
+      local meta_lines = vim.split(result.stdout, "\n", { plain = true })
+
+      -- Cache frontmatter zodat de buffer schoon blijft tot verzenden.
+      local new_fm, _ = split_frontmatter_lines(meta_lines)
+      if #new_fm > 0 then
+        vim.b[buf].cached_metadata = new_fm
+      end
+
+      -- Bouw ## Kalender sectie uit de metadata-output.
+      local section = build_calendar_section_lines(meta_lines)
+
+      -- Werk met de huidige bufferinhoud zodat bewerkingen bewaard blijven.
+      local current = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      local base = strip_calendar_section(current)
 
       if section then
         for _, line in ipairs(section) do
-          table.insert(base_lines, line)
+          table.insert(base, line)
         end
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, base_lines)
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, base)
         vim.notify("Kalenderdata toegevoegd. Controleer en pas aan, dan <leader>aw.", vim.log.levels.INFO)
       else
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, base_lines)
         vim.notify("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
       end
     end)
@@ -474,14 +484,8 @@ local function strip_facebook_section(lines)
 end
 
 function M.generate_facebook()
-  local file_path = vim.api.nvim_buf_get_name(0)
-  if file_path == "" then
-    vim.notify("Buffer has no file — save it first.", vim.log.levels.ERROR)
-    return
-  end
-  vim.cmd("write")
-
-  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local buf = vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local clean_lines = strip_facebook_section(lines)
   local article_text = table.concat(clean_lines, "\n")
 
@@ -502,9 +506,8 @@ function M.generate_facebook()
           return
         end
 
-        -- Use current buffer state (not captured snapshot) so edits made while
-        -- waiting are preserved. Strip any existing Facebook section first.
-        local current_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+        -- Lees huidige bufferinhoud zodat tussentijdse bewerkingen bewaard blijven.
+        local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
         local base_lines = strip_facebook_section(current_lines)
         table.insert(base_lines, "")
         table.insert(base_lines, "---")
@@ -515,8 +518,8 @@ function M.generate_facebook()
           table.insert(base_lines, line)
         end
 
-        vim.api.nvim_buf_set_lines(0, 0, -1, false, base_lines)
-        vim.notify("Facebook post added. Edit if needed, then <leader>aw to send.", vim.log.levels.INFO)
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, base_lines)
+        vim.notify("Facebook post toegevoegd. Pas aan indien nodig, dan <leader>aw.", vim.log.levels.INFO)
       end)
     end
   )
