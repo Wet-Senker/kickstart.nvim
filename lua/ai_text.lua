@@ -102,7 +102,7 @@ function M.rewrite_article_buffer()
   local input = table.concat(lines, "\n")
 
   -- Detect control flags BEFORE the rewrite so the AI cannot accidentally remove them.
-  local had_calendar = has_control_flag(input, "calendar")
+  local had_calendar = has_control_flag(input, "calendar") or has_control_flag(input, "cal")
   local had_facebook = has_control_flag(input, "facebook")
 
   ai_system({ aitext, "journalistiek_schrijven" }, { text = true, stdin = input }, function(result)
@@ -117,7 +117,7 @@ function M.rewrite_article_buffer()
       -- Re-insert control flags at the top if the AI removed them.
       local rewritten_str = table.concat(new_lines, "\n")
       local flags = {}
-      if had_calendar and not has_control_flag(rewritten_str, "calendar") then
+      if had_calendar and not has_control_flag(rewritten_str, "calendar") and not has_control_flag(rewritten_str, "cal") then
         table.insert(flags, "calendar: x")
       end
       if had_facebook and not has_control_flag(rewritten_str, "facebook") then
@@ -132,11 +132,11 @@ function M.rewrite_article_buffer()
       end
 
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
+      vim.b[buf].cached_metadata = nil
 
-      local meta_cmd = had_calendar and { articlemeta, "--calendar" } or { articlemeta }
-      local meta_label = had_calendar and "metadata+kalender" or "metadata"
-
-      ai_system(meta_cmd, { text = true, stdin = rewritten_str }, function(meta_result)
+      -- Metadata ophalen op de achtergrond en cachen in een buffervariabele.
+      -- De buffer blijft schoon; bij leader aw wordt de cache geïnjecteerd.
+      ai_system({ articlemeta }, { text = true, stdin = rewritten_str }, function(meta_result)
         vim.schedule(function()
           if meta_result.code ~= 0 then
             vim.notify("Metadata ophalen mislukt: " .. (meta_result.stderr or ""), vim.log.levels.WARN)
@@ -145,24 +145,11 @@ function M.rewrite_article_buffer()
 
           local meta_lines = vim.split(meta_result.stdout, "\n", { plain = true })
           local new_fm, _ = split_frontmatter_lines(meta_lines)
-
-          if #new_fm == 0 then
-            -- No frontmatter in output — write as-is (fallback).
-            vim.api.nvim_buf_set_lines(buf, 0, -1, false, meta_lines)
-            return
+          if #new_fm > 0 then
+            vim.b[buf].cached_metadata = new_fm
           end
-
-          -- Prepend the new frontmatter to whatever is currently in the buffer
-          -- so edits made while the metadata call was running are preserved.
-          local current = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-          local _, body_start = split_frontmatter_lines(current)
-          local out = {}
-          for _, l in ipairs(new_fm) do table.insert(out, l) end
-          table.insert(out, "")
-          for i = body_start, #current do table.insert(out, current[i]) end
-          vim.api.nvim_buf_set_lines(buf, 0, -1, false, out)
         end)
-      end, meta_label)
+      end, "metadata")
     end)
   end, "journalistiek_schrijven")
 end
@@ -326,14 +313,29 @@ vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
 
 
 function M.pubble_send()
-  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local buf = vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   if vim.trim(table.concat(lines, "\n")) == "" then
     vim.notify("Huidig buffer is leeg", vim.log.levels.ERROR)
     return
   end
 
+  -- Inject cached metadata (from background rewrite chain) if the buffer
+  -- has no frontmatter yet. This keeps the buffer clean until send time.
+  local cached_fm = vim.b[buf].cached_metadata
+  if cached_fm and #cached_fm > 0 then
+    local _, body_start = split_frontmatter_lines(lines)
+    if body_start == 1 then  -- no existing frontmatter in buffer
+      local injected = {}
+      for _, l in ipairs(cached_fm) do table.insert(injected, l) end
+      table.insert(injected, "")
+      for i = 1, #lines do table.insert(injected, lines[i]) end
+      lines = injected
+    end
+  end
+
   -- Remember the file path so we can delete it from disk after sending.
-  local file_path = vim.api.nvim_buf_get_name(0)
+  local file_path = vim.api.nvim_buf_get_name(buf)
 
   -- Detect what will be sent, so we can build the summary header afterwards.
   -- editie: B  (raw control code before <leader>am)  OR
