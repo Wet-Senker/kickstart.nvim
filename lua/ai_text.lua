@@ -12,10 +12,10 @@ vim.api.nvim_create_autocmd("BufNewFile", {
 
 -- Wrap vim.system with a fidget progress handle so the user sees a spinner
 -- while any AI call is running.
-local function ai_system(cmd, opts, callback, title)
+local function ai_system(cmd, opts, callback, title, message)
   local handle = require("fidget.progress").handle.create {
     title   = title or "AI",
-    message = "bezig...",
+    message = message or "bezig...",
     lsp_client = { name = "aitext" },
   }
   return vim.system(cmd, opts, function(result)
@@ -186,9 +186,9 @@ function M.rewrite_article_buffer()
             vim.b[buf].cached_metadata = new_fm
           end
         end)
-      end, "metadata")
+      end, "Metadata", "planning en titels ophalen")
     end)
-  end, "journalistiek_schrijven")
+  end, "Herschrijven", "artikel naar krantenstijl")
 end
 
 function M.visual_menu()
@@ -228,7 +228,7 @@ function M.articlemeta_buffer()
         vim.notify("articlemeta mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
       end
     end)
-  end, "metadata")
+  end, "Metadata", "planning en titels ophalen")
 end
 
 -- Read calendar fields from YAML frontmatter lines.
@@ -347,7 +347,7 @@ function M.articlemeta_calendar_buffer()
         vim.notify("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
       end
     end)
-  end, "kalender")
+  end, "Kalender", "agendaitem analyseren")
 end
 
 vim.keymap.set("n", "<leader>am", M.articlemeta_buffer, {
@@ -485,7 +485,8 @@ function M.pubble_send()
           vim.notify(output ~= "" and output or "Pubble send mislukt", vim.log.levels.ERROR)
         end
       end)
-    end
+    end,
+    "Verzenden", "naar Pubble CMS"
   )
 end
 
@@ -557,7 +558,8 @@ function M.generate_facebook()
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, base_lines)
         vim.notify("Facebook post toegevoegd. Pas aan indien nodig, dan <leader>aw.", vim.log.levels.INFO)
       end)
-    end
+    end,
+    "Facebook", "social post genereren"
   )
 end
 
@@ -685,7 +687,8 @@ function M.ai_prompt_rewrite()
         vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
         vim.notify("Done. Use u to undo.", vim.log.levels.INFO)
       end)
-    end
+    end,
+    "Herschrijven", "vrije opdracht"
   )
 end
 
@@ -756,7 +759,8 @@ function M.ai_chat()
         vim.api.nvim_win_set_cursor(0, { last, 0 })
         vim.notify("Answer added. Type *** + next question, then <leader>ag.", vim.log.levels.INFO)
       end)
-    end
+    end,
+    "Gesprek", "AI antwoord ophalen"
   )
 end
 
