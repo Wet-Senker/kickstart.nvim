@@ -82,6 +82,51 @@ local function has_control_flag(text, key)
     or text:match("^" .. key .. "%s*:%s*x%s*\n") ~= nil
 end
 
+-- Keys that are recognised as leading control lines (mirrors _CONTROL_KEY_PATTERN in Python).
+local _control_keys = {
+  p=true, r=true, e=true, b=true, c=true,
+  prio=true, editie=true,
+  calendar=true, cal=true,
+  facebook=true, facebook_tekst=true,
+  rewrite=true,
+  bijschrift=true, fotograaf=true, foto=true,
+}
+local function _is_control_key(k)
+  k = k:lower()
+  if _control_keys[k] then return true end
+  -- b\d+, c\d+, f\d+, bijschrift\d+, foto\d+, fotograaf\d+
+  if k:match("^[bcf]%d+$") then return true end
+  if k:match("^bijschrift%d+$") or k:match("^foto%d+$") or k:match("^fotograaf%d+$") then return true end
+  return false
+end
+
+-- Extract the leading control block from a line table.
+-- Returns saved_ctrl (raw lines), body_lines (the rest, leading blanks stripped).
+-- If the buffer starts with frontmatter (---) we leave everything untouched.
+local function extract_leading_control_lines(lines)
+  if lines[1] == "---" then return {}, lines end
+  local ctrl = {}
+  local i = 1
+  while i <= #lines do
+    local trimmed = vim.trim(lines[i])
+    if trimmed == "" then
+      i = i + 1
+    else
+      local key = trimmed:match("^([%a][%a%d_]*)%s*:")
+      if key and _is_control_key(key) then
+        table.insert(ctrl, lines[i])
+        i = i + 1
+      else
+        break
+      end
+    end
+  end
+  while i <= #lines and vim.trim(lines[i]) == "" do i = i + 1 end
+  local body = {}
+  for j = i, #lines do table.insert(body, lines[j]) end
+  return ctrl, body
+end
+
 -- Extract YAML frontmatter lines (including both --- delimiters) from a line table.
 -- Returns fm_lines (may be empty), body_start index.
 local function split_frontmatter_lines(lines)
@@ -99,11 +144,11 @@ end
 function M.rewrite_article_buffer()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local input = table.concat(lines, "\n")
 
-  -- Detect control flags BEFORE the rewrite so the AI cannot accidentally remove them.
-  local had_calendar = has_control_flag(input, "calendar") or has_control_flag(input, "cal")
-  local had_facebook = has_control_flag(input, "facebook")
+  -- Strip leading control lines BEFORE sending to AI so they are never lost or
+  -- corrupted. We put them back at the top after the rewrite.
+  local saved_ctrl, body_lines = extract_leading_control_lines(lines)
+  local input = table.concat(body_lines, "\n")
 
   ai_system({ aitext, "journalistiek_schrijven" }, { text = true, stdin = input }, function(result)
     vim.schedule(function()
@@ -114,23 +159,15 @@ function M.rewrite_article_buffer()
 
       local new_lines = vim.split(result.stdout, "\n", { plain = true })
 
-      -- Re-insert control flags at the top if the AI removed them.
-      local rewritten_str = table.concat(new_lines, "\n")
-      local flags = {}
-      if had_calendar and not has_control_flag(rewritten_str, "calendar") and not has_control_flag(rewritten_str, "cal") then
-        table.insert(flags, "calendar: x")
-      end
-      if had_facebook and not has_control_flag(rewritten_str, "facebook") then
-        table.insert(flags, "facebook: x")
-      end
-      if #flags > 0 then
+      -- Prepend saved control block (e:, p:, calendar:, facebook:, bijschrift: …).
+      if #saved_ctrl > 0 then
         local combined = {}
-        for _, f in ipairs(flags) do table.insert(combined, f) end
+        for _, l in ipairs(saved_ctrl) do table.insert(combined, l) end
         for _, l in ipairs(new_lines) do table.insert(combined, l) end
         new_lines = combined
-        rewritten_str = table.concat(new_lines, "\n")
       end
 
+      local rewritten_str = table.concat(new_lines, "\n")
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
       vim.b[buf].cached_metadata = nil
 
