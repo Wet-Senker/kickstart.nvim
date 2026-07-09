@@ -44,7 +44,8 @@ local function shellescape(value)
 end
 
 local function run_on_buffer(prompt_name, append)
-  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local buf = vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local input = table.concat(lines, "\n")
   local cmd = { aitext, prompt_name }
   if append then table.insert(cmd, "--append") end
@@ -53,7 +54,7 @@ local function run_on_buffer(prompt_name, append)
     vim.schedule(function()
       if result.code == 0 then
         local new_lines = vim.split(result.stdout, "\n", { plain = true })
-        vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
       else
         vim.notify("AI rewrite mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
       end
@@ -73,8 +74,97 @@ local function run_on_visual_selection(prompt_name, append)
   vim.cmd(cmd)
 end
 
+-- Detect a control flag (e.g. "calendar: x") anywhere in text, line-anchored.
+local function has_control_flag(text, key)
+  return text:match("^" .. key .. "%s*:%s*x%s*$") ~= nil
+    or text:match("\n" .. key .. "%s*:%s*x%s*$") ~= nil
+    or text:match("\n" .. key .. "%s*:%s*x%s*\n") ~= nil
+    or text:match("^" .. key .. "%s*:%s*x%s*\n") ~= nil
+end
+
+-- Extract YAML frontmatter lines (including both --- delimiters) from a line table.
+-- Returns fm_lines (may be empty), body_start index.
+local function split_frontmatter_lines(lines)
+  if lines[1] ~= "---" then return {}, 1 end
+  for i = 2, #lines do
+    if lines[i] == "---" then
+      local fm = {}
+      for j = 1, i do fm[j] = lines[j] end
+      return fm, i + 1
+    end
+  end
+  return {}, 1
+end
+
 function M.rewrite_article_buffer()
-  run_on_buffer("journalistiek_schrijven", false)
+  local buf = vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local input = table.concat(lines, "\n")
+
+  -- Detect control flags BEFORE the rewrite so the AI cannot accidentally remove them.
+  local had_calendar = has_control_flag(input, "calendar")
+  local had_facebook = has_control_flag(input, "facebook")
+
+  ai_system({ aitext, "journalistiek_schrijven" }, { text = true, stdin = input }, function(result)
+    vim.schedule(function()
+      if result.code ~= 0 then
+        vim.notify("AI rewrite mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
+        return
+      end
+
+      local new_lines = vim.split(result.stdout, "\n", { plain = true })
+
+      -- Re-insert control flags at the top if the AI removed them.
+      local rewritten_str = table.concat(new_lines, "\n")
+      local flags = {}
+      if had_calendar and not has_control_flag(rewritten_str, "calendar") then
+        table.insert(flags, "calendar: x")
+      end
+      if had_facebook and not has_control_flag(rewritten_str, "facebook") then
+        table.insert(flags, "facebook: x")
+      end
+      if #flags > 0 then
+        local combined = {}
+        for _, f in ipairs(flags) do table.insert(combined, f) end
+        for _, l in ipairs(new_lines) do table.insert(combined, l) end
+        new_lines = combined
+        rewritten_str = table.concat(new_lines, "\n")
+      end
+
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
+
+      local meta_cmd = had_calendar and { articlemeta, "--calendar" } or { articlemeta }
+      local meta_label = had_calendar and "metadata+kalender" or "metadata"
+
+      ai_system(meta_cmd, { text = true, stdin = rewritten_str }, function(meta_result)
+        vim.schedule(function()
+          if meta_result.code ~= 0 then
+            vim.notify("Metadata ophalen mislukt: " .. (meta_result.stderr or ""), vim.log.levels.WARN)
+            return
+          end
+
+          local meta_lines = vim.split(meta_result.stdout, "\n", { plain = true })
+          local new_fm, _ = split_frontmatter_lines(meta_lines)
+
+          if #new_fm == 0 then
+            -- No frontmatter in output — write as-is (fallback).
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, meta_lines)
+            return
+          end
+
+          -- Prepend the new frontmatter to whatever is currently in the buffer
+          -- so edits made while the metadata call was running are preserved.
+          local current = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+          local _, body_start = split_frontmatter_lines(current)
+          local out = {}
+          for _, l in ipairs(new_fm) do table.insert(out, l) end
+          table.insert(out, "")
+          for i = body_start, #current do table.insert(out, current[i]) end
+          vim.api.nvim_buf_set_lines(buf, 0, -1, false, out)
+        end)
+      end, meta_label)
+    end)
+  end, "journalistiek_schrijven")
 end
 
 function M.visual_menu()
@@ -101,14 +191,15 @@ vim.keymap.set("v", "<leader>ai", M.visual_menu, {
 })
 
 function M.articlemeta_buffer()
-  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local buf = vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local input = table.concat(lines, "\n")
 
   ai_system({ articlemeta }, { text = true, stdin = input }, function(result)
     vim.schedule(function()
       if result.code == 0 then
         local new_lines = vim.split(result.stdout, "\n", { plain = true })
-        vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
       else
         vim.notify("articlemeta mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
       end
@@ -196,7 +287,8 @@ local function strip_calendar_section(lines)
 end
 
 function M.articlemeta_calendar_buffer()
-  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local buf = vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local input = table.concat(lines, "\n")
 
   ai_system({ articlemeta, "--calendar" }, { text = true, stdin = input }, function(result)
@@ -214,10 +306,10 @@ function M.articlemeta_calendar_buffer()
         for _, line in ipairs(section) do
           table.insert(base_lines, line)
         end
-        vim.api.nvim_buf_set_lines(0, 0, -1, false, base_lines)
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, base_lines)
         vim.notify("Kalenderdata toegevoegd. Controleer en pas aan, dan <leader>aw.", vim.log.levels.INFO)
       else
-        vim.api.nvim_buf_set_lines(0, 0, -1, false, base_lines)
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, base_lines)
         vim.notify("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
       end
     end)
