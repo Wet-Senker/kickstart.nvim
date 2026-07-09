@@ -476,11 +476,10 @@ function M.pubble_send()
           end
           vim.fn.writefile(out, dest)
 
-          -- Verwijder origineel op bureaublad en open nieuw leeg buffer
+          -- Verwijder origineel op bureaublad; buffer blijft zichtbaar voor nacontrole.
           if file_path ~= "" and vim.fn.filereadable(file_path) == 1 then
             vim.fn.delete(file_path)
           end
-          vim.cmd("enew")
         else
           local output = vim.trim(result.stderr or result.stdout or "")
           vim.notify(output ~= "" and output or "Pubble send mislukt", vim.log.levels.ERROR)
