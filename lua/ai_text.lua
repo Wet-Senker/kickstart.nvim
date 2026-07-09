@@ -186,9 +186,9 @@ function M.rewrite_article_buffer()
             vim.b[buf].cached_metadata = new_fm
           end
         end)
-      end, "Metadata", "planning en titels ophalen")
+      end, "AI · Metadata", "planning en titels ophalen")
     end)
-  end, "Herschrijven", "artikel naar krantenstijl")
+  end, "AI · Herschrijven", "artikel naar krantenstijl")
 end
 
 function M.visual_menu()
@@ -228,7 +228,7 @@ function M.articlemeta_buffer()
         vim.notify("articlemeta mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
       end
     end)
-  end, "Metadata", "planning en titels ophalen")
+  end, "AI · Metadata", "planning en titels ophalen")
 end
 
 -- Read calendar fields from YAML frontmatter lines.
@@ -347,7 +347,7 @@ function M.articlemeta_calendar_buffer()
         vim.notify("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
       end
     end)
-  end, "Kalender", "agendaitem analyseren")
+  end, "AI · Kalender", "agendaitem analyseren")
 end
 
 vim.keymap.set("n", "<leader>am", M.articlemeta_buffer, {
@@ -486,7 +486,7 @@ function M.pubble_send()
         end
       end)
     end,
-    "Verzenden", "naar Pubble CMS"
+    "Pubble · Verzenden", "naar CMS"
   )
 end
 
@@ -559,7 +559,7 @@ function M.generate_facebook()
         vim.notify("Facebook post toegevoegd. Pas aan indien nodig, dan <leader>aw.", vim.log.levels.INFO)
       end)
     end,
-    "Facebook", "social post genereren"
+    "AI · Facebook", "social post genereren"
   )
 end
 
@@ -688,7 +688,7 @@ function M.ai_prompt_rewrite()
         vim.notify("Done. Use u to undo.", vim.log.levels.INFO)
       end)
     end,
-    "Herschrijven", "vrije opdracht"
+    "AI · Herschrijven", "vrije opdracht"
   )
 end
 
@@ -760,7 +760,7 @@ function M.ai_chat()
         vim.notify("Answer added. Type *** + next question, then <leader>ag.", vim.log.levels.INFO)
       end)
     end,
-    "Gesprek", "AI antwoord ophalen"
+    "AI · Gesprek", "antwoord ophalen"
   )
 end
 
