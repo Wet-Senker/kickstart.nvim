@@ -421,6 +421,7 @@ do
     gh 'nvim-lua/plenary.nvim',
     gh 'nvim-telescope/telescope.nvim',
     gh 'nvim-telescope/telescope-ui-select.nvim',
+    gh 'nvim-telescope/telescope-file-browser.nvim',
   }
   if vim.fn.executable 'make' == 1 then table.insert(telescope_plugins, gh 'nvim-telescope/telescope-fzf-native.nvim') end
 
@@ -446,6 +447,11 @@ do
   -- Enable Telescope extensions if they are installed
   pcall(require('telescope').load_extension, 'fzf')
   pcall(require('telescope').load_extension, 'ui-select')
+  pcall(require('telescope').load_extension, 'file_browser')
+
+  -- Fuzzy-browse folders (by name, not path) and move/rename/delete files
+  -- into them: select with <Tab>, navigate to the target folder, 'm' to move.
+  vim.keymap.set('n', '<leader>sb', function() require('telescope').extensions.file_browser.file_browser() end, { desc = '[S]earch file [B]rowser' })
 
   -- See `:help telescope.builtin`
   local builtin = require 'telescope.builtin'
@@ -960,6 +966,51 @@ vim.api.nvim_create_autocmd('FileType', {
     vim.keymap.set('n', 'k', 'gk', { buffer = true })
     vim.keymap.set('n', '0', 'g0', { buffer = true })
     vim.keymap.set('n', '$', 'g$', { buffer = true })
+  end,
+})
+
+-- Auto-convert non-plain-text documents (mail attachments: docx, rtf, odt, pdf)
+-- to markdown/text as soon as you open them, e.g. `:e briefing.docx`.
+-- The buffer is immediately renamed to a sibling .md path, so `:w` can never
+-- overwrite the original — the source file stays untouched on disk, and a
+-- second file only appears if you deliberately save your working copy.
+local _doc_converters = {
+  docx = { 'pandoc', '-f', 'docx', '-t', 'markdown' },
+  rtf = { 'pandoc', '-f', 'rtf', '-t', 'markdown' },
+  odt = { 'pandoc', '-f', 'odt', '-t', 'markdown' },
+}
+
+vim.api.nvim_create_autocmd('BufReadCmd', {
+  pattern = { '*.docx', '*.rtf', '*.odt', '*.pdf' },
+  callback = function(args)
+    local path = args.match
+    local ext = path:match '%.(%w+)$'
+    if not ext then return end
+    ext = ext:lower()
+
+    local cmd
+    if ext == 'pdf' then
+      cmd = { 'pdftotext', path, '-' }
+    else
+      cmd = vim.deepcopy(_doc_converters[ext])
+      if not cmd then return end
+      table.insert(cmd, path)
+    end
+
+    local result = vim.system(cmd, { text = true }):wait()
+    local buf = args.buf
+    if result.code ~= 0 or vim.trim(result.stdout or '') == '' then
+      local hint = ext == 'pdf' and ' (mogelijk een gescande pdf zonder tekstlaag — daar heb je OCR voor nodig)' or ''
+      vim.notify('Kon ' .. vim.fn.fnamemodify(path, ':t') .. ' niet omzetten naar tekst' .. hint, vim.log.levels.ERROR)
+      vim.bo[buf].buftype = 'nofile'
+      return
+    end
+
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(result.stdout, '\n', { plain = true }))
+    vim.bo[buf].filetype = 'markdown'
+    vim.api.nvim_buf_set_name(buf, (path:gsub('%.%w+$', '.md')))
+    vim.bo[buf].modified = false
+    vim.api.nvim_exec_autocmds('BufReadPost', { buffer = buf })
   end,
 })
 -- render-markdown.nvim: renders markdown inline while editing (headers,
