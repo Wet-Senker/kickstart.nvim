@@ -173,6 +173,19 @@ local function scan_dir(path, filter_type)
   return entries
 end
 
+-- Strip YAML frontmatter (--- … ---) uit een tabel van regels.
+local function strip_frontmatter(lines)
+  if lines[1] ~= '---' then return lines end
+  for i = 2, #lines do
+    if lines[i] == '---' then
+      local result = {}
+      for j = i + 1, #lines do table.insert(result, lines[j]) end
+      return result
+    end
+  end
+  return lines
+end
+
 -- Weeknummer voor de aankomende krant: maandag = huidige week, anders volgende week.
 local function publication_week()
   local weekday = tonumber(os.date('%u'))
@@ -268,7 +281,7 @@ function M.raadspraat_menu()
       vim.fn.mkdir(gn_dir, 'p')
       local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
 
-      vim.fn.writefile(new_lines, gn_dir .. '/1.raadspraatFOTO.txt')
+      vim.fn.writefile(strip_frontmatter(new_lines), gn_dir .. '/1.raadspraatFOTO.txt')
       vim.uv.fs_copyfile(photo_src, gn_dir .. '/1.raadspraatFOTO.' .. photo_ext)
 
       -- Copy photo to Pubble Inbox dropzone so <leader>aw picks it up automatically.

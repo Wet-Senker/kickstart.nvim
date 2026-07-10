@@ -443,6 +443,17 @@ function M.pubble_send()
           local gn = vim.b[buf].gn_export
           if gn and gn.dir and gn.txt_name then
             local export_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+            -- Strip YAML frontmatter zodat het txt-bestand alleen artikeltekst bevat.
+            if export_lines[1] == "---" then
+              for i = 2, #export_lines do
+                if export_lines[i] == "---" then
+                  local stripped = {}
+                  for j = i + 1, #export_lines do table.insert(stripped, export_lines[j]) end
+                  export_lines = stripped
+                  break
+                end
+              end
+            end
             vim.fn.writefile(export_lines, gn.dir .. '/' .. gn.txt_name)
             vim.b[buf].gn_export = nil
           end
