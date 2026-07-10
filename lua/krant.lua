@@ -397,6 +397,24 @@ function M.ondernemen_menu()
         .. 'publiceren we op [www.brugnieuws.nl](https://www.brugnieuws.nl) of eventueel in de volgende krant.',
     }
 
+    -- Waarschuw als er al foto's in de inbox staan (voorkomt verwarring met oude foto's).
+    local inbox = vim.fn.expand('~/Desktop/Pubble Inbox')
+    local inbox_files = scan_dir(inbox, 'file')
+    local inbox_images = {}
+    for _, f in ipairs(inbox_files) do
+      if f:match('%.[jJ][pP][eE]?[gG]$') or f:match('%.[pP][nN][gG]$') then
+        table.insert(inbox_images, f)
+      end
+    end
+    if #inbox_images > 0 then
+      vim.notify(
+        'Pubble Inbox bevat al foto\'s: ' .. table.concat(inbox_images, ', ')
+          .. '\nVerwijder deze eerst om verwarring te voorkomen.',
+        vim.log.levels.WARN
+      )
+      return
+    end
+
     local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
     local new_lines = {}
     for _, l in ipairs(fm_lines)   do table.insert(new_lines, l) end
@@ -406,23 +424,32 @@ function M.ondernemen_menu()
     for _, l in ipairs(after)      do table.insert(new_lines, l) end
     vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
 
-    -- Kopieer foto naar Pubble Inbox
-    local inbox = vim.fn.expand('~/Desktop/Pubble Inbox')
-    vim.uv.fs_copyfile(photo_src, inbox .. '/' .. photo_file)
+    -- Kopieer foto naar Pubble Inbox.
+    local ok = vim.uv.fs_copyfile(photo_src, inbox .. '/' .. photo_file)
+    if not ok then
+      vim.notify('Foto kopiëren naar Pubble Inbox mislukt: ' .. photo_src, vim.log.levels.ERROR)
+      return
+    end
 
-    -- Schrijf naar gemeentenieuws-achtige map op bureaublad
+    -- Sla exportinfo op in buffervariabele; het txt-bestand wordt geschreven bij <leader>aw
+    -- zodat de volledig ingevulde buffer (inclusief columntekst) wordt geëxporteerd.
     local week_prefix = publication_week()
     local gn_dir = vim.fn.expand('~/Desktop/' .. week_prefix .. '_ondernemen_in_kampen')
     vim.fn.mkdir(gn_dir, 'p')
-
-    vim.fn.writefile(new_lines, gn_dir .. '/1.ondernemen_in_kampenFOTO.txt')
     vim.uv.fs_copyfile(photo_src, gn_dir .. '/1.ondernemen_in_kampenFOTO.' .. photo_ext)
+
+    local buf = vim.api.nvim_get_current_buf()
+    vim.b[buf].gn_export = {
+      dir      = gn_dir,
+      txt_name = '1.ondernemen_in_kampenFOTO.txt',
+      img_name = '1.ondernemen_in_kampenFOTO.' .. photo_ext,
+    }
 
     vim.notify(
       'Ondernemen in Kampen: ' .. naam .. '\n'
-      .. '→ ' .. week_prefix .. '_ondernemen_in_kampen/1.ondernemen_in_kampenFOTO.txt\n'
+      .. '→ Pubble Inbox/' .. photo_file .. '\n'
       .. '→ ' .. week_prefix .. '_ondernemen_in_kampen/1.ondernemen_in_kampenFOTO.' .. photo_ext .. '\n'
-      .. '→ Pubble Inbox/' .. photo_file,
+      .. 'Tekst wordt bij <leader>aw weggeschreven naar gemeentenieuws.',
       vim.log.levels.INFO
     )
   end)

@@ -439,6 +439,14 @@ function M.pubble_send()
           if has_facebook then msg = msg .. " | Facebook" end
           vim.notify(msg, vim.log.levels.INFO)
 
+          -- Exporteer volledig ingevulde buffer naar gemeentenieuws-map indien ingesteld.
+          local gn = vim.b[buf].gn_export
+          if gn and gn.dir and gn.txt_name then
+            local export_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+            vim.fn.writefile(export_lines, gn.dir .. '/' .. gn.txt_name)
+            vim.b[buf].gn_export = nil
+          end
+
           -- Schrijf opgeschoonde buffer naar Pubble Inbox/used/.
           -- Strip YAML frontmatter en controleregels; bewaar kop, body en Facebook.
           -- Verwijder het originele bestand op het bureaublad.
