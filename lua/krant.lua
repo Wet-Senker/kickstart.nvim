@@ -265,8 +265,8 @@ function M.raadspraat_menu()
       vim.fn.mkdir(gn_dir, 'p')
       local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
 
-      vim.fn.writefile(new_lines, gn_dir .. '/raadspraat.txt')
-      vim.uv.fs_copyfile(photo_src, gn_dir .. '/Raadspraat.' .. photo_ext)
+      vim.fn.writefile(new_lines, gn_dir .. '/1.raadspraatFOTO.txt')
+      vim.uv.fs_copyfile(photo_src, gn_dir .. '/1.raadspraatFOTO.' .. photo_ext)
 
       -- Copy photo to Pubble Inbox dropzone so <leader>aw picks it up automatically.
       local inbox = vim.fn.expand('~/Desktop/Pubble Inbox')
@@ -274,8 +274,8 @@ function M.raadspraat_menu()
 
       vim.notify(
         'Raadspraat: ' .. naam .. ' (' .. party .. ')\n'
-        .. '→ ' .. week_prefix .. '_gemeentenieuws/raadspraat.txt\n'
-        .. '→ ' .. week_prefix .. '_gemeentenieuws/Raadspraat.' .. photo_ext .. '\n'
+        .. '→ ' .. week_prefix .. '_gemeentenieuws/1.raadspraatFOTO.txt\n'
+        .. '→ ' .. week_prefix .. '_gemeentenieuws/1.raadspraatFOTO.' .. photo_ext .. '\n'
         .. '→ Pubble Inbox/' .. photo_file,
         vim.log.levels.INFO
       )
