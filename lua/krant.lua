@@ -204,15 +204,6 @@ function M.raadspraat_menu()
       local naam = vim.fn.fnamemodify(photo_file, ':r')
       local photo_src = party_dir .. '/' .. photo_file
 
-      -- Copy photo to ~/Desktop/raadspraat/
-      local dest_dir = vim.fn.expand('~/Desktop/raadspraat')
-      vim.fn.mkdir(dest_dir, 'p')
-      local photo_dst = dest_dir .. '/' .. photo_file
-      if not vim.uv.fs_copyfile(photo_src, photo_dst) then
-        vim.notify('Foto kopiëren mislukt: ' .. photo_src, vim.log.levels.ERROR)
-        return
-      end
-
       local bijschrift = 'Deze editie van Raadspraat is geschreven door ' .. naam .. ' van ' .. party .. '.'
       local working_title = 'z - 1 Raadspraat ' .. party .. ' ' .. naam
 
@@ -263,14 +254,19 @@ function M.raadspraat_menu()
 
       vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
 
-      -- Save article text to gemeentenieuws folder for layout/vormgeving.
-      local gn_dir = vim.fn.expand('~/Desktop/gemeentenieuws')
+      -- Weeknummer voor gemeentenieuws: maandag = huidige week, anders volgende week.
+      -- (Op maandag is de krant net uit; vanaf dinsdag werk je al voor de volgende editie.)
+      local weekday = tonumber(os.date('%u'))  -- 1=ma, 7=zo
+      local ref_time = weekday == 1 and os.time() or (os.time() + 7 * 24 * 3600)
+      local week_prefix = os.date('%V', ref_time)
+
+      -- Save article text and photo to gemeentenieuws folder for layout/vormgeving.
+      local gn_dir = vim.fn.expand('~/Desktop/' .. week_prefix .. '_gemeentenieuws')
       vim.fn.mkdir(gn_dir, 'p')
       local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
-      local gn_photo_name = '1.RaadspraatFOTO.' .. photo_ext
 
-      vim.fn.writefile(new_lines, gn_dir .. '/1.raadspraatFOTO.rtfd')
-      vim.uv.fs_copyfile(photo_src, gn_dir .. '/' .. gn_photo_name)
+      vim.fn.writefile(new_lines, gn_dir .. '/raadspraat.txt')
+      vim.uv.fs_copyfile(photo_src, gn_dir .. '/Raadspraat.' .. photo_ext)
 
       -- Copy photo to Pubble Inbox dropzone so <leader>aw picks it up automatically.
       local inbox = vim.fn.expand('~/Desktop/Pubble Inbox')
@@ -278,8 +274,8 @@ function M.raadspraat_menu()
 
       vim.notify(
         'Raadspraat: ' .. naam .. ' (' .. party .. ')\n'
-        .. '→ gemeentenieuws/1.raadspraatFOTO.rtfd\n'
-        .. '→ gemeentenieuws/' .. gn_photo_name .. '\n'
+        .. '→ ' .. week_prefix .. '_gemeentenieuws/raadspraat.txt\n'
+        .. '→ ' .. week_prefix .. '_gemeentenieuws/Raadspraat.' .. photo_ext .. '\n'
         .. '→ Pubble Inbox/' .. photo_file,
         vim.log.levels.INFO
       )
