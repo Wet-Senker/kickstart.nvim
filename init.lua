@@ -292,6 +292,7 @@ do
       { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } }, -- Enable gitsigns recommended keymaps first
       { '<leader>a', group = '[A]I / Pubble' },
       { '<leader>k', group = '[K]rant' },
+      { '<leader>o', group = '[O]bsidian' },
       { 'gr', group = 'LSP Actions', mode = { 'n' } },
     },
   }
@@ -328,6 +329,13 @@ do
 
 require('catppuccin').setup {
   flavour = 'latte',
+  -- Catppuccin colors markdown bold text red by default (@markup.strong).
+  -- Keep the bold weight, drop the color so it doesn't read as an error/warning.
+  custom_highlights = function(colors)
+    return {
+      ['@markup.strong'] = { fg = colors.none, style = { 'bold' } },
+    }
+  end,
 }
 
   vim.cmd.colorscheme 'catppuccin-latte'
@@ -758,6 +766,15 @@ do
   -- require('luasnip.loaders.from_vscode').lazy_load()
 
   -- [[ Autocomplete Engine ]]
+  -- blink.compat + nvim-cmp: obsidian.nvim only ships an nvim-cmp completion
+  -- source (for '[[' note links and '#' tags), no native blink.cmp source.
+  -- blink.compat wraps that nvim-cmp source so blink.cmp can use it too.
+  -- nvim-cmp itself is only installed as a library here — never configured
+  -- or shown to the user directly, blink.cmp remains the only visible
+  -- completion menu.
+  vim.pack.add { gh 'hrsh7th/nvim-cmp', gh 'saghen/blink.compat' }
+  require('blink.compat').setup {}
+
   vim.pack.add { { src = gh 'saghen/blink.cmp', version = vim.version.range '1.*' } }
   require('blink.cmp').setup {
     keymap = {
@@ -802,6 +819,23 @@ do
 
     sources = {
       default = { 'lsp', 'path', 'snippets' },
+      -- Obsidian note/tag completion only makes sense in markdown buffers,
+      -- so it's scoped here instead of added to `default` (which applies
+      -- everywhere). Repeats lsp/path/snippets since per_filetype replaces
+      -- (not merges with) the default list for that filetype.
+      per_filetype = {
+        markdown = { 'lsp', 'path', 'snippets', 'obsidian', 'obsidian_tags' },
+      },
+      providers = {
+        obsidian = {
+          name = 'obsidian',
+          module = 'blink.compat.source',
+        },
+        obsidian_tags = {
+          name = 'obsidian_tags',
+          module = 'blink.compat.source',
+        },
+      },
     },
 
     snippets = { preset = 'luasnip' },
@@ -931,10 +965,65 @@ vim.api.nvim_create_autocmd('FileType', {
 -- render-markdown.nvim: renders markdown inline while editing (headers,
 -- checkboxes, tables, --- rules, code blocks) instead of showing raw
 -- markup. Uses 'conceallevel', which is set to 2 for markdown buffers
--- above. TRYING OUT (added 2026-07-07) — comment out these two lines
--- and restart Neovim to turn it off again if it doesn't stick.
--- vim.pack.add { gh 'MeanderingProgrammer/render-markdown.nvim' }
--- require('render-markdown').setup {}
+-- above. Scoped to the Obsidian vault only (via `ignore`) — regular
+-- markdown outside it (Pubble articles, this config's docs) is untouched.
+vim.pack.add { gh 'MeanderingProgrammer/render-markdown.nvim' }
+local obsidian_vault_path = vim.fn.expand '~/Obsidian/Obsidian'
+require('render-markdown').setup {
+  -- Built-in preset that mimics Obsidian's own callout icons/colors,
+  -- instead of the plain default look.
+  preset = 'obsidian',
+  -- Obsidian.app itself doesn't put a numbered icon before headings
+  -- (just size/weight/color), so drop the default circled-number icons.
+  heading = { icons = {} },
+  ignore = function(buf)
+    local path = vim.api.nvim_buf_get_name(buf)
+    return not vim.startswith(path, obsidian_vault_path)
+  end,
+}
+
+-- obsidian.nvim: notes, wiki-links ([[note]]), backlinks and daily notes
+-- for the Obsidian vault at ~/Obsidian/Obsidian. Only activates in
+-- markdown buffers inside that folder, so it stays out of the way
+-- everywhere else (Pubble articles, this config, etc).
+vim.pack.add { gh 'epwalsh/obsidian.nvim' }
+local obsidian_mappings = require 'obsidian.mappings'
+require('obsidian').setup {
+  -- render-markdown.nvim handles all visual rendering (see above); obsidian.nvim's
+  -- own built-in UI (bullets/checkbox styling) would otherwise render on top of
+  -- it and clash. render-markdown.nvim's own health check recommends this.
+  ui = { enable = false },
+  workspaces = {
+    {
+      name = 'Obsidian',
+      path = '~/Obsidian/Obsidian',
+    },
+  },
+  -- Without this, following a web link (gf/<cr> on a [text](https://...))
+  -- just logs a warning instead of opening it. vim.ui.open hands it to the
+  -- OS's default opener (the 'open' command on macOS).
+  follow_url_func = function(url) vim.ui.open(url) end,
+  -- Setting `mappings` replaces the plugin's defaults entirely, so the
+  -- three built-in ones (gf, <leader>ch, <cr>) are repeated here alongside
+  -- the <leader>o... group. All buffer-local: only active in vault notes.
+  mappings = {
+    ['gf'] = obsidian_mappings.gf_passthrough(),
+    ['<leader>ch'] = obsidian_mappings.toggle_checkbox(),
+    ['<cr>'] = obsidian_mappings.smart_action(),
+    ['<leader>oo'] = { action = '<cmd>ObsidianOpen<CR>', opts = { buffer = true, desc = '[O]bsidian [O]pen in app' } },
+    ['<leader>ob'] = { action = '<cmd>ObsidianBacklinks<CR>', opts = { buffer = true, desc = '[O]bsidian [B]acklinks' } },
+    ['<leader>os'] = { action = '<cmd>ObsidianSearch<CR>', opts = { buffer = true, desc = '[O]bsidian [S]earch' } },
+    ['<leader>oT'] = { action = '<cmd>ObsidianTags<CR>', opts = { buffer = true, desc = '[O]bsidian [T]ags' } },
+    ['<leader>or'] = { action = '<cmd>ObsidianRename<CR>', opts = { buffer = true, desc = '[O]bsidian [R]ename (fixes links)' } },
+    ['<leader>oc'] = { action = '<cmd>ObsidianTOC<CR>', opts = { buffer = true, desc = '[O]bsidian [C]ontents' } },
+  },
+}
+
+-- Global (not buffer-local): entry points into the vault, usable from
+-- anywhere, not just from inside an already-open vault note.
+vim.keymap.set('n', '<leader>oq', '<cmd>ObsidianQuickSwitch<CR>', { desc = '[O]bsidian [Q]uick switch' })
+vim.keymap.set('n', '<leader>on', '<cmd>ObsidianNew<CR>', { desc = '[O]bsidian [N]ew note' })
+vim.keymap.set('n', '<leader>ot', '<cmd>ObsidianToday<CR>', { desc = '[O]bsidian [T]oday' })
 
 -- Zen mode: narrow reading column for prose
 vim.pack.add({ 'https://github.com/folke/zen-mode.nvim' })
@@ -977,13 +1066,16 @@ require("ai_text")
 
 -- Start a named server socket so external tools (pastevim) can open files
 -- in this instance instead of spawning a new Neovim window.
--- serverstart() returns "" when the path is already claimed by a live process.
--- If it fails, delete a possible stale socket left behind by a crashed instance
--- and try once more. Subsequent Neovim instances silently skip this block.
+-- serverstart() throws (not just returns "") when the socket is already
+-- claimed by a live process, e.g. a second Neovim instance is open — so
+-- both attempts are pcall'd and any failure is silently ignored. If it's
+-- a stale socket from a crashed instance, deleting it lets the retry
+-- succeed; if it's a live instance, the retry fails too and we move on.
 local _nvim_socket = vim.fn.expand("~/.cache/nvim/main.sock")
-if vim.fn.serverstart(_nvim_socket) == "" then
+local _ok, _result = pcall(vim.fn.serverstart, _nvim_socket)
+if not _ok or _result == "" then
   vim.fn.delete(_nvim_socket)
-  vim.fn.serverstart(_nvim_socket)
+  pcall(vim.fn.serverstart, _nvim_socket)
 end
 
 -- vim: ts=2 sts=2 sw=2 et
