@@ -159,10 +159,15 @@ function M.rewrite_article_buffer()
 
       local new_lines = vim.split(result.stdout, "\n", { plain = true })
 
-      -- Prepend saved control block (e:, p:, calendar:, facebook:, bijschrift: …).
-      if #saved_ctrl > 0 then
+      -- Lees de huidige bufferinhoud opnieuw: de gebruiker kan tijdens het wachten
+      -- controleregels bovenaan hebben getypt. Die gaan voor op de pre-rewrite ctrl.
+      local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      local current_ctrl, _ = extract_leading_control_lines(current_lines)
+      local final_ctrl = #current_ctrl > 0 and current_ctrl or saved_ctrl
+
+      if #final_ctrl > 0 then
         local combined = {}
-        for _, l in ipairs(saved_ctrl) do table.insert(combined, l) end
+        for _, l in ipairs(final_ctrl) do table.insert(combined, l) end
         for _, l in ipairs(new_lines) do table.insert(combined, l) end
         new_lines = combined
       end
