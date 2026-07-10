@@ -254,11 +254,7 @@ function M.raadspraat_menu()
 
       vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
 
-      -- Weeknummer voor gemeentenieuws: maandag = huidige week, anders volgende week.
-      -- (Op maandag is de krant net uit; vanaf dinsdag werk je al voor de volgende editie.)
-      local weekday = tonumber(os.date('%u'))  -- 1=ma, 7=zo
-      local ref_time = weekday == 1 and os.time() or (os.time() + 7 * 24 * 3600)
-      local week_prefix = os.date('%V', ref_time)
+      local week_prefix = publication_week()
 
       -- Save article text and photo to gemeentenieuws folder for layout/vormgeving.
       local gn_dir = vim.fn.expand('~/Desktop/' .. week_prefix .. '_gemeentenieuws')
@@ -341,9 +337,66 @@ local function apply(t, vars)
   vim.notify('Inserted: ' .. t.name)
 end
 
+-- Weeknummer voor de aankomende krant: maandag = huidige week, anders volgende week.
+local function publication_week()
+  local weekday = tonumber(os.date('%u'))
+  local ref_time = weekday == 1 and os.time() or (os.time() + 7 * 24 * 3600)
+  return os.date('%V', ref_time)
+end
+
+function M.kamperkiek_flow(template)
+  local inbox = vim.fn.expand('~/Desktop/Pubble Inbox')
+  local all = scan_dir(inbox, 'file')
+  local images = {}
+  for _, f in ipairs(all) do
+    if f:match('%.[jJ][pP][eE]?[gG]$') or f:match('%.[pP][nN][gG]$') then
+      table.insert(images, f)
+    end
+  end
+
+  if #images == 0 then
+    vim.notify('Geen foto gevonden in Pubble Inbox. Zet de foto er eerst in.', vim.log.levels.ERROR)
+    return
+  end
+  if #images > 1 then
+    vim.notify('Meerdere foto\'s gevonden in Pubble Inbox. Verwijder alle foto\'s behalve de Kiek-foto.', vim.log.levels.ERROR)
+    return
+  end
+
+  local photo_file = images[1]
+  local photo_src = inbox .. '/' .. photo_file
+  local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
+
+  -- Pas de template toe op de buffer.
+  apply(template)
+
+  -- Schrijf naar gemeentenieuws map.
+  local week_prefix = publication_week()
+  local gn_dir = vim.fn.expand('~/Desktop/' .. week_prefix .. '_gemeentenieuws')
+  vim.fn.mkdir(gn_dir, 'p')
+
+  local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  vim.fn.writefile(buf_lines, gn_dir .. '/2.kamperkiekFOTO.txt')
+  vim.uv.fs_copyfile(photo_src, gn_dir .. '/2.kamperkiek.' .. photo_ext)
+
+  vim.notify(
+    'Kamper Kiek op de Wiek\n'
+    .. '→ ' .. week_prefix .. '_gemeentenieuws/2.kamperkiekFOTO.txt\n'
+    .. '→ ' .. week_prefix .. '_gemeentenieuws/2.kamperkiek.' .. photo_ext,
+    vim.log.levels.INFO
+  )
+end
+
 function M.menu()
-  local items = { { name = 'Raadspraat...', _special = 'raadspraat' } }
-  for _, t in ipairs(M.templates) do table.insert(items, t) end
+  local items = {
+    { name = 'Raadspraat...', _special = 'raadspraat' },
+    { name = 'Kamper Kiek op de Wiek', _special = 'kamperkiek' },
+  }
+  for _, t in ipairs(M.templates) do
+    if t.name ~= 'Kiek op de wiek (Sander de Rouwe)' then
+      table.insert(items, t)
+    end
+  end
 
   vim.ui.select(items, {
     prompt = 'Template:',
@@ -352,6 +405,17 @@ function M.menu()
     if not choice then return end
     if choice._special == 'raadspraat' then
       M.raadspraat_menu()
+    elseif choice._special == 'kamperkiek' then
+      local kiek_template = nil
+      for _, t in ipairs(M.templates) do
+        if t.name == 'Kiek op de wiek (Sander de Rouwe)' then
+          kiek_template = t
+          break
+        end
+      end
+      if kiek_template then
+        M.kamperkiek_flow(kiek_template)
+      end
     else
       apply(choice)
     end
