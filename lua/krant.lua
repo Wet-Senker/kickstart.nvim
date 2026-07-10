@@ -295,6 +295,132 @@ local function copy_to_staging(src)
   end
 end
 
+-- Parse personen.md: blocks separated by blank lines, each with key: value lines.
+-- Returns a table keyed by lowercase naam.
+local function parse_personen_md(path)
+  local ok, lines = pcall(vim.fn.readfile, path)
+  if not ok then return {} end
+  local result = {}
+  local current = {}
+  local function flush()
+    if current.naam then
+      result[current.naam:lower()] = current
+    end
+    current = {}
+  end
+  for _, line in ipairs(lines) do
+    local trimmed = vim.trim(line)
+    if trimmed == '' then
+      flush()
+    else
+      local k, v = trimmed:match('^([%a_]+)%s*:%s*(.+)$')
+      if k and v then current[k:lower()] = vim.trim(v) end
+    end
+  end
+  flush()
+  return result
+end
+
+function M.ondernemen_menu()
+  local base = vim.fn.expand('~/krant-fotos/ondernemen_in_kampen')
+  local all_files = scan_dir(base, 'file')
+  local photos = {}
+  for _, f in ipairs(all_files) do
+    if f:match('%.[jJ][pP][eE]?[gG]$') or f:match('%.[pP][nN][gG]$') then
+      table.insert(photos, f)
+    end
+  end
+  if #photos == 0 then
+    vim.notify('Geen foto\'s gevonden in ' .. base, vim.log.levels.WARN)
+    return
+  end
+
+  local personen = parse_personen_md(base .. '/personen.md')
+
+  vim.ui.select(photos, { prompt = 'Ondernemen in Kampen — persoon:' }, function(photo_file)
+    if not photo_file then return end
+
+    local naam_raw = vim.fn.fnamemodify(photo_file, ':r')  -- bestandsnaam zonder extensie
+    local photo_src = base .. '/' .. photo_file
+    local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
+
+    -- Opzoeken in personen.md (case-insensitief)
+    local info = personen[naam_raw:lower()] or {}
+    local naam     = info.naam or naam_raw
+    local functie  = info.functie or ''
+    local fotograaf = info.fotograaf or ''
+
+    -- Zorg dat functie eindigt met een punt
+    if functie ~= '' and not functie:match('%.$') then functie = functie .. '.' end
+
+    local bijschrift = 'Deze editie van Ondernemen in Kampen is geschreven door ' .. naam .. ', ' .. functie
+    local working_title = 'z - 1 Ondernemen in Kampen ' .. naam
+
+    local fm_lines = {
+      '---',
+      'newspaper:',
+      '  working_title: "' .. working_title .. '"',
+      '  priority: 1',
+      'media:',
+      '  caption: "' .. bijschrift .. '"',
+    }
+    if fotograaf ~= '' then
+      table.insert(fm_lines, '  credit: "' .. fotograaf .. '"')
+    end
+    table.insert(fm_lines, '---')
+    table.insert(fm_lines, '')
+
+    -- Leidende controleregels
+    local ctrl_lines = { 'b: ' .. bijschrift }
+    if fotograaf ~= '' then
+      table.insert(ctrl_lines, 'c: ' .. fotograaf)
+    end
+    table.insert(ctrl_lines, '')
+
+    -- Template
+    local before = {
+      'Column Ondernemen in Kampen: {{titel}}',
+      '',
+    }
+    local after = {
+      '',
+      'Wilt u reageren op deze column van ' .. naam .. '? Stuur dan een reactie naar '
+        .. 'redactie.debrug@brugmedia.nl met als onderwerp Reactie Ondernemen in Kampen '
+        .. naam .. '. De interessantste vragen leggen wij voor. Uw inzending en de reactie '
+        .. 'publiceren we op [www.brugnieuws.nl](https://www.brugnieuws.nl) of eventueel in de volgende krant.',
+    }
+
+    local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    local new_lines = {}
+    for _, l in ipairs(fm_lines)   do table.insert(new_lines, l) end
+    for _, l in ipairs(ctrl_lines) do table.insert(new_lines, l) end
+    for _, l in ipairs(before)     do table.insert(new_lines, l) end
+    for _, l in ipairs(buf_lines)  do table.insert(new_lines, l) end
+    for _, l in ipairs(after)      do table.insert(new_lines, l) end
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
+
+    -- Kopieer foto naar Pubble Inbox
+    local inbox = vim.fn.expand('~/Desktop/Pubble Inbox')
+    vim.uv.fs_copyfile(photo_src, inbox .. '/' .. photo_file)
+
+    -- Schrijf naar gemeentenieuws-achtige map op bureaublad
+    local week_prefix = publication_week()
+    local gn_dir = vim.fn.expand('~/Desktop/' .. week_prefix .. '_ondernemen_in_kampen')
+    vim.fn.mkdir(gn_dir, 'p')
+
+    vim.fn.writefile(new_lines, gn_dir .. '/1.ondernemen_in_kampenFOTO.txt')
+    vim.uv.fs_copyfile(photo_src, gn_dir .. '/1.ondernemen_in_kampenFOTO.' .. photo_ext)
+
+    vim.notify(
+      'Ondernemen in Kampen: ' .. naam .. '\n'
+      .. '→ ' .. week_prefix .. '_ondernemen_in_kampen/1.ondernemen_in_kampenFOTO.txt\n'
+      .. '→ ' .. week_prefix .. '_ondernemen_in_kampen/1.ondernemen_in_kampenFOTO.' .. photo_ext .. '\n'
+      .. '→ Pubble Inbox/' .. photo_file,
+      vim.log.levels.INFO
+    )
+  end)
+end
+
 local function apply(t, vars)
   vars = vars or {}
 
@@ -391,6 +517,7 @@ function M.menu()
   local items = {
     { name = 'Raadspraat...', _special = 'raadspraat' },
     { name = 'Kamper Kiek op de Wiek', _special = 'kamperkiek' },
+    { name = 'Ondernemen in Kampen...', _special = 'ondernemen' },
   }
   for _, t in ipairs(M.templates) do
     if t.name ~= 'Kiek op de wiek (Sander de Rouwe)' then
@@ -405,6 +532,8 @@ function M.menu()
     if not choice then return end
     if choice._special == 'raadspraat' then
       M.raadspraat_menu()
+    elseif choice._special == 'ondernemen' then
+      M.ondernemen_menu()
     elseif choice._special == 'kamperkiek' then
       local kiek_template = nil
       for _, t in ipairs(M.templates) do
