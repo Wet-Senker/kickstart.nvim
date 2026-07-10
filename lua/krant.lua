@@ -173,6 +173,13 @@ local function scan_dir(path, filter_type)
   return entries
 end
 
+-- Weeknummer voor de aankomende krant: maandag = huidige week, anders volgende week.
+local function publication_week()
+  local weekday = tonumber(os.date('%u'))
+  local ref_time = weekday == 1 and os.time() or (os.time() + 7 * 24 * 3600)
+  return os.date('%V', ref_time)
+end
+
 function M.raadspraat_menu()
   local base = vim.fn.expand('~/krant-fotos/raadspraat')
   local parties = scan_dir(base, 'directory')
@@ -463,12 +470,6 @@ local function apply(t, vars)
   vim.notify('Inserted: ' .. t.name)
 end
 
--- Weeknummer voor de aankomende krant: maandag = huidige week, anders volgende week.
-local function publication_week()
-  local weekday = tonumber(os.date('%u'))
-  local ref_time = weekday == 1 and os.time() or (os.time() + 7 * 24 * 3600)
-  return os.date('%V', ref_time)
-end
 
 function M.kamperkiek_flow(template)
   local inbox = vim.fn.expand('~/Desktop/Pubble Inbox')
