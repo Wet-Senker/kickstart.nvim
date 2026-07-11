@@ -5,8 +5,8 @@ vim.api.nvim_create_autocmd("BufNewFile", {
   pattern = vim.fn.expand("~/Desktop") .. "/*.md",
   callback = function()
     local inbox = vim.fn.expand("~/Desktop/Pubble Inbox")
-    vim.fn.mkdir(inbox .. "/articles", "p")
-    vim.fn.mkdir(inbox .. "/used", "p")
+    vim.fn.mkdir(inbox .. "/pubble-batch", "p")
+    vim.fn.mkdir(inbox .. "/published-archive", "p")
   end,
 })
 
@@ -567,10 +567,10 @@ function M.pubble_send()
             vim.b[buf].gn_export = nil
           end
 
-          -- Schrijf opgeschoonde buffer naar Pubble Inbox/used/.
+          -- Schrijf opgeschoonde buffer naar Pubble Inbox/published-archive/.
           -- Strip YAML frontmatter en controleregels; bewaar kop, body en Facebook.
           -- Verwijder het originele bestand op het bureaublad.
-          local used_dir = inbox .. "/used"
+          local used_dir = inbox .. "/published-archive"
           vim.fn.mkdir(used_dir, "p")
 
           local clean = lines
@@ -600,11 +600,12 @@ function M.pubble_send()
           for _, l in ipairs(header) do table.insert(out, l) end
           for _, l in ipairs(clean) do table.insert(out, l) end
 
-          local filename = vim.fn.fnamemodify(stem .. ".md", ":t")
+          local date_prefix = os.date("%Y%m%d-%H%M%S")
+          local filename = date_prefix .. "_" .. vim.fn.fnamemodify(stem .. ".md", ":t")
           local dest = used_dir .. "/" .. filename
           local counter = 1
           while vim.fn.filereadable(dest) == 1 do
-            dest = used_dir .. "/" .. stem .. "-" .. counter .. ".md"
+            dest = used_dir .. "/" .. date_prefix .. "_" .. stem .. "-" .. counter .. ".md"
             counter = counter + 1
           end
           vim.fn.writefile(out, dest)
