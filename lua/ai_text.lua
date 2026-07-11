@@ -366,6 +366,30 @@ vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
 
 function M.pubble_send()
   local buf = vim.api.nvim_get_current_buf()
+
+  -- Voor raadspraat/ondernemen: opmaken (tussenkopjes + streamer) vóór verzenden.
+  if vim.b[buf].gn_export and not vim.b[buf]._opmaken_done then
+    vim.b[buf]._opmaken_done = true
+    local pre_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    ai_system(
+      { aitext, "opmaken" },
+      { text = true, stdin = table.concat(pre_lines, "\n") },
+      function(result)
+        vim.schedule(function()
+          if result.code == 0 then
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(result.stdout, "\n", { plain = true }))
+          else
+            vim.notify("Opmaken mislukt, toch verzenden...", vim.log.levels.WARN)
+          end
+          M.pubble_send()
+        end)
+      end,
+      "AI · Opmaken"
+    )
+    return
+  end
+  vim.b[buf]._opmaken_done = nil
+
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   if vim.trim(table.concat(lines, "\n")) == "" then
     vim.notify("Huidig buffer is leeg", vim.log.levels.ERROR)
@@ -417,7 +441,20 @@ function M.pubble_send()
     temp_file = inbox .. "/" .. stem .. "-" .. tc .. ".md"
     tc = tc + 1
   end
-  vim.fn.writefile(lines, temp_file)
+  -- Strip Streamer: en Eindredactie: uit wat naar Pubble gaat (opmaken-artefacten
+  -- voor de printontwerper, niet bedoeld als artikeltekst).
+  local pubble_lines = {}
+  for _, line in ipairs(lines) do
+    local t = vim.trim(line)
+    if not t:match("^[Ss]treamer:%s*") and not t:match("^Eindredactie:%s*") then
+      table.insert(pubble_lines, line)
+    end
+  end
+  -- Verwijder eventuele overtollige lege regels aan het einde.
+  while #pubble_lines > 0 and vim.trim(pubble_lines[#pubble_lines]) == "" do
+    table.remove(pubble_lines)
+  end
+  vim.fn.writefile(pubble_lines, temp_file)
   vim.notify("Verzenden naar Pubble...", vim.log.levels.INFO)
 
   ai_system(
@@ -443,7 +480,27 @@ function M.pubble_send()
           local gn = vim.b[buf].gn_export
           if gn and gn.dir and gn.txt_name then
             local export_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-            -- Strip YAML frontmatter zodat het txt-bestand alleen artikeltekst bevat.
+
+            -- Haal caption en credit op uit YAML frontmatter.
+            local fm_caption, fm_credit
+            if export_lines[1] == "---" then
+              local in_media = false
+              for i = 2, #export_lines do
+                if export_lines[i] == "---" then break end
+                if export_lines[i]:match("^media:") then
+                  in_media = true
+                elseif in_media and export_lines[i]:match("^%S") then
+                  in_media = false
+                elseif in_media then
+                  local v = export_lines[i]:match("^%s+caption:%s*\"?(.-)\"?%s*$")
+                  if v and v ~= "null" and v ~= "" then fm_caption = v end
+                  v = export_lines[i]:match("^%s+credit:%s*\"?(.-)\"?%s*$")
+                  if v and v ~= "null" and v ~= "" then fm_credit = v end
+                end
+              end
+            end
+
+            -- Strip YAML frontmatter.
             if export_lines[1] == "---" then
               for i = 2, #export_lines do
                 if export_lines[i] == "---" then
@@ -454,7 +511,59 @@ function M.pubble_send()
                 end
               end
             end
-            vim.fn.writefile(export_lines, gn.dir .. '/' .. gn.txt_name)
+
+            -- Extraheer Streamer en Eindredactie; verwijder ook *** + streamer-bodyregel.
+            local streamer_text
+            local body = {}
+            local skip_next_streamer = false
+            for _, line in ipairs(export_lines) do
+              local trimmed = vim.trim(line)
+              local s = trimmed:match("^[Ss]treamer:%s*(.+)$")
+              if s then
+                streamer_text = s
+                -- niet toevoegen aan body
+              elseif trimmed:match("^Eindredactie:%s*") then
+                -- weggooien
+              elseif trimmed == "***" then
+                -- *** is de streamer-afscheiding; de volgende niet-lege regel is de streamertekst
+                skip_next_streamer = true
+              elseif skip_next_streamer then
+                if trimmed ~= "" then
+                  skip_next_streamer = false
+                  -- deze regel IS de streamertekst in de body; weggooien (staat al bovenaan)
+                else
+                  -- lege regel na ***: ook weggooien
+                end
+              elseif trimmed:match("^>%s") or trimmed == ">" then
+                -- oude blockquote-stijl (veiligheidshalve ook weggooien)
+              else
+                table.insert(body, line)
+              end
+            end
+
+            -- Bouw header: Streamer bovenaan, dan bijschrift/credit.
+            local header = {}
+            if streamer_text then
+              table.insert(header, "Streamer: " .. streamer_text)
+            end
+            if fm_caption then
+              table.insert(header, "Bijschrift: " .. fm_caption)
+            end
+            if fm_credit then
+              local credit_name = fm_credit:gsub("^[Ff]oto:%s*", "")
+              table.insert(header, "Fotograaf: " .. credit_name)
+            end
+
+            -- Verwijder lege regels aan begin en einde van body.
+            while #body > 0 and vim.trim(body[1]) == "" do table.remove(body, 1) end
+            while #body > 0 and vim.trim(body[#body]) == "" do table.remove(body) end
+
+            local final = {}
+            for _, l in ipairs(header) do table.insert(final, l) end
+            if #header > 0 then table.insert(final, "") end
+            for _, l in ipairs(body) do table.insert(final, l) end
+
+            vim.fn.writefile(final, gn.dir .. '/' .. gn.txt_name)
             vim.b[buf].gn_export = nil
           end
 
@@ -593,7 +702,23 @@ vim.keymap.set("n", "<leader>af", M.generate_facebook, {
 
 
 function M.opmaken()
-  run_on_buffer("opmaken", false)
+  local buf = vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  ai_system(
+    { aitext, "opmaken" },
+    { text = true, stdin = table.concat(lines, "\n") },
+    function(result)
+      vim.schedule(function()
+        if result.code == 0 then
+          vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(result.stdout, "\n", { plain = true }))
+          vim.b[buf]._opmaken_done = true
+        else
+          vim.notify("Opmaken mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
+        end
+      end)
+    end,
+    "AI · Opmaken"
+  )
 end
 
 vim.keymap.set("n", "<leader>ao", M.opmaken, {

@@ -94,6 +94,7 @@ M.templates = {
   },
   {
     name = 'Eregalerij kampioenen',
+    no_export = true,
     text = {
       "De Brug zet kampioenen in de eregalerij",
       "",
@@ -127,16 +128,20 @@ M.templates = {
 
   {
     name = 'Humor met een boodschap',
-    image = 'humor', -- lives in M.config.stock_images
+    image = 'humor.jpg',
+    no_export = true,
     text = {
+      'Humor met een Boodschap: {{titel}}',
       '',
-            '',
+      '*(door Marcel Kalter)*',
+      '{{body}}',
     },
   },
 
   -- TIER 3 — wraps the article body; {{Title}} stays for you to fill
   {
     name = '112 nieuws',
+    no_export = true,
     text = {
       '112 KAMPEN: {{Title}}',
       '',
@@ -471,33 +476,76 @@ end
 local function apply(t, vars)
   vars = vars or {}
 
-  -- substitute {{key}} -> value; unknown keys are left as {{key}} for manual fill
-  local function sub(line)
-    return (line:gsub('{{(.-)}}', function(key)
-      key = vim.trim(key)
-      return vars[key] or ('{{' .. key .. '}}')
-    end))
-  end
-  local lines = vim.tbl_map(sub, t.text)
+  -- Als de buffer content heeft, extraheer dan titel (eerste niet-lege regel)
+  -- en body (de rest) en gebruik die voor substitutie in het template.
+  local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local content = strip_frontmatter(buf_lines)
+  local buf_is_empty = vim.trim(table.concat(content, '\n')) == ''
 
-  -- look for a {{body}} seam
-  local before, after = lines, nil
-  for i, l in ipairs(lines) do
-    if l:match('^%s*{{body}}%s*$') then
-      before = vim.list_slice(lines, 1, i - 1)
-      after = vim.list_slice(lines, i + 1, #lines)
-      break
+  if not buf_is_empty then
+    -- Eerste niet-lege regel = titel
+    local title_idx = nil
+    for i, l in ipairs(content) do
+      if vim.trim(l) ~= '' then title_idx = i; break end
+    end
+    if title_idx and not vars.titel then
+      vars.titel = vim.trim(content[title_idx])
+    end
+    -- Rest na de titel (lege regels direct erna overslaan) = body
+    if not vars.body then
+      local body_lines = {}
+      local past_blank = false
+      for i = (title_idx or 0) + 1, #content do
+        if not past_blank and vim.trim(content[i]) == '' then
+          -- lege regels tussen titel en body overslaan
+        else
+          past_blank = true
+          table.insert(body_lines, content[i])
+        end
+      end
+      vars.body = table.concat(body_lines, '\n')
     end
   end
 
-  if after then -- wrap mode: above to top, below to bottom, body stays
-    vim.api.nvim_buf_set_lines(0, 0, 0, false, before)
-    vim.api.nvim_buf_set_lines(0, -1, -1, false, after)
-  elseif (t.position or 'prepend') == 'prepend' then
-    vim.api.nvim_buf_set_lines(0, 0, 0, false, before)
+  -- Substitueer {{key}} → waarde; meerdere regels voor {{body}}.
+  local result = {}
+  for _, l in ipairs(t.text) do
+    if l:match('^%s*{{body}}%s*$') and vars.body then
+      -- Breidt een multi-line body uit over meerdere regels.
+      for _, bl in ipairs(vim.split(vars.body, '\n', { plain = true })) do
+        table.insert(result, bl)
+      end
+    else
+      local substituted = (l:gsub('{{(.-)}}', function(key)
+        key = vim.trim(key)
+        return vars[key] or ('{{' .. key .. '}}')
+      end))
+      table.insert(result, substituted)
+    end
+  end
+
+  if not buf_is_empty then
+    -- Buffer had content: volledig vervangen door het ingevulde template.
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, result)
   else
-    local row = vim.api.nvim_win_get_cursor(0)[1]
-    vim.api.nvim_buf_set_lines(0, row, row, false, before)
+    -- Lege buffer: originele seam-logica (prepend/append).
+    local before, after = result, nil
+    for i, l in ipairs(result) do
+      if l:match('^%s*{{body}}%s*$') then
+        before = vim.list_slice(result, 1, i - 1)
+        after = vim.list_slice(result, i + 1, #result)
+        break
+      end
+    end
+    if after then
+      vim.api.nvim_buf_set_lines(0, 0, 0, false, before)
+      vim.api.nvim_buf_set_lines(0, -1, -1, false, after)
+    elseif (t.position or 'prepend') == 'prepend' then
+      vim.api.nvim_buf_set_lines(0, 0, 0, false, before)
+    else
+      local row = vim.api.nvim_win_get_cursor(0)[1]
+      vim.api.nvim_buf_set_lines(0, row, row, false, before)
+    end
   end
 
   if t.image then
@@ -506,6 +554,19 @@ local function apply(t, vars)
 
   -- Rubriek templates always get priority 1 (vaste rubriek = moet mee).
   vim.api.nvim_buf_set_lines(0, 0, 0, false, { "prio: 1", "" })
+
+  -- Stel lezersnieuws export in; txt wordt geschreven bij <leader>aw.
+  if not t.no_export then
+    local slug = t.name:lower():gsub('[^%a%d]+', '_'):gsub('^_+', ''):gsub('_+$', '')
+    local week_prefix = publication_week()
+    local ln_dir = vim.fn.expand('~/Desktop/' .. week_prefix .. '_lezersnieuws')
+    vim.fn.mkdir(ln_dir, 'p')
+    local buf = vim.api.nvim_get_current_buf()
+    vim.b[buf].gn_export = {
+      dir      = ln_dir,
+      txt_name = '1.' .. slug .. '.txt',
+    }
+  end
 
   vim.notify('Inserted: ' .. t.name)
 end
@@ -554,14 +615,150 @@ function M.kamperkiek_flow(template)
   )
 end
 
+-- Vaste rubrieken met stockfoto → lezersnieuws export.
+local stock_rubrieken = {
+  {
+    name        = 'Hondenhoek',
+    stock_image = 'hondenhoek.jpg',
+    txt_name    = '1.hondenhoekFOTO.txt',
+    working_title = 'z - 1 Hondenhoek',
+    template    = {
+      'Hondenhoek',
+      '',
+      'In de column Hondenhoek belicht kynologisch gedragstherapeut en doorgewinterd hondenkenner Bert Nieuwenhuis telkens één actueel gedragsthema. Aan de hand van herkenbare voorbeelden vertaalt hij dat naar heldere, direct toepasbare tips voor een harmonieuzer leven met uw hond.',
+      '',
+      '{{body}}',
+    },
+  },
+  {
+    name        = 'Open Hof',
+    stock_image = 'open-hof.jpg',
+    txt_name    = '1.openHofFOTO.txt',
+    working_title = 'z - 1 Open Hof',
+    template    = {
+      'Verslag Open Hof: {{title}}',
+      '',
+      'Wijkgemeente Open Hof, onderdeel van de Protestantse Gemeente Kampen, biedt sinds 21 november 2024 kerkasiel aan de familie Babayants, die met uitzetting wordt bedreigd. Kerkasiel is een eeuwenoude traditie waarbij kerken bescherming bieden aan mensen die vervolgd worden of dreigen te worden uitgezet. Op www.brugnieuws.nl doet voormalig predikant Kasper Jager wekelijks verslag van het kerkasiel. Ook in de krant wordt periodiek een editie opgenomen.',
+      '',
+      '{{body}}',
+    },
+  },
+  {
+    name        = 'Nog Even Dit',
+    stock_image = 'nog-even-dit.jpg',
+    txt_name    = '1.nogEvenDitFOTO.txt',
+    working_title = 'z - 1 Nog Even Dit',
+    template    = {
+      'Nog Even Dit',
+      '',
+      'In de column Nog Even Dit reflecteert oud-journalist, Henk de Koning, op zijn welbekende humorvolle en ironische wijze op de zaken spelen in zijn leven en dat van zijn mede-Kampenaren.',
+      '',
+      '(door Henk de Koning)',
+      '{{body}}',
+    },
+  },
+}
+
+-- Namen van templates die vervangen worden door een stock_rubriek_flow.
+local stock_rubriek_names = {}
+for _, r in ipairs(stock_rubrieken) do
+  stock_rubriek_names[r.name] = true
+  -- Ook de oude namen in M.templates uitsluiten.
+  stock_rubriek_names['Column Hondenhoek'] = true
+  stock_rubriek_names['Verslag Open Hof']  = true
+end
+
+function M.stock_rubriek_flow(config)
+  local stock_src = M.config.stock_images .. '/' .. config.stock_image
+  local inbox = vim.fn.expand('~/Desktop/Pubble Inbox')
+
+  -- Waarschuw als er al foto's in de inbox staan.
+  local inbox_files = scan_dir(inbox, 'file')
+  local inbox_images = {}
+  for _, f in ipairs(inbox_files) do
+    if f:match('%.[jJ][pP][eE]?[gG]$') or f:match('%.[pP][nN][gG]$') then
+      table.insert(inbox_images, f)
+    end
+  end
+  if #inbox_images > 0 then
+    vim.notify(
+      'Pubble Inbox bevat al foto\'s: ' .. table.concat(inbox_images, ', ')
+        .. '\nVerwijder deze eerst om verwarring te voorkomen.',
+      vim.log.levels.WARN
+    )
+    return
+  end
+
+  -- Minimale frontmatter stub voor working_title en priority.
+  local fm_lines = {
+    '---',
+    'newspaper:',
+    '  working_title: "' .. config.working_title .. '"',
+    '  priority: 1',
+    '---',
+    '',
+  }
+
+  -- Verwerk {{body}} seam in template.
+  local before, after, in_after = {}, {}, false
+  for _, l in ipairs(config.template) do
+    if l:match('^%s*{{body}}%s*$') then
+      in_after = true
+    elseif not in_after then
+      table.insert(before, l)
+    else
+      table.insert(after, l)
+    end
+  end
+
+  local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local new_lines = {}
+  for _, l in ipairs(fm_lines)  do table.insert(new_lines, l) end
+  for _, l in ipairs(before)    do table.insert(new_lines, l) end
+  for _, l in ipairs(buf_lines) do table.insert(new_lines, l) end
+  for _, l in ipairs(after)     do table.insert(new_lines, l) end
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
+
+  -- Kopieer stockfoto naar Pubble Inbox.
+  vim.uv.fs_copyfile(stock_src, inbox .. '/' .. config.stock_image)
+
+  -- Maak lezersnieuws map aan en kopieer foto.
+  local week_prefix = publication_week()
+  local ln_dir = vim.fn.expand('~/Desktop/' .. week_prefix .. '_lezersnieuws')
+  vim.fn.mkdir(ln_dir, 'p')
+  local img_name = config.txt_name:gsub('%.txt$', '.jpg')
+  vim.uv.fs_copyfile(stock_src, ln_dir .. '/' .. img_name)
+
+  -- Stel gn_export in; txt-bestand wordt geschreven bij <leader>aw.
+  local buf = vim.api.nvim_get_current_buf()
+  vim.b[buf].gn_export = {
+    dir      = ln_dir,
+    txt_name = config.txt_name,
+    img_name = img_name,
+  }
+
+  vim.notify(
+    config.name .. '\n'
+    .. '→ Pubble Inbox/' .. config.stock_image .. '\n'
+    .. '→ ' .. week_prefix .. '_lezersnieuws/' .. img_name .. '\n'
+    .. 'Tekst wordt bij <leader>aw weggeschreven naar lezersnieuws.',
+    vim.log.levels.INFO
+  )
+end
+
 function M.menu()
   local items = {
     { name = 'Raadspraat...', _special = 'raadspraat' },
     { name = 'Kamper Kiek op de Wiek', _special = 'kamperkiek' },
     { name = 'Ondernemen in Kampen...', _special = 'ondernemen' },
   }
+  for _, r in ipairs(stock_rubrieken) do
+    table.insert(items, { name = r.name, _special = 'stock_rubriek', _config = r })
+  end
+  local skip = { ['Kiek op de wiek (Sander de Rouwe)'] = true }
+  for k in pairs(stock_rubriek_names) do skip[k] = true end
   for _, t in ipairs(M.templates) do
-    if t.name ~= 'Kiek op de wiek (Sander de Rouwe)' then
+    if not skip[t.name] then
       table.insert(items, t)
     end
   end
@@ -575,6 +772,8 @@ function M.menu()
       M.raadspraat_menu()
     elseif choice._special == 'ondernemen' then
       M.ondernemen_menu()
+    elseif choice._special == 'stock_rubriek' then
+      M.stock_rubriek_flow(choice._config)
     elseif choice._special == 'kamperkiek' then
       local kiek_template = nil
       for _, t in ipairs(M.templates) do
