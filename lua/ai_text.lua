@@ -1135,7 +1135,12 @@ function M.pubble_send()
             display_dates[code] = "direct"
           else
             local d = choice:match("^(%d%d%d%d%-%d%d%-%d%d)")
-            display_dates[code] = d or "direct"
+            if d then
+              local c = counts[d] or 0
+              display_dates[code] = d .. ":" .. tostring(c)
+            else
+              display_dates[code] = "direct"
+            end
           end
           ask_edition(idx + 1)
         end)
