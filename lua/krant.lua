@@ -143,7 +143,7 @@ M.templates = {
     name = '112 nieuws',
     no_export = true,
     text = {
-      '112 KAMPEN: {{Title}}',
+      '112 KAMPEN: {{titel}}',
       '',
       '{{body}}',
       '',

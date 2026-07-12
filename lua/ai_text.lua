@@ -169,6 +169,49 @@ local _run_articlemeta_calendar  -- forward declaration
 local _112_signal_score          -- forward declaration
 local _112_THRESHOLD = 6
 
+local _112_DISCLAIMER = "Dit is alle informatie die onze redactie op dit moment heeft. "
+  .. "Wij hechten veel waarde aan zorgvuldige berichtgeving en proberen de privacy van betrokkenen "
+  .. "zo goed mogelijk te waarborgen. Klopt iets niet, heeft u aanvullende informatie die het publieke "
+  .. "belang dient, of vindt u dat iets anders niet voldoet aan journalistieke normen? Mail de redactie "
+  .. "via redactie.debrug@brugmedia.nl. Uiteraard is uw privacy gewaarborgd."
+
+-- Detecteer 112-templatestructuur in een lijst regels.
+-- Geeft terug: titel (string), body_lines (list), heeft_disclaimer (bool).
+-- Geeft nil terug als het geen 112-template is.
+local function _parse_112_template(lines)
+  local first_content = nil
+  for _, l in ipairs(lines) do
+    if vim.trim(l) ~= "" then first_content = l; break end
+  end
+  if not first_content then return nil end
+  local titel = first_content:match("^112 KAMPEN:%s*(.-)%s*$")
+  if not titel then return nil end
+
+  -- Zoek de disclaimer en extraheer de body daartussen.
+  local body_lines = {}
+  local heeft_disclaimer = false
+  local past_title = false
+  local skip_blank_after_title = true
+  for _, l in ipairs(lines) do
+    if not past_title then
+      if l == first_content then past_title = true end
+    elseif l:find(_112_DISCLAIMER:sub(1, 30), 1, true) then
+      heeft_disclaimer = true
+      break
+    elseif skip_blank_after_title and vim.trim(l) == "" then
+      -- lege regels direct na de titel overslaan
+    else
+      skip_blank_after_title = false
+      table.insert(body_lines, l)
+    end
+  end
+  -- Trim trailing lege regels van body
+  while #body_lines > 0 and vim.trim(body_lines[#body_lines]) == "" do
+    table.remove(body_lines)
+  end
+  return { titel = titel, body_lines = body_lines, heeft_disclaimer = heeft_disclaimer }
+end
+
 -- ---------------------------------------------------------------------------
 -- Deterministische kalenderdetectie
 -- Scoort artikeltekst op combinaties van datum, tijd, deelname en activiteit.
@@ -260,7 +303,16 @@ function M.rewrite_article_buffer()
   -- Strip leading control lines BEFORE sending to AI so they are never lost or
   -- corrupted. We put them back at the top after the rewrite.
   local saved_ctrl, body_lines = extract_leading_control_lines(lines)
-  local input = table.concat(body_lines, "\n")
+
+  -- Detecteer 112-templatestructuur: stuur alleen titel + body naar AI,
+  -- niet de vaste `112 KAMPEN:` prefix en disclaimer.
+  local is_112_template = _parse_112_template(body_lines)
+  local input
+  if is_112_template then
+    input = "# " .. is_112_template.titel .. "\n\n" .. table.concat(is_112_template.body_lines, "\n")
+  else
+    input = table.concat(body_lines, "\n")
+  end
 
   ai_system({ aitext, "journalistiek_schrijven" }, { text = true, stdin = input }, function(result)
     vim.schedule(function()
@@ -270,6 +322,39 @@ function M.rewrite_article_buffer()
       end
 
       local new_lines = vim.split(result.stdout, "\n", { plain = true })
+
+      -- Bij 112-template: herschreven output terugzetten in de templatestructuur.
+      if is_112_template then
+        -- Eerste niet-lege regel = nieuwe titel (strip eventuele `# ` prefix van AI).
+        local new_titel = ""
+        local new_body_lines = {}
+        local found_titel = false
+        local skip_blank = true
+        for _, l in ipairs(new_lines) do
+          if not found_titel then
+            local t = vim.trim(l):gsub("^#+%s*", ""):gsub("^112%s+KAMPEN:%s*", "")
+            if t ~= "" then new_titel = t; found_titel = true end
+          elseif skip_blank and vim.trim(l) == "" then
+            -- lege regels direct na titel overslaan
+          else
+            skip_blank = false
+            table.insert(new_body_lines, l)
+          end
+        end
+        -- Trim trailing lege regels van body
+        while #new_body_lines > 0 and vim.trim(new_body_lines[#new_body_lines]) == "" do
+          table.remove(new_body_lines)
+        end
+        new_lines = {
+          "112 KAMPEN: " .. new_titel,
+          "",
+        }
+        for _, l in ipairs(new_body_lines) do table.insert(new_lines, l) end
+        if is_112_template.heeft_disclaimer then
+          table.insert(new_lines, "")
+          table.insert(new_lines, _112_DISCLAIMER)
+        end
+      end
 
       -- Lees de huidige bufferinhoud opnieuw: de gebruiker kan tijdens het wachten
       -- controleregels bovenaan hebben getypt, of via <leader>ac/<leader>af al een
@@ -377,45 +462,20 @@ function M.rewrite_article_buffer()
         end
       end
 
-      -- 112-detectie: pas het kt-template toe als de herschreven tekst op 112-nieuws lijkt
-      -- en het artikel nog niet als 112 gemarkeerd is (rubriek: 112 niet al aanwezig).
-      local already_112 = false
-      for _, line in ipairs(final_ctrl) do
-        local k, v = line:match("^(%a[%a%d_]*)%s*:%s*(.-)%s*$")
-        if k and v and k:lower() == "rubriek" and v:lower() == "112" then
-          already_112 = true
-          break
+      -- Als dit nog geen 112-templateartikel was maar de rewritten tekst wél
+      -- als 112 scoort: template alsnog toepassen (fallback voor het geval
+      -- autodetect bij import gemist heeft).
+      if not is_112_template then
+        local already_112 = false
+        for _, line in ipairs(final_ctrl) do
+          local k, v = line:match("^(%a[%a%d_]*)%s*:%s*(.-)%s*$")
+          if k and v and k:lower() == "rubriek" and v:lower() == "112" then
+            already_112 = true; break
+          end
         end
-      end
-      if not already_112 then
-        local score_112 = _112_signal_score(rewritten_str)
-        if score_112 >= _112_THRESHOLD then
-          vim.notify(
-            string.format("112-detectie (score %d) — kt-template wordt toegepast.", score_112),
-            vim.log.levels.INFO
-          )
-          -- Extraheer de bodytekst (sla de titel over als die er is).
-          local body_for_template = {}
-          local skip_title = true
-          for _, line in ipairs(new_lines) do
-            if skip_title and line:match("^#") then
-              skip_title = false
-            elseif skip_title and vim.trim(line) ~= "" then
-              skip_title = false
-              table.insert(body_for_template, line)
-            elseif not skip_title then
-              table.insert(body_for_template, line)
-            end
-          end
-          -- Verwijder trailing lege regels en trailing secties (## Facebook, ## Kalender)
-          local clean_body = {}
-          for _, line in ipairs(body_for_template) do
-            if line:match("^##%s") then break end
-            table.insert(clean_body, line)
-          end
-          local body_str = vim.trim(table.concat(clean_body, "\n"))
-          require("krant").apply_template_by_name("112 nieuws", { body = body_str }, buf)
-          -- Prepend rubriek: 112 bovenaan het artikel (voor eventuele andere controleregels).
+        if not already_112 and _112_signal_score(rewritten_str) >= _112_THRESHOLD then
+          vim.notify("112-detectie na rewrite — template wordt toegepast.", vim.log.levels.INFO)
+          require("krant").apply_template_by_name("112 nieuws", {}, buf)
           local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
           table.insert(buf_lines, 1, "")
           table.insert(buf_lines, 1, "rubriek: 112")
@@ -669,14 +729,21 @@ local function _112_autodetect(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   if #lines == 0 then return end
   local text = table.concat(lines, "\n")
-  -- Sla over als al als 112 gemarkeerd.
+  -- Sla over als al als 112 gemarkeerd of al in templatevorm.
   if text:find("rubriek:%s*112") then return end
+  if text:find("^112 KAMPEN:") then return end
   local score = _112_signal_score(text)
   if score >= _112_THRESHOLD then
     vim.notify(
-      string.format("Dit lijkt een 112-bericht (score %d) — na <leader>ar wordt het template toegepast.", score),
+      string.format("112-detectie (score %d) — template wordt direct toegepast.", score),
       vim.log.levels.INFO
     )
+    require("krant").apply_template_by_name("112 nieuws", {}, buf)
+    -- Prepend rubriek: 112 bovenaan.
+    local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    table.insert(buf_lines, 1, "")
+    table.insert(buf_lines, 1, "rubriek: 112")
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, buf_lines)
   end
 end
 
