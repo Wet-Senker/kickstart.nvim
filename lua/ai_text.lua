@@ -504,12 +504,23 @@ function M.pubble_send()
     temp_file = inbox .. "/" .. stem .. "-" .. tc .. ".md"
     tc = tc + 1
   end
+  local using_cached_calendar = vim.b[buf].cached_calendar_metadata ~= nil
+  local cached_fb = vim.b[buf].cached_facebook_text
+
   -- Strip Streamer: en Eindredactie: uit wat naar Pubble gaat (opmaken-artefacten
   -- voor de printontwerper, niet bedoeld als artikeltekst).
+  -- Strip ook calendar:/cal: en facebook: control lines als hun cached resultaat
+  -- al geïnjecteerd wordt — pubble-send hoeft ze dan niet opnieuw te draaien.
   local pubble_lines = {}
   for _, line in ipairs(lines) do
     local t = vim.trim(line)
-    if not t:match("^[Ss]treamer:%s*") and not t:match("^Eindredactie:%s*") then
+    if t:match("^[Ss]treamer:%s*") or t:match("^Eindredactie:%s*") then
+      -- altijd strippen
+    elseif using_cached_calendar and t:match("^[Cc]al[^:]*:%s*x%s*$") then
+      -- strip calendar: x / cal: x omdat frontmatter al klaar is
+    elseif cached_fb and cached_fb ~= "" and t:match("^[Ff]acebook%s*:%s*x%s*$") then
+      -- strip facebook: x omdat ## Facebook al geïnjecteerd wordt
+    else
       table.insert(pubble_lines, line)
     end
   end
@@ -519,9 +530,7 @@ function M.pubble_send()
   end
 
   -- Injecteer gecachede Facebook-tekst als die al klaar is en er nog geen
-  -- ## Facebook-sectie in de buffer staat. pubble-send slaat de AI-aanroep
-  -- dan over (_has_facebook_section retourneert true).
-  local cached_fb = vim.b[buf].cached_facebook_text
+  -- ## Facebook-sectie in de buffer staat.
   if cached_fb and cached_fb ~= "" then
     local has_fb_section = false
     for _, line in ipairs(pubble_lines) do
