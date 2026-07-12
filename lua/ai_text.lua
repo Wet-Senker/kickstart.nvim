@@ -165,6 +165,90 @@ local function split_trailing_sections(lines)
   return body, trailing
 end
 
+-- ---------------------------------------------------------------------------
+-- Deterministische kalenderdetectie
+-- Scoort artikeltekst op combinaties van datum, tijd, deelname en activiteit.
+-- Sterk signaal = meerdere categorieën tegelijk; één categorie triggert nooit.
+-- ---------------------------------------------------------------------------
+local _CALENDAR_THRESHOLD = 8
+
+local function _calendar_signal_score(text)
+  local t = text:lower()
+  local score = 0
+
+  -- Sterke frasen: 3 pts elk (onbeperkt, maar elk patroon max 1x)
+  for _, phrase in ipairs({
+    "op het programma", "staat op het programma",
+    "vindt plaats", "wordt gehouden", "begint om", "start om", "eindigt om",
+    "de deuren gaan open", "de zaal gaat open",
+    "inloop vanaf", "verzamelen om", "vertrek om",
+    "aansluitend is er", "na afloop",
+    "aanmelden kan", "opgeven kan", "reserveren via",
+    "kaarten via", "kaarten verkrijgbaar", "tickets zijn verkrijgbaar",
+    "de entree bedraagt", "toegang bedraagt", "deelname kost",
+    "beperkt aantal plaatsen", "vol is vol",
+    "voor alle leeftijden", "jong en oud",
+    "vrije inloop", "zonder aanmelding",
+    "meer informatie", "kijk voor meer informatie",
+    "iedereen kan deelnemen", "iedereen kan binnenlopen",
+    "onder begeleiding van",
+  }) do
+    if t:find(phrase, 1, true) then score = score + 3 end
+  end
+
+  -- Tijdpatronen: 3 pts elk
+  if t:find("%d%d?[%.:]%d%d%s*uur") then score = score + 3 end
+  if t:find("om%s+%d%d?[%.:]%d%d")  then score = score + 3 end
+  if t:find("van%s+%d%d?[%.:]%d%d%s+tot") then score = score + 3 end
+  if t:find("vanaf%s+%d%d?[%.:]%d%d")     then score = score + 2 end
+  if t:find("aanvang%s+%d%d?")             then score = score + 2 end
+
+  -- Weekdag + datumgetal: 2 pts (max 1x)
+  for _, dag in ipairs({
+    "maandag","dinsdag","woensdag","donderdag","vrijdag","zaterdag","zondag",
+  }) do
+    if t:find(dag .. "%s+%d") then score = score + 2; break end
+  end
+
+  -- Herhalende patronen: 2 pts
+  if t:find("elke%s+%a") or t:find("iedere%s+%a")
+  or t:find("wekelijks%s+op") or t:find("maandelijks%s+op") then
+    score = score + 2
+  end
+
+  -- Datumpatronen: 2 pts elk (max 1x per patroon)
+  if t:find("van%s+%d%d?%s+%a+%s+tot%s+en%s+met") then score = score + 2 end
+  if t:find("%d%d?%s+%a+%s+%d%d%d%d")             then score = score + 2 end
+
+  -- Deelname-/toegangswoorden: 1 pt elk, max 4
+  local access = 0
+  for _, word in ipairs({
+    "aanmelden", "inschrijven", "reserveren", "kaartjes", "tickets",
+    "gratis", "entree", "kosten", "deelname", "opgeven",
+    "voorverkoop", "aanmelding", "inschrijving", "reservering",
+  }) do
+    if t:find(word) and access < 4 then access = access + 1 end
+  end
+  score = score + access
+
+  -- Activiteitstypen: 1 pt per 2 treffers, max 3
+  local act = 0
+  for _, word in ipairs({
+    "concert","lezing","workshop","tentoonstelling","expositie",
+    "bijeenkomst","evenement","festival","excursie","wandeling",
+    "cursus","training","presentatie","optreden","uitvoering",
+    "voorstelling","theater","markt","toernooi","samenzang",
+    "kerkdienst","filmavond","informatieavond","proeverij",
+    "benefiet","jubileum","herdenking","clinic","rondleiding",
+    "speurtocht","fietstocht","rondvaart","repetitie","open dag",
+  }) do
+    if t:find(word) then act = act + 1 end
+  end
+  score = score + math.min(3, math.floor(act / 2))
+
+  return score
+end
+
 function M.rewrite_article_buffer()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -274,6 +358,18 @@ function M.rewrite_article_buffer()
             strip_leading_control_line(buf, "^[Ff]acebook%s*:%s*x%s*$")
           end)
         end, "AI · Facebook")
+      end
+
+      -- Auto-detect kalenderberichten als er geen expliciete calendar: x aanwezig is.
+      if not needs_calendar then
+        local cal_score = _calendar_signal_score(rewritten_str)
+        if cal_score >= _CALENDAR_THRESHOLD then
+          vim.notify(
+            string.format("Kalenderdetectie (score %d) — kalendermetadata wordt opgehaald.", cal_score),
+            vim.log.levels.INFO
+          )
+          M.articlemeta_calendar_buffer()
+        end
       end
     end)
   end, "AI · Herschrijven")
