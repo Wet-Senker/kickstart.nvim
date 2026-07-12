@@ -478,7 +478,6 @@ function M.rewrite_article_buffer()
           vim.notify("112-detectie na rewrite — template wordt toegepast.", vim.log.levels.INFO)
           require("krant").apply_template_by_name("112 nieuws", {}, buf)
           local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-          table.insert(buf_lines, 1, "")
           table.insert(buf_lines, 1, "rubriek: 112")
           vim.api.nvim_buf_set_lines(buf, 0, -1, false, buf_lines)
         end
@@ -734,18 +733,17 @@ local function _112_autodetect(buf)
   if text:find("rubriek:%s*112") then return end
   if text:find("^112 KAMPEN:") then return end
   local score = _112_signal_score(text)
-  if score >= _112_THRESHOLD then
-    vim.notify(
-      string.format("112-detectie (score %d) — template wordt direct toegepast.", score),
-      vim.log.levels.INFO
-    )
+  if score < _112_THRESHOLD then return end
+
+  vim.ui.select({ "Ja", "Nee" }, {
+    prompt = string.format("112-bericht behandelen? (score %d)", score),
+  }, function(choice)
+    if choice ~= "Ja" then return end
     require("krant").apply_template_by_name("112 nieuws", {}, buf)
-    -- Prepend rubriek: 112 bovenaan.
     local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    table.insert(buf_lines, 1, "")
     table.insert(buf_lines, 1, "rubriek: 112")
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, buf_lines)
-  end
+  end)
 end
 
 vim.api.nvim_create_autocmd("BufReadPost", {
