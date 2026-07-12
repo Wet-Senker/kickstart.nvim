@@ -373,6 +373,52 @@ function M.rewrite_article_buffer()
           _run_articlemeta_calendar(buf)
         end
       end
+
+      -- 112-detectie: pas het kt-template toe als de herschreven tekst op 112-nieuws lijkt
+      -- en het artikel nog niet als 112 gemarkeerd is (rubriek: 112 niet al aanwezig).
+      local already_112 = false
+      for _, line in ipairs(final_ctrl) do
+        local k, v = line:match("^(%a[%a%d_]*)%s*:%s*(.-)%s*$")
+        if k and v and k:lower() == "rubriek" and v:lower() == "112" then
+          already_112 = true
+          break
+        end
+      end
+      if not already_112 then
+        local score_112 = _112_signal_score(rewritten_str)
+        if score_112 >= _112_THRESHOLD then
+          vim.notify(
+            string.format("112-detectie (score %d) — kt-template wordt toegepast.", score_112),
+            vim.log.levels.INFO
+          )
+          -- Extraheer de bodytekst (sla de titel over als die er is).
+          local body_for_template = {}
+          local skip_title = true
+          for _, line in ipairs(new_lines) do
+            if skip_title and line:match("^#") then
+              skip_title = false
+            elseif skip_title and vim.trim(line) ~= "" then
+              skip_title = false
+              table.insert(body_for_template, line)
+            elseif not skip_title then
+              table.insert(body_for_template, line)
+            end
+          end
+          -- Verwijder trailing lege regels en trailing secties (## Facebook, ## Kalender)
+          local clean_body = {}
+          for _, line in ipairs(body_for_template) do
+            if line:match("^##%s") then break end
+            table.insert(clean_body, line)
+          end
+          local body_str = vim.trim(table.concat(clean_body, "\n"))
+          require("krant").apply_template_by_name("112 nieuws", { body = body_str }, buf)
+          -- Prepend rubriek: 112 bovenaan het artikel (voor eventuele andere controleregels).
+          local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+          table.insert(buf_lines, 1, "")
+          table.insert(buf_lines, 1, "rubriek: 112")
+          vim.api.nvim_buf_set_lines(buf, 0, -1, false, buf_lines)
+        end
+      end
     end)
   end, "AI · Herschrijven")
 end
@@ -566,6 +612,77 @@ vim.api.nvim_create_autocmd("BufReadPost", {
   pattern = vim.fn.expand("~/Desktop") .. "/*.md",
   callback = function(ev)
     vim.schedule(function() _calendar_autodetect(ev.buf) end)
+  end,
+})
+
+-- ---------------------------------------------------------------------------
+-- Deterministische 112-detectie
+-- Scoort artikeltekst op signaalwoorden die typisch zijn voor 112-berichten.
+-- ---------------------------------------------------------------------------
+local _112_THRESHOLD = 6
+
+function _112_signal_score(text)
+  local t = text:lower()
+  local score = 0
+  -- Hulpdiensten: 3 pt elk
+  for _, phrase in ipairs({
+    "politie", "brandweer", "ambulance", "traumahelikopter",
+    "112", "reanimatie", "gereanimeerd",
+    "spoedeisende", "spoedhulp",
+    "hulpdiensten ter plaatse", "hulpverleners",
+  }) do
+    if t:find(phrase, 1, true) then score = score + 3 end
+  end
+  -- Incidenttypes: 2 pt elk
+  for _, phrase in ipairs({
+    "brand", "brandstichting", "explosie", "gaslek", "ongeluk", "aanrijding",
+    "botsing", "kop-staart", "frontale botsing", "ravage", "zwaargewond",
+    "lichtgewond", "slachtoffer", "omgekomen", "gewonden", "levensgevaar",
+    "kritieke toestand", "ziekenhuis overgebracht", "overgebracht naar",
+    "ingerekend", "aangehouden", "verdachte", "vuurwerk", "schietpartij",
+    "steekpartij", "mishandeling", "beroving", "overval",
+    "vermiste", "vermist", "waterongeval", "verdrinking",
+    "medische noodsituatie", "reanimatie", "hartaanval",
+    "bewusteloos", "bewusteloze",
+  }) do
+    if t:find(phrase, 1, true) then score = score + 2 end
+  end
+  -- Locatieprecisie: 1 pt
+  if t:find("ter hoogte van") or t:find("op de hoek van") or t:find("nabij de") then
+    score = score + 1
+  end
+  -- Tijdsprecisie: 1 pt
+  if t:find("%d%d?[%.:]%d%d%s*uur") or t:find("om%s+%d%d?[%.:]%d%d") then
+    score = score + 1
+  end
+  -- Bron: 1 pt
+  if t:find("politie kampen") or t:find("IJsselland") or t:find("veiligheidsregio") then
+    score = score + 1
+  end
+  return score
+end
+
+local function _112_autodetect(buf)
+  if vim.b[buf]._112_autodetect_done then return end
+  vim.b[buf]._112_autodetect_done = true
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  if #lines == 0 then return end
+  local text = table.concat(lines, "\n")
+  -- Sla over als al als 112 gemarkeerd.
+  if text:find("rubriek:%s*112") then return end
+  local score = _112_signal_score(text)
+  if score >= _112_THRESHOLD then
+    vim.notify(
+      string.format("Dit lijkt een 112-bericht (score %d) — na <leader>ar wordt het template toegepast.", score),
+      vim.log.levels.INFO
+    )
+  end
+end
+
+vim.api.nvim_create_autocmd("BufReadPost", {
+  pattern = vim.fn.expand("~/Desktop") .. "/*.md",
+  callback = function(ev)
+    vim.schedule(function() _112_autodetect(ev.buf) end)
   end,
 })
 

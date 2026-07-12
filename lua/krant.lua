@@ -473,12 +473,13 @@ function M.ondernemen_menu()
   end)
 end
 
-local function apply(t, vars)
+local function apply(t, vars, target_buf)
   vars = vars or {}
+  target_buf = target_buf or 0
 
   -- Als de buffer content heeft, extraheer dan titel (eerste niet-lege regel)
   -- en body (de rest) en gebruik die voor substitutie in het template.
-  local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
   local content = strip_frontmatter(buf_lines)
   local buf_is_empty = vim.trim(table.concat(content, '\n')) == ''
 
@@ -526,7 +527,7 @@ local function apply(t, vars)
 
   if not buf_is_empty then
     -- Buffer had content: volledig vervangen door het ingevulde template.
-    vim.api.nvim_buf_set_lines(0, 0, -1, false, result)
+    vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, result)
   else
     -- Lege buffer: originele seam-logica (prepend/append).
     local before, after = result, nil
@@ -538,13 +539,13 @@ local function apply(t, vars)
       end
     end
     if after then
-      vim.api.nvim_buf_set_lines(0, 0, 0, false, before)
-      vim.api.nvim_buf_set_lines(0, -1, -1, false, after)
+      vim.api.nvim_buf_set_lines(target_buf, 0, 0, false, before)
+      vim.api.nvim_buf_set_lines(target_buf, -1, -1, false, after)
     elseif (t.position or 'prepend') == 'prepend' then
-      vim.api.nvim_buf_set_lines(0, 0, 0, false, before)
+      vim.api.nvim_buf_set_lines(target_buf, 0, 0, false, before)
     else
       local row = vim.api.nvim_win_get_cursor(0)[1]
-      vim.api.nvim_buf_set_lines(0, row, row, false, before)
+      vim.api.nvim_buf_set_lines(target_buf, row, row, false, before)
     end
   end
 
@@ -553,7 +554,7 @@ local function apply(t, vars)
   end
 
   -- Rubriek templates always get priority 1 (vaste rubriek = moet mee).
-  vim.api.nvim_buf_set_lines(0, 0, 0, false, { "prio: 1", "" })
+  vim.api.nvim_buf_set_lines(target_buf, 0, 0, false, { "prio: 1", "" })
 
   -- Stel lezersnieuws export in; txt wordt geschreven bij <leader>aw.
   if not t.no_export then
@@ -561,14 +562,25 @@ local function apply(t, vars)
     local week_prefix = publication_week()
     local ln_dir = vim.fn.expand('~/Desktop/' .. week_prefix .. '_lezersnieuws')
     vim.fn.mkdir(ln_dir, 'p')
-    local buf = vim.api.nvim_get_current_buf()
-    vim.b[buf].gn_export = {
+    vim.b[target_buf].gn_export = {
       dir      = ln_dir,
       txt_name = '1.' .. slug .. '.txt',
     }
   end
 
   vim.notify('Inserted: ' .. t.name)
+end
+
+-- Pas een template bij naam toe op een specifieke buffer, met optionele
+-- vooraf ingevulde vars. Geeft true terug als het template gevonden is.
+function M.apply_template_by_name(name, vars, buf)
+  for _, t in ipairs(M.templates) do
+    if t.name == name then
+      apply(t, vars, buf)
+      return true
+    end
+  end
+  return false
 end
 
 
