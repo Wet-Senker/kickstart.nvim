@@ -11,11 +11,13 @@ vim.api.nvim_create_autocmd("BufNewFile", {
 })
 
 -- Wrap vim.system with a fidget progress handle so the user sees a spinner
--- while any AI call is running.
-local function ai_system(cmd, opts, callback, title, message)
+-- while any AI call is running. message = '' (not omitted) shows just the
+-- title + spinner, no boilerplate text — omitting it entirely would fall
+-- back to fidget's own English "In progress...".
+local function ai_system(cmd, opts, callback, title)
   local handle = require("fidget.progress").handle.create {
     title   = title or "AI",
-    message = message or "bezig...",
+    message = "",
     lsp_client = { name = "aitext" },
   }
   return vim.system(cmd, opts, function(result)
@@ -41,25 +43,6 @@ local rewrite_prompts = {
 
 local function shellescape(value)
   return vim.fn.shellescape(value)
-end
-
-local function run_on_buffer(prompt_name, append)
-  local buf = vim.api.nvim_get_current_buf()
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local input = table.concat(lines, "\n")
-  local cmd = { aitext, prompt_name }
-  if append then table.insert(cmd, "--append") end
-
-  ai_system(cmd, { text = true, stdin = input }, function(result)
-    vim.schedule(function()
-      if result.code == 0 then
-        local new_lines = vim.split(result.stdout, "\n", { plain = true })
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
-      else
-        vim.notify("AI rewrite mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
-      end
-    end)
-  end, prompt_name)
 end
 
 local function run_on_visual_selection(prompt_name, append)
@@ -141,6 +124,33 @@ local function split_frontmatter_lines(lines)
   return {}, 1
 end
 
+-- Find where trailing extra sections (## Kalender / ## Facebook, in either
+-- order) begin, so a full-body rewrite can replace only the article body
+-- and leave sections added concurrently by <leader>ac/<leader>af intact.
+-- Returns body_lines, trailing_lines (trailing_lines is {} if neither exists).
+local function split_trailing_sections(lines)
+  local cut = nil
+  for i = 1, #lines do
+    if lines[i] == "## Kalender" or lines[i] == "## Facebook" then
+      cut = i
+      break
+    end
+  end
+  if not cut then return lines, {} end
+
+  -- Walk back over the blank line + "---" separator that precedes the section.
+  local body_end = cut - 1
+  while body_end >= 1 and (lines[body_end] == "" or lines[body_end] == "---") do
+    body_end = body_end - 1
+  end
+
+  local body = {}
+  for j = 1, body_end do body[j] = lines[j] end
+  local trailing = {}
+  for j = body_end + 1, #lines do table.insert(trailing, lines[j]) end
+  return body, trailing
+end
+
 function M.rewrite_article_buffer()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -160,10 +170,13 @@ function M.rewrite_article_buffer()
       local new_lines = vim.split(result.stdout, "\n", { plain = true })
 
       -- Lees de huidige bufferinhoud opnieuw: de gebruiker kan tijdens het wachten
-      -- controleregels bovenaan hebben getypt. Die gaan voor op de pre-rewrite ctrl.
+      -- controleregels bovenaan hebben getypt, of via <leader>ac/<leader>af al een
+      -- ## Kalender-/## Facebook-sectie hebben laten toevoegen. Beide blijven behouden
+      -- in plaats van overschreven door de volledige buffer-vervanging hieronder.
       local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-      local current_ctrl, _ = extract_leading_control_lines(current_lines)
+      local current_ctrl, current_body = extract_leading_control_lines(current_lines)
       local final_ctrl = #current_ctrl > 0 and current_ctrl or saved_ctrl
+      local _, trailing_sections = split_trailing_sections(current_body)
 
       if #final_ctrl > 0 then
         local combined = {}
@@ -172,12 +185,30 @@ function M.rewrite_article_buffer()
         new_lines = combined
       end
 
+      if #trailing_sections > 0 then
+        for _, l in ipairs(trailing_sections) do table.insert(new_lines, l) end
+      end
+
       local rewritten_str = table.concat(new_lines, "\n")
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
       vim.b[buf].cached_metadata = nil
+      vim.b[buf].cached_calendar_metadata = nil
+      vim.b[buf].cached_facebook_text = nil
 
-      -- Metadata ophalen op de achtergrond en cachen in een buffervariabele.
-      -- De buffer blijft schoon; bij leader aw wordt de cache geïnjecteerd.
+      -- Detecteer calendar: x en facebook: x in de controleregelblok.
+      local needs_calendar = false
+      local needs_facebook = false
+      for _, line in ipairs(final_ctrl) do
+        local k, v = line:match("^(%a[%a%d_]*)%s*:%s*(.-)%s*$")
+        if k and v then
+          k = k:lower(); v = v:lower()
+          if (k == "calendar" or k == "cal") and v == "x" then needs_calendar = true end
+          if k == "facebook" and v == "x" then needs_facebook = true end
+        end
+      end
+
+      -- Alle drie de achtergrondtaken starten tegelijk (vim.system is non-blocking).
+      -- Elke taak schrijft naar een eigen buffervariabele — geen races.
       ai_system({ articlemeta }, { text = true, stdin = rewritten_str }, function(meta_result)
         vim.schedule(function()
           if meta_result.code ~= 0 then
@@ -192,6 +223,37 @@ function M.rewrite_article_buffer()
           end
         end)
       end, "AI · Metadata")
+
+      if needs_calendar then
+        ai_system({ articlemeta, "--calendar" }, { text = true, stdin = rewritten_str }, function(cal_result)
+          vim.schedule(function()
+            if cal_result.code ~= 0 then
+              vim.notify("Kalendermetadata ophalen mislukt: " .. (cal_result.stderr or ""), vim.log.levels.WARN)
+              return
+            end
+            local cal_lines = vim.split(cal_result.stdout, "\n", { plain = true })
+            local cal_fm, _ = split_frontmatter_lines(cal_lines)
+            if #cal_fm > 0 then
+              vim.b[buf].cached_calendar_metadata = cal_fm
+            end
+          end)
+        end, "AI · Kalender")
+      end
+
+      if needs_facebook then
+        ai_system({ aitext, "facebook_bericht" }, { text = true, stdin = rewritten_str }, function(fb_result)
+          vim.schedule(function()
+            if fb_result.code ~= 0 then
+              vim.notify("Facebook-bericht ophalen mislukt: " .. (fb_result.stderr or ""), vim.log.levels.WARN)
+              return
+            end
+            local fb_text = vim.trim(fb_result.stdout or "")
+            if fb_text ~= "" then
+              vim.b[buf].cached_facebook_text = fb_text
+            end
+          end)
+        end, "AI · Facebook")
+      end
     end)
   end, "AI · Herschrijven")
 end
@@ -397,8 +459,9 @@ function M.pubble_send()
   end
 
   -- Inject cached metadata (from background rewrite chain) if the buffer
-  -- has no frontmatter yet. This keeps the buffer clean until send time.
-  local cached_fm = vim.b[buf].cached_metadata
+  -- has no frontmatter yet. Calendar-metadata heeft voorrang: het is een
+  -- superset van de gewone metadata (bevat ook kalender-velden).
+  local cached_fm = vim.b[buf].cached_calendar_metadata or vim.b[buf].cached_metadata
   if cached_fm and #cached_fm > 0 then
     local _, body_start = split_frontmatter_lines(lines)
     if body_start == 1 then  -- no existing frontmatter in buffer
@@ -454,8 +517,24 @@ function M.pubble_send()
   while #pubble_lines > 0 and vim.trim(pubble_lines[#pubble_lines]) == "" do
     table.remove(pubble_lines)
   end
+
+  -- Injecteer gecachede Facebook-tekst als die al klaar is en er nog geen
+  -- ## Facebook-sectie in de buffer staat. pubble-send slaat de AI-aanroep
+  -- dan over (_has_facebook_section retourneert true).
+  local cached_fb = vim.b[buf].cached_facebook_text
+  if cached_fb and cached_fb ~= "" then
+    local has_fb_section = false
+    for _, line in ipairs(pubble_lines) do
+      if line:match("^## Facebook") then has_fb_section = true; break end
+    end
+    if not has_fb_section then
+      for _, l in ipairs(vim.split("\n\n---\n\n## Facebook\n\n" .. cached_fb, "\n", { plain = true })) do
+        table.insert(pubble_lines, l)
+      end
+    end
+  end
+
   vim.fn.writefile(pubble_lines, temp_file)
-  vim.notify("Verzenden naar Pubble...", vim.log.levels.INFO)
 
   ai_system(
     { pubble_send, temp_file, "--create", "--no-open", "--write-ids" },
@@ -613,6 +692,17 @@ function M.pubble_send()
           -- Verwijder origineel op bureaublad; buffer blijft zichtbaar voor nacontrole.
           if file_path ~= "" and vim.fn.filereadable(file_path) == 1 then
             vim.fn.delete(file_path)
+          end
+
+          -- Zet bovenaan de (nog open) buffer wanneer verzonden is, zodat je bij
+          -- meerdere open buffers in één oogopslag ziet wat al gelukt is.
+          -- Opnieuw verzenden vervangt de bestaande regel i.p.v. te stapelen.
+          local sent_marker = "**Verstuurd naar Pubble op " .. os.date("%d-%m-%Y %H:%M") .. "**"
+          local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+          if buf_lines[1] and buf_lines[1]:match("^%*%*Verstuurd naar Pubble op ") then
+            vim.api.nvim_buf_set_lines(buf, 0, 1, false, { sent_marker })
+          else
+            vim.api.nvim_buf_set_lines(buf, 0, 0, false, { sent_marker, "" })
           end
         else
           local output = vim.trim(result.stderr or result.stdout or "")
