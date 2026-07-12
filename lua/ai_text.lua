@@ -1136,12 +1136,17 @@ function M.pubble_send()
         vim.ui.select(items, {
           prompt = "[" .. code .. "] Publicatiedatum webversie:",
         }, function(choice)
-          if not choice or choice == "Direct plaatsen" then
+          if choice == nil then
+            -- Escape: hele verzending annuleren
+            vim.fn.delete(temp_file)
+            vim.notify("Verzending geannuleerd.", vim.log.levels.INFO)
+            return
+          elseif choice == "Direct plaatsen" then
             display_dates[code] = "direct"
           else
             local d = choice:match("^(%d%d%d%d%-%d%d%-%d%d)")
             if d then
-              local c = counts[d] or 0  -- 0 voor krantendata buiten het 7-daags venster
+              local c = counts[d] or 0
               display_dates[code] = d .. ":" .. tostring(c)
             else
               display_dates[code] = "direct"
