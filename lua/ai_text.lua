@@ -368,7 +368,7 @@ function M.rewrite_article_buffer()
             string.format("Kalenderdetectie (score %d) — kalendermetadata wordt opgehaald.", cal_score),
             vim.log.levels.INFO
           )
-          M.articlemeta_calendar_buffer()
+          _run_articlemeta_calendar(buf)
         end
       end
     end)
@@ -494,8 +494,9 @@ local function strip_calendar_section(lines)
   return lines
 end
 
-function M.articlemeta_calendar_buffer()
-  local buf = vim.api.nvim_get_current_buf()
+-- Interne implementatie: werkt op een specifieke buf zodat autocmds en
+-- leaders altijd de juiste buffer raken, ook als de focus elders is.
+local function _run_articlemeta_calendar(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local input = table.concat(lines, "\n")
 
@@ -510,25 +511,17 @@ function M.articlemeta_calendar_buffer()
 
       local meta_lines = vim.split(result.stdout, "\n", { plain = true })
 
-      -- Cache frontmatter zodat de buffer schoon blijft tot verzenden.
-      -- Gebruik cached_calendar_metadata zodat background Job1 (gewone articlemeta)
-      -- dit resultaat niet kan overschrijven.
       local new_fm, _ = split_frontmatter_lines(meta_lines)
       if #new_fm > 0 then
         vim.b[buf].cached_calendar_metadata = new_fm
       end
 
-      -- Bouw ## Kalender sectie uit de metadata-output.
       local section = build_calendar_section_lines(meta_lines)
-
-      -- Werk met de huidige bufferinhoud zodat bewerkingen bewaard blijven.
       local current = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
       local base = strip_calendar_section(current)
 
       if section then
-        for _, line in ipairs(section) do
-          table.insert(base, line)
-        end
+        for _, line in ipairs(section) do table.insert(base, line) end
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, base)
         vim.notify("Kalenderdata toegevoegd. Controleer en pas aan, dan <leader>aw.", vim.log.levels.INFO)
       else
@@ -537,6 +530,42 @@ function M.articlemeta_calendar_buffer()
     end)
   end, "AI · Kalender")
 end
+
+function M.articlemeta_calendar_buffer()
+  _run_articlemeta_calendar(vim.api.nvim_get_current_buf())
+end
+
+-- Kalenderdetectie bij import: vuurt op BufReadPost voor Desktop-bestanden.
+-- Eénmalig per buffer (flag voorkomt herhaling bij latere saves).
+local function _calendar_autodetect(buf)
+  if vim.b[buf].calendar_autodetect_done then return end
+  vim.b[buf].calendar_autodetect_done = true
+
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  if #lines == 0 then return end
+  local text = table.concat(lines, "\n")
+
+  -- Sla over als calendar_article_id al een echte waarde heeft (al verwerkt).
+  if text:find("calendar_article_id:") and not text:find("calendar_article_id:%s*null") then
+    return
+  end
+
+  local score = _calendar_signal_score(text)
+  if score >= _CALENDAR_THRESHOLD then
+    vim.notify(
+      string.format("Kalenderdetectie (score %d) — kalendermetadata wordt opgehaald.", score),
+      vim.log.levels.INFO
+    )
+    _run_articlemeta_calendar(buf)
+  end
+end
+
+vim.api.nvim_create_autocmd("BufReadPost", {
+  pattern = vim.fn.expand("~/Desktop") .. "/*.md",
+  callback = function(ev)
+    vim.schedule(function() _calendar_autodetect(ev.buf) end)
+  end,
+})
 
 vim.keymap.set("n", "<leader>am", M.articlemeta_buffer, {
   desc = "Add article metadata",
