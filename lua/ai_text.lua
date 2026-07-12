@@ -345,8 +345,9 @@ function M.rewrite_article_buffer()
       end
 
       if needs_facebook then
+        local fb_prompt = _112_signal_score(rewritten_str) >= _112_THRESHOLD and "facebook_bericht_112" or "facebook_bericht"
         vim.b[buf].pending_jobs = (vim.b[buf].pending_jobs or 0) + 1
-        ai_system({ aitext, "facebook_bericht" }, { text = true, stdin = rewritten_str }, function(fb_result)
+        ai_system({ aitext, fb_prompt }, { text = true, stdin = rewritten_str }, function(fb_result)
           vim.schedule(function()
             vim.b[buf].pending_jobs = math.max(0, (vim.b[buf].pending_jobs or 1) - 1)
             if fb_result.code ~= 0 then
@@ -1038,10 +1039,11 @@ function M.generate_facebook()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local clean_lines = strip_facebook_section(lines)
   local article_text = table.concat(clean_lines, "\n")
+  local fb_prompt = _112_signal_score(article_text) >= _112_THRESHOLD and "facebook_bericht_112" or "facebook_bericht"
 
   vim.b[buf].pending_jobs = (vim.b[buf].pending_jobs or 0) + 1
   ai_system(
-    { aitext, "facebook_bericht" },
+    { aitext, fb_prompt },
     { text = true, stdin = article_text },
     function(result)
       vim.schedule(function()
