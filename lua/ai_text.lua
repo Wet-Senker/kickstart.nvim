@@ -1076,19 +1076,33 @@ function M.pubble_send()
   end
 
   -- Haal planningsuggesties op en toon per editie een keuze.
+  -- Bij fout in pubble-schedule: toon alsnog een minimale dialog per editie.
   vim.system({ pubble_schedule, editie or "B" }, { text = true }, function(sched_result)
     vim.schedule(function()
       local display_dates = {}
-
       local ok, sched_data = pcall(vim.fn.json_decode, sched_result.stdout or "")
-      if sched_result.code ~= 0 or not ok or type(sched_data) ~= "table" then
-        _do_pubble_send(display_dates)
-        return
+      local has_data = sched_result.code == 0 and ok and type(sched_data) == "table"
+
+      if not has_data then
+        local err = vim.trim(sched_result.stderr or "")
+        vim.notify(
+          "Planning ophalen mislukt" .. (err ~= "" and (": " .. err) or "") .. " — kies alsnog een optie.",
+          vim.log.levels.WARN
+        )
       end
 
+      -- Edities: uit sched_data als beschikbaar, anders uit editie-string.
       local edition_codes = {}
-      for code, _ in pairs(sched_data) do table.insert(edition_codes, code) end
-      table.sort(edition_codes)
+      if has_data then
+        for code, _ in pairs(sched_data) do table.insert(edition_codes, code) end
+        table.sort(edition_codes)
+      else
+        local raw = editie or "B"
+        for token in raw:gmatch("[^,]+") do
+          local code = vim.trim(token):upper()
+          if code ~= "" then table.insert(edition_codes, code) end
+        end
+      end
 
       local function ask_edition(idx)
         if idx > #edition_codes then
@@ -1097,23 +1111,23 @@ function M.pubble_send()
         end
 
         local code = edition_codes[idx]
-        local info = sched_data[code]
-        if not info then ask_edition(idx + 1); return end
-
-        local suggested = info.suggested
-        local counts = info.counts or {}
-        local opts = {}
-        for d, c in pairs(counts) do table.insert(opts, { date = d, count = c }) end
-        table.sort(opts, function(a, b)
-          if a.count ~= b.count then return a.count < b.count end
-          return a.date < b.date
-        end)
+        local info = has_data and sched_data[code]
 
         local items = {}
-        for _, opt in ipairs(opts) do
-          local label = opt.date .. "  (" .. opt.count .. ")"
-          if opt.date == suggested then label = label .. "  ★" end
-          table.insert(items, label)
+        if info then
+          local suggested = info.suggested
+          local counts = info.counts or {}
+          local opts = {}
+          for d, c in pairs(counts) do table.insert(opts, { date = d, count = c }) end
+          table.sort(opts, function(a, b)
+            if a.count ~= b.count then return a.count < b.count end
+            return a.date < b.date
+          end)
+          for _, opt in ipairs(opts) do
+            local label = opt.date .. "  (" .. opt.count .. ")"
+            if opt.date == suggested then label = label .. "  ★" end
+            table.insert(items, label)
+          end
         end
         table.insert(items, "Direct plaatsen")
 
