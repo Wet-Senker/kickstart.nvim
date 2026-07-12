@@ -1,146 +1,121 @@
-# texttools
+# kickstart.nvim — Brugmedia redactie
 
-Personal editorial text tools for moving source text into Neovim, generating article metadata, and sending content to Pubble.
+Neovim-configuratie voor de redactionele workflow van Brugmedia. Artikelen worden geschreven in Neovim, via AI verwerkt, en via de Pubble API gepubliceerd.
 
-This project is intentionally small and modular. The core logic lives in Python. Local automation tools such as Keyboard Maestro or Neovim only orchestrate the workflow.
+Gekoppeld aan: [texttools](https://github.com/Wet-Senker/texttools) (Python-package voor AI, metadata en Pubble-API).
 
-## Purpose
+---
 
-`texttools` started as clipboard and text-cleanup tooling, but now contains several small subsystems that can be combined as needed:
+## Workflow
 
-- text cleanup
-- AI rewriting
-- newspaper metadata generation
-- calendar metadata generation
-- Pubble newspaper/web draft creation
-- Pubble media upload and linking
+```
+Clipboard → pastevim() → cleantext → Neovim (.md buffer op ~/Desktop/)
 
-The design goal is that each subsystem can stand on its own, while one workflow can combine them.
+<leader>ar    Herschrijven naar krantenartikel (AI)
+              ↳ start background jobs (metadata, kalender, Facebook) op basis van controlecodes
+              ↳ detecteert 112 en kalender automatisch
+<leader>am    Metadata genereren (krant + web)
+<leader>ac    Kalendermetadata + ## Kalender sectie
+<leader>ao    Opmaken (handmatig): spellcheck, tussenkopjes, lead bold, streamer
+<leader>af    Facebook-post genereren → ## Facebook sectie
+<leader>aw    Versturen naar Pubble — wacht op alle achtergrondtaken
+```
 
-## Current modules
+---
 
-### `cleantext`
+## Leaders
 
-Cleans copied text before it is pasted into Neovim.
+| Leader | Actie |
+|---|---|
+| `<leader>ar` | Herschrijven naar krantenartikel (AI). Start background jobs voor metadata, kalender en/of Facebook op basis van controlecodes. Detecteert 112 en agendaberichten automatisch. |
+| `<leader>am` | Metadata genereren (krant + web). |
+| `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. |
+| `<leader>ao` | Opmaken (handmatig): spellcheck, cleanup, tussenkopjes, lead bold, streamer, eindredactie-oordeel. |
+| `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
+| `<leader>aw` | Versturen naar Pubble (krant + web + kalender + Facebook). Wacht automatisch tot alle achtergrondtaken klaar zijn. |
+| `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen. |
+| `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder. |
+| `<leader>ah` | Cheatsheet: editie/prio/bijschrift/foto codes invoegen. |
+| `<leader>ak` | Verdachte tekens scannen — markeert U+FFFD en control chars rood. |
+| `<leader>kt` | Rubriektemplate invoegen (Raadspraat, 112, Hondenhoek, etc.). |
 
-### `aitext`
+---
 
-Runs AI rewriting prompts on text.
+## Controlecodes
 
-### `articlemeta`
+Bovenaan het artikel typen, vóór de kop, gevolgd door een lege regel:
 
-Generates YAML frontmatter for articles.
+```
+editie: B          # of SW, ST, Z, D, K, all, overijssel, flevoland
+prio: 2            # 1=moet mee  2=mag mee  3=rest(standaard)  4=nood
+rubriek: 112       # markeert als 112-bericht
+calendar: x        # kalendermetadata ophalen bij <leader>ar of <leader>aw
+facebook: x        # Facebook-post genereren bij <leader>ar
+b: Bijschrift      # globaal fotobijschrift
+c: Naam fotograaf  # globale fotocredit
+b1: / c1:          # bijschrift/credit voor foto 1 specifiek
+b2: / c2:          # bijschrift/credit voor foto 2 specifiek
+```
 
-Current frontmatter areas include:
+---
 
-- `newspaper`
-- `web`
-- `media`
-- `send`
-- `calendar` when calendar mode is enabled
+## Automatische detectie bij import
 
-Typical usage:
+Bij het openen van een `.md`-bestand op `~/Desktop/`:
+
+**112-detectie** — scoort tekst op signaalwoorden (politie, brandweer, ambulance, incident, etc.). Bij score ≥ 6 verschijnt een bevestigingsvraag. Bij "Ja": 112-template toegepast, `rubriek: 112` en `prio: 1` bovenaan gezet.
+
+**Kalenderdetectie** — scoort tekst op datum/tijd/deelname-signalen. Bij score ≥ 8: `articlemeta --calendar` gestart en `## Kalender` sectie toegevoegd (geen bevestiging nodig).
+
+Beide checks lopen ook na `<leader>ar` op de herschreven tekst.
+
+---
+
+## 112-berichten
+
+- Template: `112 KAMPEN: <titel>` + body + disclaimer
+- `rubriek: 112` → `articleCategoryId: 24` in Pubble
+- `<leader>af` gebruikt zakelijke Facebook-prompt (één zin, geen interactie)
+- `<leader>ar` op een al opgemaakte 112-buffer: herschrijft alleen titel en body, laat prefix en disclaimer intact
+
+---
+
+## Achtergrondtaken en pending_jobs
+
+`<leader>ar` start meerdere AI-aanroepen tegelijk. De teller `vim.b[buf].pending_jobs` houdt bij hoeveel taken nog lopen. `<leader>aw` retried elke 3 seconden zolang `pending_jobs > 0`. Controlecodes worden gestript zodra de bijbehorende taak klaar is.
+
+---
+
+## Rubriek-templates (`<leader>kt`)
+
+Gedefinieerd in `~/.config/nvim/lua/krant.lua` als `M.templates`. Elk template heeft:
+- `name` — weergavenaam in het menu
+- `text` — template-inhoud met `{{titel}}`, `{{body}}` etc.
+- `no_export` — bij `true`: geen lezersnieuws-export, wel `prio: 1` bovenaan
+
+De 112-disclaimer in het 112-template is de enige bron — `ai_text.lua` leest hem via `require("krant").templates`.
+
+---
+
+## Bestanden
+
+| Bestand | Inhoud |
+|---|---|
+| `lua/ai_text.lua` | Alle leaders, AI-aanroepen, 112/kalender-detectie, pubble-send |
+| `lua/krant.lua` | Rubriek-templates (`<leader>kt`), `apply_template_by_name()` |
+
+---
+
+## Installatie
+
+Vereist: [texttools](https://github.com/Wet-Senker/texttools) geïnstalleerd in `~/workspace/texttools/.venv/`.
 
 ```bash
-articlemeta < article.md
-articlemeta --calendar < article.md
+cd ~/.config/nvim
+git pull
 ```
 
-### `pubble-send`
-
-Creates linked Pubble newspaper and web drafts from one Markdown article file.
-
-Current behavior:
-
-- creates newspaper draft first
-- forwards that draft to web
-- writes returned IDs back into the Markdown file when `--write-ids` is used
-- creates a calendar draft too when a ready calendar block is present and enabled in the file
-
-Typical usage:
-
+Symlink voor Raadspraat-foto's:
 ```bash
-pubble-send article.md --create --write-ids
+ln -s ~/Library/Mobile\ Documents/com~apple~CloudDocs/krant-fotos ~/krant-fotos
 ```
-
-### `pubble-media`
-
-Uploads images from the Pubble dropzone and links them to available targets in the article file.
-
-Current targets:
-
-- newspaper article
-- internet article
-- calendar article
-
-Typical usage:
-
-```bash
-pubble-media article.md --upload --json
-```
-
-## Current editorial workflow
-
-Typical personal workflow:
-
-```text
-Clipboard/source text
-→ cleantext or AI rewrite
-→ article in Neovim
-→ articlemeta or articlemeta --calendar
-→ pubble-send --create --write-ids
-→ pubble-media --upload
-```
-
-In Neovim this currently maps roughly to:
-
-- add newspaper metadata
-- add calendar metadata and text
-- send content to Pubble
-
-## Dropzone for images
-
-Current image dropzone:
-
-```text
-~/Desktop/Pubble Inbox
-```
-
-Images should be placed directly in that folder.
-
-Used subfolders:
-
-```text
-~/Desktop/Pubble Inbox/used
-~/Desktop/Pubble Inbox/error
-```
-
-Supported image extensions:
-
-- `.jpg`
-- `.jpeg`
-- `.png`
-- `.webp`
-- `.heic`
-
-## Installation on a different computer
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-pip install pytest
-```
-
-## Test suite
-
-Run all tests:
-
-```bash
-pytest -q
-```
-
-Run a focused subset, for example:
-
-```bash
-pytest tests/test_article_meta_frontmatter
