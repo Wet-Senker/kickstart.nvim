@@ -208,8 +208,7 @@ function M.rewrite_article_buffer()
       vim.b[buf].cached_metadata = nil
       vim.b[buf].cached_calendar_metadata = nil
       vim.b[buf].cached_facebook_text = nil
-      vim.b[buf].pending_calendar_job = false
-      vim.b[buf].pending_facebook_job = false
+      vim.b[buf].pending_jobs = 0
 
       -- Detecteer calendar: x en facebook: x in de controleregelblok.
       local needs_calendar = false
@@ -241,10 +240,10 @@ function M.rewrite_article_buffer()
       end, "AI · Metadata")
 
       if needs_calendar then
-        vim.b[buf].pending_calendar_job = true
+        vim.b[buf].pending_jobs = (vim.b[buf].pending_jobs or 0) + 1
         ai_system({ articlemeta, "--calendar" }, { text = true, stdin = rewritten_str }, function(cal_result)
           vim.schedule(function()
-            vim.b[buf].pending_calendar_job = false
+            vim.b[buf].pending_jobs = math.max(0, (vim.b[buf].pending_jobs or 1) - 1)
             if cal_result.code ~= 0 then
               vim.notify("Kalendermetadata ophalen mislukt: " .. (cal_result.stderr or ""), vim.log.levels.WARN)
               return
@@ -260,10 +259,10 @@ function M.rewrite_article_buffer()
       end
 
       if needs_facebook then
-        vim.b[buf].pending_facebook_job = true
+        vim.b[buf].pending_jobs = (vim.b[buf].pending_jobs or 0) + 1
         ai_system({ aitext, "facebook_bericht" }, { text = true, stdin = rewritten_str }, function(fb_result)
           vim.schedule(function()
-            vim.b[buf].pending_facebook_job = false
+            vim.b[buf].pending_jobs = math.max(0, (vim.b[buf].pending_jobs or 1) - 1)
             if fb_result.code ~= 0 then
               vim.notify("Facebook-bericht ophalen mislukt: " .. (fb_result.stderr or ""), vim.log.levels.WARN)
               return
@@ -404,8 +403,10 @@ function M.articlemeta_calendar_buffer()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local input = table.concat(lines, "\n")
 
+  vim.b[buf].pending_jobs = (vim.b[buf].pending_jobs or 0) + 1
   ai_system({ articlemeta, "--calendar" }, { text = true, stdin = input }, function(result)
     vim.schedule(function()
+      vim.b[buf].pending_jobs = math.max(0, (vim.b[buf].pending_jobs or 1) - 1)
       if result.code ~= 0 then
         vim.notify("articlemeta mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
         return
@@ -476,8 +477,8 @@ function M.pubble_send()
   end
   vim.b[buf]._opmaken_done = nil
 
-  -- Wacht tot achtergrondtaken van <leader>ar klaar zijn.
-  if vim.b[buf].pending_calendar_job or vim.b[buf].pending_facebook_job then
+  -- Wacht tot alle achtergrondtaken (leader ar/ac/af) klaar zijn.
+  if (vim.b[buf].pending_jobs or 0) > 0 then
     vim.notify("Achtergrondtaken nog bezig, even wachten...", vim.log.levels.INFO)
     vim.defer_fn(M.pubble_send, 3000)
     return
@@ -794,11 +795,13 @@ function M.generate_facebook()
   local clean_lines = strip_facebook_section(lines)
   local article_text = table.concat(clean_lines, "\n")
 
+  vim.b[buf].pending_jobs = (vim.b[buf].pending_jobs or 0) + 1
   ai_system(
     { aitext, "facebook_bericht" },
     { text = true, stdin = article_text },
     function(result)
       vim.schedule(function()
+        vim.b[buf].pending_jobs = math.max(0, (vim.b[buf].pending_jobs or 1) - 1)
         if result.code ~= 0 then
           local err = vim.trim(result.stderr or result.stdout or "")
           vim.notify("Facebook AI failed: " .. (err ~= "" and err or "unknown error"), vim.log.levels.ERROR)
