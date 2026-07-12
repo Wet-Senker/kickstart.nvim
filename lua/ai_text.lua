@@ -1115,7 +1115,6 @@ function M.pubble_send()
 
         local items = {}
         if info then
-          local suggested = info.suggested
           local counts = info.counts or {}
           local opts = {}
           for d, c in pairs(counts) do table.insert(opts, { date = d, count = c }) end
@@ -1124,9 +1123,7 @@ function M.pubble_send()
             return a.date < b.date
           end)
           for _, opt in ipairs(opts) do
-            local label = opt.date .. "  (" .. opt.count .. ")"
-            if opt.date == suggested then label = label .. "  ★" end
-            table.insert(items, label)
+            table.insert(items, opt.date .. "  (" .. opt.count .. ")")
           end
         end
         table.insert(items, "Direct plaatsen")
