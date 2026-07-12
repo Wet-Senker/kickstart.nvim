@@ -31,6 +31,7 @@ local aichat = vim.fn.expand("~/workspace/texttools/.venv/bin/aichat")
 local articlemeta = vim.fn.expand("~/workspace/texttools/.venv/bin/articlemeta")
 local pubble_web_draft = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-web-draft")
 local pubble_send = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-send")
+local pubble_schedule = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-schedule")
 local pubble_media = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-media")
 
 local rewrite_prompts = {
@@ -888,10 +889,14 @@ function M.pubble_send()
 
   vim.fn.writefile(pubble_lines, temp_file)
 
-  ai_system(
-    { pubble_send, temp_file, "--create", "--no-open", "--write-ids" },
-    { text = true },
-    function(result)
+  -- Bouw pubble-send-aanroep en voer hem uit (na eventuele planningsdialoog).
+  local function _do_pubble_send(display_dates)
+    local cmd = { pubble_send, temp_file, "--create", "--no-open", "--write-ids" }
+    if next(display_dates) ~= nil then
+      table.insert(cmd, "--display-dates")
+      table.insert(cmd, vim.fn.json_encode(display_dates))
+    end
+    ai_system(cmd, { text = true }, function(result)
       vim.schedule(function()
         vim.fn.delete(temp_file)
 
@@ -1067,7 +1072,67 @@ function M.pubble_send()
       end)
     end,
     "Pubble · Verzenden"
-  )
+    )
+  end
+
+  -- Haal planningsuggesties op en toon per editie een keuze.
+  vim.system({ pubble_schedule, editie or "B" }, { text = true }, function(sched_result)
+    vim.schedule(function()
+      local display_dates = {}
+
+      local ok, sched_data = pcall(vim.fn.json_decode, sched_result.stdout or "")
+      if sched_result.code ~= 0 or not ok or type(sched_data) ~= "table" then
+        _do_pubble_send(display_dates)
+        return
+      end
+
+      local edition_codes = {}
+      for code, _ in pairs(sched_data) do table.insert(edition_codes, code) end
+      table.sort(edition_codes)
+
+      local function ask_edition(idx)
+        if idx > #edition_codes then
+          _do_pubble_send(display_dates)
+          return
+        end
+
+        local code = edition_codes[idx]
+        local info = sched_data[code]
+        if not info then ask_edition(idx + 1); return end
+
+        local suggested = info.suggested
+        local counts = info.counts or {}
+        local opts = {}
+        for d, c in pairs(counts) do table.insert(opts, { date = d, count = c }) end
+        table.sort(opts, function(a, b)
+          if a.count ~= b.count then return a.count < b.count end
+          return a.date < b.date
+        end)
+
+        local items = {}
+        for _, opt in ipairs(opts) do
+          local label = opt.date .. "  (" .. opt.count .. ")"
+          if opt.date == suggested then label = label .. "  ★" end
+          table.insert(items, label)
+        end
+        table.insert(items, "Direct plaatsen")
+
+        vim.ui.select(items, {
+          prompt = "[" .. code .. "] Publicatiedatum webversie:",
+        }, function(choice)
+          if not choice or choice == "Direct plaatsen" then
+            display_dates[code] = "direct"
+          else
+            local d = choice:match("^(%d%d%d%d%-%d%d%-%d%d)")
+            display_dates[code] = d or "direct"
+          end
+          ask_edition(idx + 1)
+        end)
+      end
+
+      ask_edition(1)
+    end)
+  end)
 end
 
 
