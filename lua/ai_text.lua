@@ -165,6 +165,8 @@ local function split_trailing_sections(lines)
   return body, trailing
 end
 
+local _run_articlemeta_calendar  -- forward declaration
+
 -- ---------------------------------------------------------------------------
 -- Deterministische kalenderdetectie
 -- Scoort artikeltekst op combinaties van datum, tijd, deelname en activiteit.
