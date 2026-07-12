@@ -1048,12 +1048,25 @@ function M.pubble_send()
           for _, l in ipairs(header) do table.insert(out, l) end
           for _, l in ipairs(clean) do table.insert(out, l) end
 
-          local date_prefix = os.date("%Y%m%d-%H%M%S")
-          local filename = date_prefix .. "_" .. vim.fn.fnamemodify(stem .. ".md", ":t")
+          -- Lees werktitel uit frontmatter en strip week-prefix (bijv. "29 - 3 Titel" → "Titel").
+          local title_stem = stem
+          for _, l in ipairs(lines) do
+            local wt = l:match("^%s*working_title:%s*['\"]?(.-)%s*['\"]?$")
+            if wt and wt ~= "" and wt ~= "null" then
+              -- Strip prefix "29 - 3 " of "x - 3 "
+              local bare = wt:match("^[%dx]+ %- %d+ (.+)$") or wt
+              -- Sanitize voor bestandsnaam: vervang / en andere verboden tekens
+              bare = bare:gsub("[/\\:*?\"<>|]", "-"):gsub("%s+", " "):match("^%s*(.-)%s*$")
+              if bare ~= "" then title_stem = bare end
+              break
+            end
+          end
+          local date_prefix = os.date("%Y%m%d")
+          local filename = date_prefix .. " " .. title_stem .. ".md"
           local dest = used_dir .. "/" .. filename
           local counter = 1
           while vim.fn.filereadable(dest) == 1 do
-            dest = used_dir .. "/" .. date_prefix .. "_" .. stem .. "-" .. counter .. ".md"
+            dest = used_dir .. "/" .. date_prefix .. " " .. title_stem .. " " .. counter .. ".md"
             counter = counter + 1
           end
           vim.fn.writefile(out, dest)
