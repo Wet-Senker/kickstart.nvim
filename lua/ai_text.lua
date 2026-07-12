@@ -166,6 +166,8 @@ local function split_trailing_sections(lines)
 end
 
 local _run_articlemeta_calendar  -- forward declaration
+local _112_signal_score          -- forward declaration
+local _112_THRESHOLD = 6
 
 -- ---------------------------------------------------------------------------
 -- Deterministische kalenderdetectie
@@ -620,8 +622,6 @@ vim.api.nvim_create_autocmd("BufReadPost", {
 -- Deterministische 112-detectie
 -- Scoort artikeltekst op signaalwoorden die typisch zijn voor 112-berichten.
 -- ---------------------------------------------------------------------------
-local _112_THRESHOLD = 6
-
 function _112_signal_score(text)
   local t = text:lower()
   local score = 0
