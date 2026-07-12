@@ -826,14 +826,22 @@ function M.pubble_send()
   local editie = nil
   local has_calendar = false
   local has_facebook = false
+  local pub_site_id = nil
   for _, line in ipairs(lines) do
-    local e = line:match("^editie:%s*(.+)$") or line:match("^%s*editions:%s*(.+)$")
+    local e = line:match("^e:%s*(.+)$") or line:match("^editie:%s*(.+)$") or line:match("^%s*editions:%s*(.+)$")
     if e then
       local v = vim.trim(e)
       if v ~= "" and v ~= "null" then editie = v end
     end
+    local s = line:match("^%s*publication_site_id:%s*['\"]?(%d+)['\"]?")
+    if s then pub_site_id = tonumber(s) end
     if line:match("^## Kalender") then has_calendar = true end
     if line:match("^## Facebook") then has_facebook = true end
+  end
+  -- Fallback: leid de editie af uit publication_site_id als editions: null was.
+  if not editie and pub_site_id then
+    local site_to_code = { [19]="B", [20]="SW", [21]="ST", [24]="Z", [22]="D", [27]="K" }
+    editie = site_to_code[pub_site_id]
   end
 
   -- Write the temp file inside Pubble Inbox so pubble-media can find photos
@@ -1075,6 +1083,16 @@ function M.pubble_send()
     )
   end
 
+  -- 112-berichten altijd direct plaatsen — geen planningsdialoog nodig.
+  local is_112 = false
+  for _, line in ipairs(pubble_lines) do
+    if line:match("^112 [A-Z]") then is_112 = true; break end
+  end
+  if is_112 then
+    _do_pubble_send({})
+    return
+  end
+
   -- Haal planningsuggesties op en toon per editie een keuze.
   -- Bij fout in pubble-schedule: toon alsnog een minimale dialog per editie.
   vim.system({ pubble_schedule, editie or "B" }, { text = true }, function(sched_result)
@@ -1104,6 +1122,56 @@ function M.pubble_send()
         end
       end
 
+      -- Voeg N dagen toe aan een YYYY-MM-DD datum string.
+      local function date_add_days(date_str, n)
+        local y, m, d = date_str:match("^(%d%d%d%d)-(%d%d)-(%d%d)$")
+        if not y then return date_str end
+        local t = os.time({ year = tonumber(y), month = tonumber(m), day = tonumber(d) })
+        local t2 = t + n * 86400
+        return os.date("%Y-%m-%d", t2)
+      end
+
+      -- Bouw een lijst van 7 opeenvolgende dagen (als items + values),
+      -- markeer de aanbevolen dag en krantendata.
+      local function build_week_items(info, week_offset)
+        local items = {}
+        local item_values = {}
+        local counts = (info and info.counts) or {}
+        local suggested = info and info.suggested
+        local pub_dates = (info and info.publication_dates) or {}
+        -- Sla krantendatums op in een set voor snelle lookup.
+        local krant_set = {}
+        for _, pd in ipairs(pub_dates) do krant_set[pd] = true end
+
+        -- Startdag: vandaag + week_offset * 7 dagen, afgerond naar middernacht.
+        local base = os.time() + week_offset * 7 * 86400
+        local bt = os.date("*t", base)
+        bt.hour = 0; bt.min = 0; bt.sec = 0
+        base = os.time(bt)
+
+        local day_names = { "zo", "ma", "di", "wo", "do", "vr", "za" }
+        for i = 0, 6 do
+          local day_t = base + i * 86400
+          local d = os.date("%Y-%m-%d", day_t)
+          local dow = day_names[tonumber(os.date("%w", day_t)) + 1]
+          local c = counts[d] or 0
+          local label = d .. "  " .. dow .. "  (" .. c .. ")"
+          local val
+          if krant_set[d] then
+            label = label .. " 🗞"
+            val = d .. ":krant"
+          else
+            val = d .. ":" .. tostring(c)
+          end
+          if d == suggested then
+            label = label .. " ← aanbevolen"
+          end
+          table.insert(items, label)
+          table.insert(item_values, val)
+        end
+        return items, item_values, base
+      end
+
       local function ask_edition(idx)
         if idx > #edition_codes then
           _do_pubble_send(display_dates)
@@ -1113,47 +1181,44 @@ function M.pubble_send()
         local code = edition_codes[idx]
         local info = has_data and sched_data[code]
 
-        local items = {}
-        if info then
-          local counts = info.counts or {}
-          local opts = {}
-          for d, c in pairs(counts) do table.insert(opts, { date = d, count = c }) end
-          table.sort(opts, function(a, b)
-            if a.count ~= b.count then return a.count < b.count end
-            return a.date < b.date
-          end)
-          for _, opt in ipairs(opts) do
-            table.insert(items, opt.date .. "  (" .. opt.count .. ")")
+        local edition_names = {
+          B="De Brug", SW="De Swollenaer", ST="De Stadskoerier",
+          Z="Zeewolde Actueel", D="De Drontenaar", K="De Kop van Overijssel",
+        }
+        local function show_week(week_offset)
+          local items, item_values, base = build_week_items(info, week_offset)
+          if week_offset > 0 then
+            table.insert(items, "← Vorige week")
+            table.insert(item_values, "__prev__")
           end
-          -- Krantendata als extra opties (eerstvolgende 3 dinsdagen)
-          local pub_dates = info.publication_dates or {}
-          for _, pd in ipairs(pub_dates) do
-            table.insert(items, pd .. "  (krant)")
-          end
-        end
-        table.insert(items, "Direct plaatsen")
+          table.insert(items, "→ Volgende week")
+          table.insert(item_values, "__next__")
+          table.insert(items, "Direct plaatsen")
+          table.insert(item_values, "direct")
 
-        vim.ui.select(items, {
-          prompt = "[" .. code .. "] Publicatiedatum webversie:",
-        }, function(choice)
-          if choice == nil then
-            -- Escape: hele verzending annuleren
-            vim.fn.delete(temp_file)
-            vim.notify("Verzending geannuleerd.", vim.log.levels.INFO)
-            return
-          elseif choice == "Direct plaatsen" then
-            display_dates[code] = "direct"
-          else
-            local d = choice:match("^(%d%d%d%d%-%d%d%-%d%d)")
-            if d then
-              local c = counts[d] or 0
-              display_dates[code] = d .. ":" .. tostring(c)
-            else
-              display_dates[code] = "direct"
+          local week_nr = tonumber(os.date("%V", base + 3 * 86400))  -- donderdag bepaalt ISO-weeknummer
+          local krant_naam = edition_names[code] or code
+          vim.ui.select(items, {
+            prompt = krant_naam .. "  —  week " .. week_nr .. ":",
+          }, function(choice, choice_idx)
+            if choice == nil then
+              vim.fn.delete(temp_file)
+              vim.notify("Verzending geannuleerd.", vim.log.levels.INFO)
+              return
             end
-          end
-          ask_edition(idx + 1)
-        end)
+            local value = choice_idx and item_values[choice_idx] or "direct"
+            if value == "__next__" then
+              show_week(week_offset + 1)
+            elseif value == "__prev__" then
+              show_week(week_offset - 1)
+            else
+              display_dates[code] = value
+              ask_edition(idx + 1)
+            end
+          end)
+        end
+
+        show_week(0)
       end
 
       ask_edition(1)
