@@ -1125,6 +1125,11 @@ function M.pubble_send()
           for _, opt in ipairs(opts) do
             table.insert(items, opt.date .. "  (" .. opt.count .. ")")
           end
+          -- Krantendata als extra opties (eerstvolgende 3 dinsdagen)
+          local pub_dates = info.publication_dates or {}
+          for _, pd in ipairs(pub_dates) do
+            table.insert(items, pd .. "  (krant)")
+          end
         end
         table.insert(items, "Direct plaatsen")
 
@@ -1136,7 +1141,7 @@ function M.pubble_send()
           else
             local d = choice:match("^(%d%d%d%d%-%d%d%-%d%d)")
             if d then
-              local c = counts[d] or 0
+              local c = counts[d] or 0  -- 0 voor krantendata buiten het 7-daags venster
               display_dates[code] = d .. ":" .. tostring(c)
             else
               display_dates[code] = "direct"
