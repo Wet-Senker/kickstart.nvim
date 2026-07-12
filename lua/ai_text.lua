@@ -170,10 +170,10 @@ local _112_signal_score          -- forward declaration
 local _112_THRESHOLD = 6
 
 local _112_DISCLAIMER = "Dit is alle informatie die onze redactie op dit moment heeft. "
-  .. "Wij hechten veel waarde aan zorgvuldige berichtgeving en proberen de privacy van betrokkenen "
-  .. "zo goed mogelijk te waarborgen. Klopt iets niet, heeft u aanvullende informatie die het publieke "
-  .. "belang dient, of vindt u dat iets anders niet voldoet aan journalistieke normen? Mail de redactie "
-  .. "via redactie.debrug@brugmedia.nl. Uiteraard is uw privacy gewaarborgd."
+  .. "We vinden zorgvuldige berichtgeving belangrijk en gaan zo zorgvuldig mogelijk om met de privacy "
+  .. "van betrokkenen. Klopt er iets niet, heb je aanvullende informatie die van publiek belang is of "
+  .. "vind je dat dit bericht niet aan de journalistieke normen voldoet? Mail dan naar "
+  .. "redactie.debrug@brugmedia.nl. Uiteraard gaan we vertrouwelijk met je gegevens om."
 
 -- Detecteer 112-templatestructuur in een lijst regels.
 -- Geeft terug: titel (string), body_lines (list), heeft_disclaimer (bool).
