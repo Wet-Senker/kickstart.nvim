@@ -124,6 +124,20 @@ local function split_frontmatter_lines(lines)
   return {}, 1
 end
 
+-- Strip the first leading control line matching `pattern` from the buffer.
+local function strip_leading_control_line(buf, pattern)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  for i, line in ipairs(lines) do
+    local t = vim.trim(line)
+    if t == "" then break end
+    if t:match(pattern) then
+      table.remove(lines, i)
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      return
+    end
+  end
+end
+
 -- Find where trailing extra sections (## Kalender / ## Facebook, in either
 -- order) begin, so a full-body rewrite can replace only the article body
 -- and leave sections added concurrently by <leader>ac/<leader>af intact.
@@ -194,6 +208,8 @@ function M.rewrite_article_buffer()
       vim.b[buf].cached_metadata = nil
       vim.b[buf].cached_calendar_metadata = nil
       vim.b[buf].cached_facebook_text = nil
+      vim.b[buf].pending_calendar_job = false
+      vim.b[buf].pending_facebook_job = false
 
       -- Detecteer calendar: x en facebook: x in de controleregelblok.
       local needs_calendar = false
@@ -225,8 +241,10 @@ function M.rewrite_article_buffer()
       end, "AI · Metadata")
 
       if needs_calendar then
+        vim.b[buf].pending_calendar_job = true
         ai_system({ articlemeta, "--calendar" }, { text = true, stdin = rewritten_str }, function(cal_result)
           vim.schedule(function()
+            vim.b[buf].pending_calendar_job = false
             if cal_result.code ~= 0 then
               vim.notify("Kalendermetadata ophalen mislukt: " .. (cal_result.stderr or ""), vim.log.levels.WARN)
               return
@@ -236,13 +254,16 @@ function M.rewrite_article_buffer()
             if #cal_fm > 0 then
               vim.b[buf].cached_calendar_metadata = cal_fm
             end
+            strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
           end)
         end, "AI · Kalender")
       end
 
       if needs_facebook then
+        vim.b[buf].pending_facebook_job = true
         ai_system({ aitext, "facebook_bericht" }, { text = true, stdin = rewritten_str }, function(fb_result)
           vim.schedule(function()
+            vim.b[buf].pending_facebook_job = false
             if fb_result.code ~= 0 then
               vim.notify("Facebook-bericht ophalen mislukt: " .. (fb_result.stderr or ""), vim.log.levels.WARN)
               return
@@ -251,6 +272,7 @@ function M.rewrite_article_buffer()
             if fb_text ~= "" then
               vim.b[buf].cached_facebook_text = fb_text
             end
+            strip_leading_control_line(buf, "^[Ff]acebook%s*:%s*x%s*$")
           end)
         end, "AI · Facebook")
       end
@@ -392,9 +414,11 @@ function M.articlemeta_calendar_buffer()
       local meta_lines = vim.split(result.stdout, "\n", { plain = true })
 
       -- Cache frontmatter zodat de buffer schoon blijft tot verzenden.
+      -- Gebruik cached_calendar_metadata zodat background Job1 (gewone articlemeta)
+      -- dit resultaat niet kan overschrijven.
       local new_fm, _ = split_frontmatter_lines(meta_lines)
       if #new_fm > 0 then
-        vim.b[buf].cached_metadata = new_fm
+        vim.b[buf].cached_calendar_metadata = new_fm
       end
 
       -- Bouw ## Kalender sectie uit de metadata-output.
@@ -451,6 +475,13 @@ function M.pubble_send()
     return
   end
   vim.b[buf]._opmaken_done = nil
+
+  -- Wacht tot achtergrondtaken van <leader>ar klaar zijn.
+  if vim.b[buf].pending_calendar_job or vim.b[buf].pending_facebook_job then
+    vim.notify("Achtergrondtaken nog bezig, even wachten...", vim.log.levels.INFO)
+    vim.defer_fn(M.pubble_send, 3000)
+    return
+  end
 
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   if vim.trim(table.concat(lines, "\n")) == "" then
@@ -553,6 +584,10 @@ function M.pubble_send()
         vim.fn.delete(temp_file)
 
         if result.code == 0 then
+          -- Strip eventueel achtergebleven control lines uit de originele buffer.
+          strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
+          strip_leading_control_line(buf, "^[Ff]acebook%s*:%s*x%s*$")
+
           local output = vim.trim(result.stdout or "")
           local article_url = output:match("Pubble article: (https://[^\n]+)")
           if article_url then
