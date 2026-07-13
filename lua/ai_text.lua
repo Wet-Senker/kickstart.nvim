@@ -856,6 +856,22 @@ function M.pubble_send()
     local site_to_code = { [19]="B", [20]="SW", [21]="ST", [24]="Z", [22]="D", [27]="K" }
     editie = site_to_code[pub_site_id]
   end
+  -- Fallback: leid de editie af uit de dateline in de artikeltekst.
+  if not editie then
+    local dateline_to_code = {
+      KAMPEN="B", ZWOLLE="SW", HATTEM="ST", ZEEWOLDE="Z", DRONTEN="D",
+      STEENWIJK="K", MEPPEL="K", STAPHORST="K",
+      OVERIJSSEL="SW", FLEVOLAND="Z",
+    }
+    for _, line in ipairs(lines) do
+      -- Dateline: "**KAMPEN - " of "KAMPEN - " aan het begin van een regel
+      local dl = line:match("^%*?%*?([A-Z][A-Z]+)%s*%-")
+      if dl and dateline_to_code[dl] then
+        editie = dateline_to_code[dl]
+        break
+      end
+    end
+  end
 
   -- Write the temp file inside Pubble Inbox so pubble-media can find photos
   -- in the same dropzone folder when --write-ids triggers the media upload.
