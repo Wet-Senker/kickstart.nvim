@@ -1047,6 +1047,16 @@ require('render-markdown').setup {
   end,
 }
 
+-- This is to make sure it finds both filepaths of Obsidian.
+local function vault_path()
+  for _, p in ipairs({ "~/Obsidian/Obsidian", "~/Obsidian" }) do
+    if vim.fn.isdirectory(vim.fn.expand(p)) == 1 then
+      return p
+    end
+  end
+  return "~/Obsidian" -- fallback
+end
+
 -- obsidian.nvim: notes, wiki-links ([[note]]), backlinks and daily notes
 -- for the Obsidian vault at ~/Obsidian/Obsidian. Only activates in
 -- markdown buffers inside that folder, so it stays out of the way
@@ -1058,12 +1068,9 @@ require('obsidian').setup {
   -- own built-in UI (bullets/checkbox styling) would otherwise render on top of
   -- it and clash. render-markdown.nvim's own health check recommends this.
   ui = { enable = false },
-  workspaces = {
-    {
-      name = 'Obsidian',
-      path = '~/Obsidian/Obsidian',
-    },
-  },
+workspaces = {
+  { name = "personal", path = vault_path() },
+},
   -- Without this, following a web link (gf/<cr> on a [text](https://...))
   -- just logs a warning instead of opening it. vim.ui.open hands it to the
   -- OS's default opener (the 'open' command on macOS).
