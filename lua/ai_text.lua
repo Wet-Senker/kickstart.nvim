@@ -861,7 +861,7 @@ function M.pubble_send()
     local dateline_to_code = {
       KAMPEN="B", ZWOLLE="SW", HATTEM="ST", ZEEWOLDE="Z", DRONTEN="D",
       STEENWIJK="K", MEPPEL="K", STAPHORST="K",
-      OVERIJSSEL="SW", FLEVOLAND="Z",
+      OVERIJSSEL="overijssel", FLEVOLAND="flevoland",
     }
     for _, line in ipairs(lines) do
       -- Dateline: "**KAMPEN - " of "KAMPEN - " aan het begin van een regel
