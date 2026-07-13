@@ -455,12 +455,26 @@ do
 
   -- See `:help telescope.builtin`
   local builtin = require 'telescope.builtin'
+
+  -- Without a cwd, find_files/live_grep search from wherever Neovim happened
+  -- to start (often $HOME, which can hold 1M+ files and takes 10+ seconds to
+  -- even enumerate). Scope to the nearest project root instead: walk up from
+  -- the current buffer for a .git (this config, texttools) or .obsidian
+  -- (the vault) marker; fall back to the current file's own directory (e.g.
+  -- Pubble Inbox, which has neither marker) if no root is found.
+  local function project_root()
+    local root = vim.fs.root(0, { '.git', '.obsidian' })
+    if root then return root end
+    local file_dir = vim.fn.expand '%:p:h'
+    return file_dir ~= '' and file_dir or vim.uv.cwd()
+  end
+
   vim.keymap.set('n', '<leader>sh', builtin.help_tags, { desc = '[S]earch [H]elp' })
   vim.keymap.set('n', '<leader>sk', builtin.keymaps, { desc = '[S]earch [K]eymaps' })
-  vim.keymap.set('n', '<leader>sf', builtin.find_files, { desc = '[S]earch [F]iles' })
+  vim.keymap.set('n', '<leader>sf', function() builtin.find_files { cwd = project_root() } end, { desc = '[S]earch [F]iles' })
   vim.keymap.set('n', '<leader>ss', builtin.builtin, { desc = '[S]earch [S]elect Telescope' })
   vim.keymap.set({ 'n', 'v' }, '<leader>sw', builtin.grep_string, { desc = '[S]earch current [W]ord' })
-  vim.keymap.set('n', '<leader>sg', builtin.live_grep, { desc = '[S]earch by [G]rep' })
+  vim.keymap.set('n', '<leader>sg', function() builtin.live_grep { cwd = project_root() } end, { desc = '[S]earch by [G]rep' })
   vim.keymap.set('n', '<leader>sd', builtin.diagnostics, { desc = '[S]earch [D]iagnostics' })
   vim.keymap.set('n', '<leader>sr', builtin.resume, { desc = '[S]earch [R]esume' })
   vim.keymap.set('n', '<leader>s.', builtin.oldfiles, { desc = '[S]earch Recent Files ("." for repeat)' })
@@ -1091,6 +1105,19 @@ vim.pack.add {
 vim.pack.add { gh 'stevearc/oil.nvim' }
 require('oil').setup {}
 vim.keymap.set('n', '-', '<CMD>Oil<CR>', { desc = 'Open parent directory (oil)' })
+
+-- :Z <query> — same as the `z` shell alias (zoxide): jump Neovim's cwd to
+-- zoxide's best frecency match, without needing the full path.
+vim.api.nvim_create_user_command('Z', function(opts)
+  local result = vim.system({ 'zoxide', 'query', opts.args }, { text = true }):wait()
+  local path = vim.trim(result.stdout or '')
+  if result.code ~= 0 or path == '' then
+    vim.notify('zoxide: geen match voor "' .. opts.args .. '"', vim.log.levels.WARN)
+    return
+  end
+  vim.cmd.cd(path)
+  vim.notify('cwd -> ' .. path, vim.log.levels.INFO)
+end, { nargs = 1, desc = 'cd via zoxide (:Z <query>)' })
 
 
 require('zen-mode').setup({
