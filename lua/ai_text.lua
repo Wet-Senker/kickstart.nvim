@@ -1570,6 +1570,7 @@ local meta_items = {
   { label = "Prioriteit: 4 - nood", insert = "prio: 4" },
   { label = "Bijschrift: ...  (onderschrift bij de foto)", insert = "Bijschrift: " },
   { label = "Foto: ...  (naam fotograaf / credit)", insert = "Foto: " },
+  { label = "Web: draft  (niet direct publiceren op website)", insert = "web: draft" },
   { label = "Facebook: x  (AI genereert post)", insert = "facebook: x" },
   { label = "Facebook: eigen tekst  (geen AI)", insert = "facebook_tekst: " },
   { label = "Overig: rewrite: x  (herschrijven naar krantenstijl)", insert = "rewrite: x" },
