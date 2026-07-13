@@ -316,8 +316,13 @@ function M.rewrite_article_buffer()
     input = table.concat(body_lines, "\n")
   end
 
+  -- Tel deze taak mee in pending_jobs zodat <leader>aw niet met de oude
+  -- (nog niet herschreven) buffer verzendt als het snel na <leader>ar draait.
+  vim.b[buf].pending_jobs = (vim.b[buf].pending_jobs or 0) + 1
+
   ai_system({ aitext, "journalistiek_schrijven" }, { text = true, stdin = input }, function(result)
     vim.schedule(function()
+      vim.b[buf].pending_jobs = math.max(0, (vim.b[buf].pending_jobs or 1) - 1)
       if result.code ~= 0 then
         vim.notify("AI rewrite mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
         return
@@ -383,7 +388,6 @@ function M.rewrite_article_buffer()
       vim.b[buf].cached_metadata = nil
       vim.b[buf].cached_calendar_metadata = nil
       vim.b[buf].cached_facebook_text = nil
-      vim.b[buf].pending_jobs = 0
 
       -- Detecteer calendar: x en facebook: x in de controleregelblok.
       local needs_calendar = false
@@ -453,7 +457,11 @@ function M.rewrite_article_buffer()
       end
 
       -- Auto-detect kalenderberichten als er geen expliciete calendar: x aanwezig is.
-      if not needs_calendar then
+      -- Sla over als er al een ## Kalender-sectie is (behouden via trailing_sections
+      -- hierboven) — anders draait elke <leader>ar de kalender-AI onnodig opnieuw.
+      local already_has_calendar_section = rewritten_str:find("\n## Kalender", 1, true) ~= nil
+        or rewritten_str:match("^## Kalender") ~= nil
+      if not needs_calendar and not already_has_calendar_section then
         local cal_score = _calendar_signal_score(rewritten_str)
         if cal_score >= _CALENDAR_THRESHOLD then
           vim.notify(
@@ -608,7 +616,7 @@ end
 
 -- Interne implementatie: werkt op een specifieke buf zodat autocmds en
 -- leaders altijd de juiste buffer raken, ook als de focus elders is.
-local function _run_articlemeta_calendar(buf)
+function _run_articlemeta_calendar(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local input = table.concat(lines, "\n")
 
@@ -635,6 +643,11 @@ local function _run_articlemeta_calendar(buf)
       if section then
         for _, line in ipairs(section) do table.insert(base, line) end
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, base)
+        -- Een eventuele handmatige "cal: x"/"calendar: x" controleregel is nu
+        -- overbodig (de kalenderdata staat al in de buffer) — anders blijft hij
+        -- staan en laat pubble-send de kalender-AI bij <leader>aw ten onrechte
+        -- opnieuw draaien.
+        strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
         vim.notify("Kalenderdata toegevoegd. Controleer en pas aan, dan <leader>aw.", vim.log.levels.INFO)
       else
         vim.notify("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
