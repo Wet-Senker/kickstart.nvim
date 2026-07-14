@@ -857,15 +857,43 @@ function M.pubble_send()
     editie = site_to_code[pub_site_id]
   end
   -- Fallback: leid de editie af uit de dateline in de artikeltekst.
+  -- HOUD DEZE TABEL GELIJK aan DATELINE_LOOKUP in
+  -- ~/workspace/texttools/src/texttools/pubble_publications.py — pubble-send
+  -- gebruikt die tabel om de editie te bepalen; wijken ze af, dan toont de
+  -- datumdialoog een andere editie dan waar het artikel heengaat en wordt de
+  -- gekozen datum genegeerd.
   if not editie then
     local dateline_to_code = {
-      KAMPEN="B", ZWOLLE="SW", HATTEM="ST", ZEEWOLDE="Z", DRONTEN="D",
-      STEENWIJK="K", MEPPEL="K", STAPHORST="K",
+      -- De Brug (B)
+      KAMPEN="B", GRAFHORST="B", IJSSELMUIDEN="B", KAMPERVEEN="B", WILSUM="B",
+      ["DE ZANDE"]="B", ["'S-HEERENBROEK"]="B", ["S-HEERENBROEK"]="B",
+      MASTENBROEK="B",
+      -- De Stadskoerier (ST)
+      ZWARTEWATERLAND="ST", ZWARTSLUIS="ST", GENEMUIDEN="ST", HASSELT="ST",
+      -- De Swollenaer (SW)
+      ZWOLLE="SW", STADSHAGEN="SW",
+      -- Zeewolde (Z)
+      ZEEWOLDE="Z",
+      -- De Drontenaar (D)
+      DRONTEN="D", BIDDINGHUIZEN="D", KETELHAVEN="D", SWIFTERBANT="D",
+      -- De Kop van Overijssel (K)
+      STEENWIJKERLAND="K", WANNEPERVEEN="K", ["BELT SCHUTSLOOT"]="K",
+      VOLLENHOVE="K", ["SINT JANSKLOOSTER"]="K", STEENWIJK="K", TUK="K",
+      ["WITTE PAARDEN"]="K", BAARS="K", ["DE POL"]="K", WILLEMSOORD="K",
+      MARIJENKAMPEN="K", STEENWIJKERWOLD="K", BASSE="K", ZUIDVEEN="K",
+      ONNA="K", KALLENKOTE="K", EESVEEN="K", ["DE BULT"]="K", GIETHOORN="K",
+      BLOKZIJL="K", IJSSELHAM="K", WETERING="K", SCHEERWOLDE="K", BAARLO="K",
+      BLANKENHAM="K", KUINRE="K", OLDEMARKT="K", OSSENZIJL="K", KALENBERG="K",
+      PAASLOO="K", VLEDDER="K", FREDERIKSOORD="K", NEIJENSLEEK="K",
+      MARKNESSE="K", LUTTELGEEST="K", KRAGGENBURG="K",
+      -- Groepen
       OVERIJSSEL="overijssel", FLEVOLAND="flevoland",
     }
     for _, line in ipairs(lines) do
-      -- Dateline: "**KAMPEN - " of "KAMPEN - " aan het begin van een regel
-      local dl = line:match("^%*?%*?([A-Z][A-Z]+)%s*%-")
+      -- Dateline: "**KAMPEN - " of "KAMPEN - " aan het begin van een regel;
+      -- ook meerwoordige plaatsnamen ("SINT JANSKLOOSTER - ") en
+      -- 'S-HEERENBROEK worden herkend.
+      local dl = line:match("^%*?%*?'?([A-Z][A-Z%s%-']+[A-Z])%s*[%-–]")
       if dl and dateline_to_code[dl] then
         editie = dateline_to_code[dl]
         break
