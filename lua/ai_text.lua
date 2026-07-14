@@ -68,12 +68,13 @@ end
 
 -- Keys that are recognised as leading control lines (mirrors _CONTROL_KEY_PATTERN in Python).
 local _control_keys = {
-  p=true, r=true, e=true, b=true, c=true,
+  p=true, r=true, e=true, b=true, c=true, f=true,
   prio=true, editie=true,
   calendar=true, cal=true,
   facebook=true, facebook_tekst=true,
   rewrite=true,
-  bijschrift=true, fotograaf=true, foto=true,
+  bijschrift=true, fotograaf=true, foto=true, credit=true,
+  rubriek=true, week=true, web=true,
 }
 local function _is_control_key(k)
   k = k:lower()
@@ -164,6 +165,81 @@ local function split_trailing_sections(lines)
   local trailing = {}
   for j = body_end + 1, #lines do table.insert(trailing, lines[j]) end
   return body, trailing
+end
+
+-- DE canonieke splitser voor alle AI-leaders. Splitst bufferregels in vier
+-- beschermde delen:
+--   fm        YAML-frontmatter (--- ... ---)
+--   ctrl      kopregels boven het artikel (e:, prio:, b:, c:, Fotograaf:, …)
+--   body      de artikeltekst — het ENIGE dat ooit naar een AI mag
+--   sections  staartsecties (elke ## kop: Facebook, Kalender, Suggesties, …)
+-- Elke AI-leader hoort dit te gebruiken (input = body, resultaat terug via
+-- reassemble_article), zodat een AI-run frontmatter, kopcodes en eerder
+-- gegenereerde secties per constructie nooit kan beschadigen of verwijderen.
+local function split_article_parts(lines)
+  local fm, body_start = split_frontmatter_lines(lines)
+
+  local rest = {}
+  for i = body_start, #lines do table.insert(rest, lines[i]) end
+
+  -- Kopregels (Fotograaf: etc.) kunnen zowel zonder als ná frontmatter staan.
+  local ctrl, after_ctrl = extract_leading_control_lines(rest)
+
+  local first_section = nil
+  for i = 1, #after_ctrl do
+    if after_ctrl[i]:match("^## %S") then
+      first_section = i
+      break
+    end
+  end
+  local body_end = (first_section or (#after_ctrl + 1)) - 1
+  -- Neem de ---separator en lege regels vóór de eerste sectie niet mee.
+  while body_end >= 1
+    and (vim.trim(after_ctrl[body_end]) == "" or vim.trim(after_ctrl[body_end]) == "---") do
+    body_end = body_end - 1
+  end
+  local body = {}
+  for i = 1, body_end do table.insert(body, after_ctrl[i]) end
+  local sections = {}
+  if first_section then
+    for i = first_section, #after_ctrl do table.insert(sections, after_ctrl[i]) end
+  end
+  return fm, ctrl, body, sections
+end
+
+-- Verwijder een eerder ## Suggesties-blok uit de staartsecties (t/m de
+-- volgende ## kop of het einde) — tekstcheck levert verse suggesties.
+local function drop_suggestions_block(sections)
+  local result, i = {}, 1
+  while i <= #sections do
+    if sections[i]:match("^## Suggesties%s*$") then
+      i = i + 1
+      while i <= #sections and not sections[i]:match("^## ") do i = i + 1 end
+    else
+      table.insert(result, sections[i])
+      i = i + 1
+    end
+  end
+  while #result > 0 and (vim.trim(result[#result]) == "" or vim.trim(result[#result]) == "---") do
+    table.remove(result)
+  end
+  return result
+end
+
+local function reassemble_article(fm, ctrl, body, sections)
+  local out = {}
+  for _, l in ipairs(fm) do table.insert(out, l) end
+  if #fm > 0 then table.insert(out, "") end
+  for _, l in ipairs(ctrl) do table.insert(out, l) end
+  if #ctrl > 0 then table.insert(out, "") end
+  for _, l in ipairs(body) do table.insert(out, l) end
+  if #sections > 0 then
+    table.insert(out, "")
+    table.insert(out, "---")
+    table.insert(out, "")
+    for _, l in ipairs(sections) do table.insert(out, l) end
+  end
+  return out
 end
 
 local _run_articlemeta_calendar  -- forward declaration
@@ -302,9 +378,12 @@ function M.rewrite_article_buffer()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 
-  -- Strip leading control lines BEFORE sending to AI so they are never lost or
-  -- corrupted. We put them back at the top after the rewrite.
-  local saved_ctrl, body_lines = extract_leading_control_lines(lines)
+  -- Strip frontmatter en leading control lines BEFORE sending to AI so they
+  -- are never lost or corrupted. We put them back after the rewrite.
+  local saved_fm, fm_body_start = split_frontmatter_lines(lines)
+  local rest = {}
+  for i = fm_body_start, #lines do table.insert(rest, lines[i]) end
+  local saved_ctrl, body_lines = extract_leading_control_lines(rest)
 
   -- Detecteer 112-templatestructuur: stuur alleen titel + body naar AI,
   -- niet de vaste `112 KAMPEN:` prefix en disclaimer.
@@ -368,13 +447,25 @@ function M.rewrite_article_buffer()
       -- ## Kalender-/## Facebook-sectie hebben laten toevoegen. Beide blijven behouden
       -- in plaats van overschreven door de volledige buffer-vervanging hieronder.
       local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-      local current_ctrl, current_body = extract_leading_control_lines(current_lines)
+      local current_fm, cur_body_start = split_frontmatter_lines(current_lines)
+      local cur_rest = {}
+      for i = cur_body_start, #current_lines do table.insert(cur_rest, current_lines[i]) end
+      local current_ctrl, current_body = extract_leading_control_lines(cur_rest)
+      local final_fm = #current_fm > 0 and current_fm or saved_fm
       local final_ctrl = #current_ctrl > 0 and current_ctrl or saved_ctrl
       local _, trailing_sections = split_trailing_sections(current_body)
 
       if #final_ctrl > 0 then
         local combined = {}
         for _, l in ipairs(final_ctrl) do table.insert(combined, l) end
+        for _, l in ipairs(new_lines) do table.insert(combined, l) end
+        new_lines = combined
+      end
+
+      if #final_fm > 0 then
+        local combined = {}
+        for _, l in ipairs(final_fm) do table.insert(combined, l) end
+        table.insert(combined, "")
         for _, l in ipairs(new_lines) do table.insert(combined, l) end
         new_lines = combined
       end
@@ -1386,8 +1477,10 @@ end
 function M.generate_facebook()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local clean_lines = strip_facebook_section(lines)
-  local article_text = table.concat(clean_lines, "\n")
+  -- Alleen de kale artikelbody als AI-input — geen frontmatter, kopcodes of
+  -- eerder gegenereerde secties (voorkomt dat bijv. "Fotograaf:" in de post lekt).
+  local _, _, body = split_article_parts(lines)
+  local article_text = table.concat(body, "\n")
   local fb_prompt = _112_signal_score(article_text) >= _112_THRESHOLD and "facebook_bericht_112" or "facebook_bericht"
 
   vim.b[buf].pending_jobs = (vim.b[buf].pending_jobs or 0) + 1
@@ -1434,75 +1527,13 @@ vim.keymap.set("n", "<leader>af", M.generate_facebook, {
 })
 
 
--- Splits bufferregels in frontmatter, artikelbody en staartsecties
--- (## Facebook / ## Kalender / ## Suggesties). AI-leaders krijgen alleen de
--- body te zien; frontmatter en secties worden er deterministisch omheen
--- gehouden zodat een AI-run ze nooit kan beschadigen of verwijderen.
-local function split_article_parts(lines)
-  local fm, body_start = split_frontmatter_lines(lines)
-  local first_section = nil
-  for i = body_start, #lines do
-    local l = lines[i]
-    if l:match("^## Facebook%s*$") or l:match("^## Kalender%s*$") or l:match("^## Suggesties%s*$") then
-      first_section = i
-      break
-    end
-  end
-  local body_end = (first_section or (#lines + 1)) - 1
-  -- Neem de ---separator en lege regels vóór de eerste sectie niet mee.
-  while body_end >= body_start
-    and (vim.trim(lines[body_end]) == "" or vim.trim(lines[body_end]) == "---") do
-    body_end = body_end - 1
-  end
-  local body = {}
-  for i = body_start, body_end do table.insert(body, lines[i]) end
-  local sections = {}
-  if first_section then
-    for i = first_section, #lines do table.insert(sections, lines[i]) end
-  end
-  return fm, body, sections
-end
-
--- Verwijder een eerder ## Suggesties-blok uit de staartsecties (t/m de
--- volgende ## kop of het einde) — tekstcheck levert verse suggesties.
-local function drop_suggestions_block(sections)
-  local result, i = {}, 1
-  while i <= #sections do
-    if sections[i]:match("^## Suggesties%s*$") then
-      i = i + 1
-      while i <= #sections and not sections[i]:match("^## ") do i = i + 1 end
-    else
-      table.insert(result, sections[i])
-      i = i + 1
-    end
-  end
-  while #result > 0 and (vim.trim(result[#result]) == "" or vim.trim(result[#result]) == "---") do
-    table.remove(result)
-  end
-  return result
-end
-
-local function reassemble_article(fm, body, sections)
-  local out = {}
-  for _, l in ipairs(fm) do table.insert(out, l) end
-  if #fm > 0 then table.insert(out, "") end
-  for _, l in ipairs(body) do table.insert(out, l) end
-  if #sections > 0 then
-    table.insert(out, "")
-    table.insert(out, "---")
-    table.insert(out, "")
-    for _, l in ipairs(sections) do table.insert(out, l) end
-  end
-  return out
-end
-
 -- <leader>ao — tekstcheck: alleen objectieve spel-/grammaticafouten worden
 -- gefixt; twijfelgevallen komen als ## Suggesties onderaan (worden door
 -- pubble-send automatisch gestript, dus hoeven nooit opgeruimd te worden).
 function M.tekstcheck()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local fm, body, sections = split_article_parts(lines)
+  local fm, ctrl, body, sections = split_article_parts(lines)
   sections = drop_suggestions_block(sections)
 
   ai_system(
@@ -1516,7 +1547,7 @@ function M.tekstcheck()
         end
         local new_body = vim.split(result.stdout, "\n", { plain = true })
         while #new_body > 0 and vim.trim(new_body[#new_body]) == "" do table.remove(new_body) end
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, reassemble_article(fm, new_body, sections))
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, reassemble_article(fm, ctrl, new_body, sections))
       end)
     end,
     "AI · Tekstcheck"
@@ -1581,7 +1612,7 @@ end
 function M.tussenkopjes_streamer()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local fm, body, sections = split_article_parts(lines)
+  local fm, ctrl, body, sections = split_article_parts(lines)
 
   local has_streamer = false
   for _, l in ipairs(body) do
@@ -1608,7 +1639,7 @@ function M.tussenkopjes_streamer()
         vim.notify("Artikel te kort voor een mid-tekst streamer — overgeslagen.", vim.log.levels.WARN)
       end
     end
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, reassemble_article(fm, new_body, sections))
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, reassemble_article(fm, ctrl, new_body, sections))
     if has_streamer then
       vim.notify("Tussenkopjes toegevoegd; eigen > streamer blijft staan.", vim.log.levels.INFO)
     end
@@ -1740,19 +1771,36 @@ local function parse_conversation(lines)
 end
 
 
--- <leader>ap — Ad-hoc rewrite: replace buffer with AI-rewritten text.
+-- <leader>ap — Ad-hoc rewrite: vervang de artikelBODY door AI-herschreven tekst.
 -- Usage: type *** on a new line, then your instruction, then press <leader>ap.
+-- Frontmatter, kopcodes en ## secties blijven onaangeraakt (canonieke splitser).
 function M.ai_prompt_rewrite()
-  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-  local article, prompt = split_on_prompt_marker(lines)
+  local buf = vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local article_lines = {}
+  do
+    -- Marker + instructie afsplitsen vóór de deelsplitsing.
+    local marker_idx = nil
+    for i = #lines, 1, -1 do
+      if vim.trim(lines[i]) == "***" then marker_idx = i; break end
+    end
+    if not marker_idx then
+      vim.notify("Type *** on a new line followed by your instruction first.", vim.log.levels.WARN)
+      return
+    end
+    for i = 1, marker_idx - 1 do table.insert(article_lines, lines[i]) end
+  end
+  local _, prompt = split_on_prompt_marker(lines)
   if not prompt or prompt == "" then
     vim.notify("Type *** on a new line followed by your instruction first.", vim.log.levels.WARN)
     return
   end
 
+  local fm, ctrl, body, sections = split_article_parts(article_lines)
+
   ai_system(
     { aichat, prompt, "--mode", "rewrite" },
-    { text = true, stdin = article },
+    { text = true, stdin = table.concat(body, "\n") },
     function(result)
       vim.schedule(function()
         if result.code ~= 0 then
@@ -1765,8 +1813,8 @@ function M.ai_prompt_rewrite()
           vim.notify("AI returned no output.", vim.log.levels.WARN)
           return
         end
-        local new_lines = vim.split(output, "\n", { plain = true })
-        vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
+        local new_body = vim.split(output, "\n", { plain = true })
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, reassemble_article(fm, ctrl, new_body, sections))
         vim.notify("Done. Use u to undo.", vim.log.levels.INFO)
       end)
     end,
