@@ -1279,6 +1279,107 @@ vim.keymap.set("n", "<leader>aw", M.pubble_send, {
   desc = "Send to CMS",
 })
 
+-- ---------------------------------------------------------------------------
+-- :TeamsRedactie — beheer van de Teams-meldingen naar eindredacteuren.
+-- De bron van waarheid is ~/.texttools/teams_notify.json (geseed en gelezen
+-- door pubble-send/pubble_teams.py). Dit menu is puur de UI erop: waarneming
+-- instellen (tijdelijk ander e-mailadres), terugzetten naar de vaste
+-- eindredacteur, meldingen per editie uitzetten, of alles aan/uit.
+-- ---------------------------------------------------------------------------
+local teams_config_file = vim.fn.expand("~/.texttools/teams_notify.json")
+
+local function teams_read_config()
+  if vim.fn.filereadable(teams_config_file) == 0 then
+    -- Laat pubble-send het bestand seeden met de standaardbezetting, zodat
+    -- de mapping maar op één plek leeft (Python).
+    vim.system({ pubble_send, "--teams-config" }, { text = true }):wait()
+  end
+  local ok, config = pcall(function()
+    return vim.json.decode(table.concat(vim.fn.readfile(teams_config_file), "\n"))
+  end)
+  if not ok or type(config) ~= "table" or type(config.editions) ~= "table" then
+    vim.notify("Teams-config onleesbaar: " .. teams_config_file, vim.log.levels.ERROR)
+    return nil
+  end
+  return config
+end
+
+local function teams_write_config(config)
+  vim.fn.writefile(vim.split(vim.json.encode(config), "\n"), teams_config_file)
+end
+
+function M.teams_redactie()
+  local config = teams_read_config()
+  if not config then return end
+
+  local items = {}
+  local aan = config.enabled ~= false
+  table.insert(items, {
+    kind = "toggle",
+    label = aan and "Meldingen: AAN — kies om alles uit te zetten"
+                 or "Meldingen: UIT — kies om alles aan te zetten",
+  })
+  for _, code in ipairs({ "B", "SW", "ST", "Z", "D", "K" }) do
+    local e = config.editions[code]
+    if e then
+      local status
+      if e.email == vim.NIL or e.email == nil then
+        status = (e.default_email == vim.NIL or e.default_email == nil)
+          and "geen melding (standaard)" or "UITGEZET"
+      elseif e.email ~= e.default_email then
+        status = "WAARNEMING: " .. e.email
+      else
+        status = e.email .. " (" .. (e.name or "?") .. ")"
+      end
+      table.insert(items, {
+        kind = "edition", code = code,
+        label = string.format("%-3s %-18s → %s", code, e.krant or code, status),
+      })
+    end
+  end
+
+  vim.ui.select(items, {
+    prompt = "Teams-meldingen eindredactie:",
+    format_item = function(item) return item.label end,
+  }, function(choice)
+    if not choice then return end
+
+    if choice.kind == "toggle" then
+      config.enabled = not aan
+      teams_write_config(config)
+      vim.notify("Teams-meldingen " .. (config.enabled and "AAN" or "UIT"), vim.log.levels.INFO)
+      return
+    end
+
+    local e = config.editions[choice.code]
+    local default_shown = (e.default_email ~= vim.NIL and e.default_email ~= nil)
+      and e.default_email or "geen"
+    vim.ui.input({
+      prompt = string.format(
+        "Ontvanger voor %s (leeg = standaard: %s, 'uit' = geen melding): ",
+        e.krant or choice.code, default_shown
+      ),
+    }, function(input)
+      if input == nil then return end -- Escape: niets wijzigen
+      input = vim.trim(input)
+      if input == "" then
+        e.email = e.default_email
+      elseif input:lower() == "uit" then
+        e.email = vim.NIL
+      else
+        e.email = input
+      end
+      teams_write_config(config)
+      local nieuw = (e.email == vim.NIL) and "geen melding" or tostring(e.email or "geen melding")
+      vim.notify(string.format("%s → %s", e.krant or choice.code, nieuw), vim.log.levels.INFO)
+    end)
+  end)
+end
+
+vim.api.nvim_create_user_command("TeamsRedactie", M.teams_redactie, {
+  desc = "Teams-meldingen eindredactie: waarneming instellen of meldingen aan/uit",
+})
+
 
 -- Strip any previous ## Facebook varianten section appended by generate_facebook.
 local function strip_facebook_section(lines)
@@ -1595,6 +1696,7 @@ local meta_items = {
   { label = "Overig: rewrite: x  (herschrijven naar krantenstijl)", insert = "rewrite: x" },
   { label = "Overig: opmaken (<leader>ao) — spellcheck, tussenkopjes, streamer", insert = "" },
   { label = "Overig: controleer tekens (<leader>ak) — markeer kapotte/verdachte tekens", insert = "" },
+  { label = "Overig: :TeamsRedactie — Teams-meldingen: waarneming instellen / aan-uit", insert = "" },
   { label = "Overig: calendar: x  (kalenderitem meenemen)", insert = "calendar: x" },
 }
 
