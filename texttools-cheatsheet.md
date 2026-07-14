@@ -6,7 +6,8 @@
 |--------------|--------------------------------------------------------------------|
 | <leader>am   | Metadata genereren (krant + web)                                   |
 | <leader>ac   | Metadata + kalenderitem — bewerkbare ## Kalender sectie            |
-| <leader>ao   | Opmaken: spellcheck, tussenkopjes, lead bold, streamer, oordeel    |
+| <leader>ao   | Tekstcheck: spelling/grammatica; twijfel → ## Suggesties onderaan  |
+| <leader>at   | Tussenkopjes + streamer (geen streamer als er al een > staat)      |
 | <leader>ar   | Herschrijven naar krantenartikel (AI)                              |
 | <leader>af   | Facebook-post genereren — bewerkbare ## Facebook sectie            |
 | <leader>aw   | Versturen naar Pubble                                              |
@@ -76,7 +77,14 @@ Alternatief (herkend in eerste 4 regels van de body):
   > "citaat"         QUOTE-blok
   [tekst](url)       hyperlink
 
-  Print: bold/italic gestript, > quote wordt STREAMER - - -
+  Print: bold/italic gestript, > quote blijft op zijn plek met <<STREAMER>> ervoor
+
+  Streamer zelf plaatsen: zet "> 'citaat'" op de gewenste regel.
+  <leader>at genereert er alleen een als je er nog geen hebt (AI kiest de
+  tekst, de plaatsing — midden van het artikel — is automatisch).
+
+  ## Suggesties (van <leader>ao) hoef je nooit op te ruimen:
+  pubble-send stript die sectie automatisch bij verzenden.
 
 ---
 

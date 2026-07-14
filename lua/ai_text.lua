@@ -779,28 +779,9 @@ vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
 function M.pubble_send()
   local buf = vim.api.nvim_get_current_buf()
 
-  -- Voor raadspraat/ondernemen: opmaken (tussenkopjes + streamer) vóór verzenden.
-  if vim.b[buf].gn_export and not vim.b[buf]._opmaken_done then
-    vim.b[buf]._opmaken_done = true
-    local pre_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    ai_system(
-      { aitext, "opmaken" },
-      { text = true, stdin = table.concat(pre_lines, "\n") },
-      function(result)
-        vim.schedule(function()
-          if result.code == 0 then
-            vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(result.stdout, "\n", { plain = true }))
-          else
-            vim.notify("Opmaken mislukt, toch verzenden...", vim.log.levels.WARN)
-          end
-          M.pubble_send()
-        end)
-      end,
-      "AI · Opmaken"
-    )
-    return
-  end
-  vim.b[buf]._opmaken_done = nil
+  -- AI-opmaak draait NIET automatisch — ook niet voor columns/raadspraat/
+  -- ondernemen. Wie wil: <leader>ao (tekstcheck) en/of <leader>at
+  -- (tussenkopjes + streamer) handmatig vóór <leader>aw.
 
   -- Wacht tot alle achtergrondtaken (leader ar/ac/af) klaar zijn.
   if (vim.b[buf].pending_jobs or 0) > 0 then
@@ -994,7 +975,9 @@ function M.pubble_send()
                   -- lege regel na ***: ook weggooien
                 end
               elseif trimmed:match("^>%s") or trimmed == ">" then
-                -- oude blockquote-stijl (veiligheidshalve ook weggooien)
+                -- >-streamer: tekst naar de header, regel uit de body.
+                local q = trimmed:match("^>%s*(.+)$")
+                if q and not streamer_text then streamer_text = q end
               else
                 table.insert(body, line)
               end
@@ -1451,28 +1434,228 @@ vim.keymap.set("n", "<leader>af", M.generate_facebook, {
 })
 
 
-function M.opmaken()
+-- Splits bufferregels in frontmatter, artikelbody en staartsecties
+-- (## Facebook / ## Kalender / ## Suggesties). AI-leaders krijgen alleen de
+-- body te zien; frontmatter en secties worden er deterministisch omheen
+-- gehouden zodat een AI-run ze nooit kan beschadigen of verwijderen.
+local function split_article_parts(lines)
+  local fm, body_start = split_frontmatter_lines(lines)
+  local first_section = nil
+  for i = body_start, #lines do
+    local l = lines[i]
+    if l:match("^## Facebook%s*$") or l:match("^## Kalender%s*$") or l:match("^## Suggesties%s*$") then
+      first_section = i
+      break
+    end
+  end
+  local body_end = (first_section or (#lines + 1)) - 1
+  -- Neem de ---separator en lege regels vóór de eerste sectie niet mee.
+  while body_end >= body_start
+    and (vim.trim(lines[body_end]) == "" or vim.trim(lines[body_end]) == "---") do
+    body_end = body_end - 1
+  end
+  local body = {}
+  for i = body_start, body_end do table.insert(body, lines[i]) end
+  local sections = {}
+  if first_section then
+    for i = first_section, #lines do table.insert(sections, lines[i]) end
+  end
+  return fm, body, sections
+end
+
+-- Verwijder een eerder ## Suggesties-blok uit de staartsecties (t/m de
+-- volgende ## kop of het einde) — tekstcheck levert verse suggesties.
+local function drop_suggestions_block(sections)
+  local result, i = {}, 1
+  while i <= #sections do
+    if sections[i]:match("^## Suggesties%s*$") then
+      i = i + 1
+      while i <= #sections and not sections[i]:match("^## ") do i = i + 1 end
+    else
+      table.insert(result, sections[i])
+      i = i + 1
+    end
+  end
+  while #result > 0 and (vim.trim(result[#result]) == "" or vim.trim(result[#result]) == "---") do
+    table.remove(result)
+  end
+  return result
+end
+
+local function reassemble_article(fm, body, sections)
+  local out = {}
+  for _, l in ipairs(fm) do table.insert(out, l) end
+  if #fm > 0 then table.insert(out, "") end
+  for _, l in ipairs(body) do table.insert(out, l) end
+  if #sections > 0 then
+    table.insert(out, "")
+    table.insert(out, "---")
+    table.insert(out, "")
+    for _, l in ipairs(sections) do table.insert(out, l) end
+  end
+  return out
+end
+
+-- <leader>ao — tekstcheck: alleen objectieve spel-/grammaticafouten worden
+-- gefixt; twijfelgevallen komen als ## Suggesties onderaan (worden door
+-- pubble-send automatisch gestript, dus hoeven nooit opgeruimd te worden).
+function M.tekstcheck()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local fm, body, sections = split_article_parts(lines)
+  sections = drop_suggestions_block(sections)
+
   ai_system(
-    { aitext, "opmaken" },
-    { text = true, stdin = table.concat(lines, "\n") },
+    { aitext, "tekstcheck" },
+    { text = true, stdin = table.concat(body, "\n") },
     function(result)
       vim.schedule(function()
-        if result.code == 0 then
-          vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(result.stdout, "\n", { plain = true }))
-          vim.b[buf]._opmaken_done = true
-        else
-          vim.notify("Opmaken mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
+        if result.code ~= 0 then
+          vim.notify("Tekstcheck mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
+          return
         end
+        local new_body = vim.split(result.stdout, "\n", { plain = true })
+        while #new_body > 0 and vim.trim(new_body[#new_body]) == "" do table.remove(new_body) end
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, reassemble_article(fm, new_body, sections))
       end)
     end,
-    "AI · Opmaken"
+    "AI · Tekstcheck"
   )
 end
 
-vim.keymap.set("n", "<leader>ao", M.opmaken, {
-  desc = "Opmaken: spellcheck, tussenkopjes, streamer",
+vim.keymap.set("n", "<leader>ao", M.tekstcheck, {
+  desc = "Tekstcheck: spelling/grammatica; twijfelgevallen als suggesties onderaan",
+})
+
+-- Plaats een streamer deterministisch: op de alineagrens die het dichtst bij
+-- het midden ligt, nooit direct na de eerste of vóór de laatste alinea, en
+-- nooit direct naast een **tussenkop**. Web maakt er een quote-widget van,
+-- print een <<STREAMER>>-markering — beide op dezelfde plek.
+local function insert_streamer_midway(body, streamer_text)
+  local paras = {}
+  local i = 1
+  while i <= #body do
+    if vim.trim(body[i]) == "" then
+      i = i + 1
+    else
+      local start_i = i
+      while i <= #body and vim.trim(body[i]) ~= "" do i = i + 1 end
+      local text = vim.trim(body[start_i])
+      table.insert(paras, {
+        e = i - 1,
+        heading = (i - 1 == start_i) and text:match("^%*%*.+%*%*$") ~= nil,
+      })
+    end
+  end
+  local n = #paras
+  if n < 4 then return nil end  -- te kort voor een mid-tekst streamer
+
+  -- Kandidaatgrens k = invoegen ná alinea k; zoek vanaf het midden naar buiten.
+  local mid = math.floor(n / 2)
+  local best
+  for d = 0, n do
+    for _, k in ipairs(d == 0 and { mid } or { mid + d, mid - d }) do
+      if k >= 2 and k <= n - 1 and not paras[k].heading and not paras[k + 1].heading then
+        best = k
+        break
+      end
+    end
+    if best then break end
+  end
+  best = best or mid
+
+  local out = {}
+  for idx, l in ipairs(body) do
+    table.insert(out, l)
+    if idx == paras[best].e then
+      table.insert(out, "")
+      table.insert(out, "> " .. streamer_text)
+    end
+  end
+  return out
+end
+
+-- <leader>at — tussenkopjes + streamer, als twee gelijktijdige korte AI-calls.
+-- De streamer-call wordt overgeslagen als er al een eigen >-streamer in de
+-- tekst staat; alleen de streamerTEKST komt van AI, de plaatsing is code.
+function M.tussenkopjes_streamer()
+  local buf = vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local fm, body, sections = split_article_parts(lines)
+
+  local has_streamer = false
+  for _, l in ipairs(body) do
+    if l:match("^>%s") or vim.trim(l) == ">" then has_streamer = true; break end
+  end
+
+  local body_text = table.concat(body, "\n")
+  local results = { koppen = nil, streamer = nil, err = nil }
+  local pending = has_streamer and 1 or 2
+
+  local function finish()
+    if pending > 0 then return end
+    if not results.koppen then
+      vim.notify("Tussenkopjes mislukt: " .. (results.err or ""), vim.log.levels.ERROR)
+      return
+    end
+    local new_body = vim.split(results.koppen, "\n", { plain = true })
+    while #new_body > 0 and vim.trim(new_body[#new_body]) == "" do table.remove(new_body) end
+    if results.streamer and results.streamer ~= "" then
+      local with_streamer = insert_streamer_midway(new_body, results.streamer)
+      if with_streamer then
+        new_body = with_streamer
+      else
+        vim.notify("Artikel te kort voor een mid-tekst streamer — overgeslagen.", vim.log.levels.WARN)
+      end
+    end
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, reassemble_article(fm, new_body, sections))
+    if has_streamer then
+      vim.notify("Tussenkopjes toegevoegd; eigen > streamer blijft staan.", vim.log.levels.INFO)
+    end
+  end
+
+  ai_system(
+    { aitext, "tussenkopjes" },
+    { text = true, stdin = body_text },
+    function(result)
+      vim.schedule(function()
+        if result.code == 0 then
+          results.koppen = result.stdout
+        else
+          results.err = result.stderr
+        end
+        pending = pending - 1
+        finish()
+      end)
+    end,
+    "AI · Tussenkopjes"
+  )
+
+  if not has_streamer then
+    ai_system(
+      { aitext, "streamer" },
+      { text = true, stdin = body_text },
+      function(result)
+        vim.schedule(function()
+          if result.code == 0 then
+            -- Eerste niet-lege regel = de streamertekst.
+            for _, l in ipairs(vim.split(result.stdout or "", "\n", { plain = true })) do
+              if vim.trim(l) ~= "" then results.streamer = vim.trim(l); break end
+            end
+          else
+            vim.notify("Streamer genereren mislukt — alleen tussenkopjes toegepast.", vim.log.levels.WARN)
+          end
+          pending = pending - 1
+          finish()
+        end)
+      end,
+      "AI · Streamer"
+    )
+  end
+end
+
+vim.keymap.set("n", "<leader>at", M.tussenkopjes_streamer, {
+  desc = "Tussenkopjes + streamer (streamer alleen als er nog geen > staat)",
 })
 
 
@@ -1694,7 +1877,9 @@ local meta_items = {
   { label = "Facebook: x  (AI genereert post)", insert = "facebook: x" },
   { label = "Facebook: eigen tekst  (geen AI)", insert = "facebook_tekst: " },
   { label = "Overig: rewrite: x  (herschrijven naar krantenstijl)", insert = "rewrite: x" },
-  { label = "Overig: opmaken (<leader>ao) — spellcheck, tussenkopjes, streamer", insert = "" },
+  { label = "Overig: tekstcheck (<leader>ao) — spelling/grammatica + suggesties", insert = "" },
+  { label = "Overig: tussenkopjes + streamer (<leader>at)", insert = "" },
+  { label = "Overig: eigen streamer — zet > voor de regel (web: quote-widget, print: <<STREAMER>>)", insert = "> " },
   { label = "Overig: controleer tekens (<leader>ak) — markeer kapotte/verdachte tekens", insert = "" },
   { label = "Overig: :TeamsRedactie — Teams-meldingen: waarneming instellen / aan-uit", insert = "" },
   { label = "Overig: calendar: x  (kalenderitem meenemen)", insert = "calendar: x" },
