@@ -13,6 +13,7 @@
 | <leader>ap   | Ad-hoc rewrite: typ *** + instructie, buffer wordt vervangen       |
 | <leader>ag   | AI gesprek: typ *** + vraag, antwoord verschijnt eronder           |
 | <leader>ah   | Codes invoegen via zoeklijst                                       |
+| <leader>ak   | Verdachte tekens scannen (U+FFFD, control chars)                   |
 | <leader>a?   | Deze cheatsheet                                                    |
 | <leader>kt   | Rubriektemplate invoegen (Raadspraat, 112, etc.)                   |
 
@@ -24,12 +25,17 @@ Werken in beide workflows (leader aw én pubble-batch):
 
   editie: B          of SW, ST, Z, D, K, all, overijssel, flevoland
   prio: 2            1=moet mee  2=mag mee  3=rest(standaard)  4=nood
+  rubriek: 112       112-bericht (articleCategoryId 24)
+  week: 29           uiterste publicatieweek overschrijven (x = geen deadline)
   b: Bijschrift      globaal bijschrift (alle foto's)
   c: Fotograaf       globale credit
   b1: Bijschrift 1   bijschrift specifiek voor foto 1
   c1: Fotograaf 1
   b2: Bijschrift 2   bijschrift specifiek voor foto 2
   c2: Fotograaf 2
+  calendar: x        kalenderitem meenemen
+  facebook: x        Facebook-post genereren (AI)
+  web: draft         webartikel als concept, niet direct publiceren
 
 Alternatief (herkend in eerste 4 regels van de body):
 
@@ -41,9 +47,8 @@ Alternatief (herkend in eerste 4 regels van de body):
 ## Alleen pubble-batch (in .meta of bovenaan document)
 
   rewrite: x         herschrijven naar krantenstijl (AI)
-  calendar: x        kalenderitem aanmaken
-  facebook: x        Facebook-post genereren (AI)
   facebook_tekst:    eigen tekst als Facebook-post
+  prefix: sport      voorvoegsel voor de werktitel
 
 ---
 
@@ -91,11 +96,22 @@ Alternatief (herkend in eerste 4 regels van de body):
 
 ## pubble-batch
 
-Bestanden in: ~/Desktop/Pubble Inbox/articles/
+Bestanden in: ~/Desktop/Pubble Inbox/pubble-batch/
 
-Controlecodes bovenaan het document (voor de kop) of in default.meta voor de hele map.
+Controlecodes bovenaan het document (voor de kop), in artikel.meta naast het
+document, of in default.meta voor de hele map.
 default.meta wordt automatisch aangemaakt bij de eerste run.
 
-Prioriteit: bovenaan artikel > default.meta
+Prioriteit: bovenaan artikel > artikel.meta > default.meta
 
 Foto's op bestandsnaam:  artikel.jpg, artikel2.jpg, artikel3.jpg
+Na verwerking: alles met datum-prefix naar published-archive/
+
+---
+
+## Mislukte verzending? Gewoon opnieuw versturen
+
+pubble-send schrijft elk Pubble-ID direct terug in de frontmatter.
+Een rerun slaat edities met een ID over en maakt alleen de ontbrekende aan —
+geen duplicaten. Exit code 1 + waarschuwing = artikel staat mogelijk nog
+offline in het CMS, even controleren.

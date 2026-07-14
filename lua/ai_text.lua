@@ -1584,6 +1584,8 @@ local meta_items = {
   { label = "Prioriteit: 2 - mag mee", insert = "prio: 2" },
   { label = "Prioriteit: 3 - rest (standaard)", insert = "prio: 3" },
   { label = "Prioriteit: 4 - nood", insert = "prio: 4" },
+  { label = "Rubriek: 112  (112-bericht, articleCategoryId 24)", insert = "rubriek: 112" },
+  { label = "Week: ...  (uiterste publicatieweek overschrijven, x = geen deadline)", insert = "week: " },
   { label = "Bijschrift: ...  (onderschrift bij de foto)", insert = "Bijschrift: " },
   { label = "Foto: ...  (naam fotograaf / credit)", insert = "Foto: " },
   { label = "Web: draft  (niet direct publiceren op website)", insert = "web: draft" },
