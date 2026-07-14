@@ -994,7 +994,8 @@ function M.pubble_send()
           local output = vim.trim(result.stdout or "")
           local article_url = output:match("Pubble article: (https://[^\n]+)")
           if article_url then
-            vim.ui.open(article_url)
+            -- open -g: open de tab in de achtergrond zodat Neovim de focus houdt.
+            vim.system({ "open", "-g", article_url })
           end
 
           local verzonden = {}
