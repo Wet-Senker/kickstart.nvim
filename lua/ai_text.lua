@@ -1558,11 +1558,10 @@ vim.keymap.set("n", "<leader>ao", M.tekstcheck, {
   desc = "Tekstcheck: spelling/grammatica; twijfelgevallen als suggesties onderaan",
 })
 
--- Plaats een streamer deterministisch: op de alineagrens die het dichtst bij
--- het midden ligt, nooit direct na de eerste of vóór de laatste alinea, en
--- nooit direct naast een **tussenkop**. Web maakt er een quote-widget van,
--- print een <<STREAMER>>-markering — beide op dezelfde plek.
-local function insert_streamer_midway(body, streamer_text)
+-- Scan de body in alinea's (blokken gescheiden door lege regels).
+-- Geeft per alinea: s = eerste regel, e = laatste regel, heading = of het
+-- een losse **vetgedrukte** regel is (tussenkop of vette lead).
+local function scan_paragraphs(body)
   local paras = {}
   local i = 1
   while i <= #body do
@@ -1573,11 +1572,38 @@ local function insert_streamer_midway(body, streamer_text)
       while i <= #body and vim.trim(body[i]) ~= "" do i = i + 1 end
       local text = vim.trim(body[start_i])
       table.insert(paras, {
+        s = start_i,
         e = i - 1,
         heading = (i - 1 == start_i) and text:match("^%*%*.+%*%*$") ~= nil,
       })
     end
   end
+  return paras
+end
+
+-- Voeg tussenkopjes deterministisch in. `koppen` is een lijst {n=…, kop=…}
+-- (kop hoort direct bóven alinea n). Ongeldige posities worden overgeslagen:
+-- boven kop/lead, direct na de intro (n=3) of boven de laatste alinea.
+-- Invoegen van achter naar voren zodat de alinea-indexen geldig blijven.
+local function insert_headings(body, koppen, paras)
+  table.sort(koppen, function(a, b) return a.n > b.n end)
+  local out = {}
+  for i, l in ipairs(body) do out[i] = l end
+  for _, k in ipairs(koppen) do
+    if k.n >= 4 and k.n <= #paras - 1 then
+      table.insert(out, paras[k.n].s, "")
+      table.insert(out, paras[k.n].s, "**" .. k.kop .. "**")
+    end
+  end
+  return out
+end
+
+-- Plaats een streamer deterministisch: op de alineagrens die het dichtst bij
+-- het midden ligt, nooit direct na de eerste of vóór de laatste alinea, en
+-- nooit direct naast een **tussenkop**. Web maakt er een quote-widget van,
+-- print een <<STREAMER>>-markering — beide op dezelfde plek.
+local function insert_streamer_midway(body, streamer_text)
+  local paras = scan_paragraphs(body)
   local n = #paras
   if n < 4 then return nil end  -- te kort voor een mid-tekst streamer
 
@@ -1607,12 +1633,15 @@ local function insert_streamer_midway(body, streamer_text)
 end
 
 -- <leader>at — tussenkopjes + streamer, als twee gelijktijdige korte AI-calls.
--- De streamer-call wordt overgeslagen als er al een eigen >-streamer in de
--- tekst staat; alleen de streamerTEKST komt van AI, de plaatsing is code.
+-- De AI levert alleen kopjes-met-positie ("3: Kopje") en één streamerregel —
+-- de artikeltekst zelf wordt nooit door de AI geregenereerd; alle invoeging
+-- is deterministisch. De streamer-call wordt overgeslagen als er al een
+-- eigen >-streamer in de tekst staat.
 function M.tussenkopjes_streamer()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local fm, ctrl, body, sections = split_article_parts(lines)
+  local paras = scan_paragraphs(body)
 
   local has_streamer = false
   for _, l in ipairs(body) do
@@ -1620,17 +1649,37 @@ function M.tussenkopjes_streamer()
   end
 
   local body_text = table.concat(body, "\n")
-  local results = { koppen = nil, streamer = nil, err = nil }
+
+  -- Genummerde variant voor de tussenkopjes-prompt: elke alinea krijgt een
+  -- [N]-marker zodat de AI posities kan teruggeven i.p.v. de hele tekst.
+  local numbered = {}
+  for i, l in ipairs(body) do numbered[i] = l end
+  for n, p in ipairs(paras) do
+    numbered[p.s] = "[" .. n .. "] " .. numbered[p.s]
+  end
+  local numbered_text = table.concat(numbered, "\n")
+
+  local results = { koppen = nil, streamer = nil }
   local pending = has_streamer and 1 or 2
 
   local function finish()
     if pending > 0 then return end
-    if not results.koppen then
-      vim.notify("Tussenkopjes mislukt: " .. (results.err or ""), vim.log.levels.ERROR)
-      return
+
+    -- Parse "N: Kopje"-regels; alles wat niet matcht (incl. GEEN) valt af.
+    local koppen = {}
+    for _, l in ipairs(vim.split(results.koppen or "", "\n", { plain = true })) do
+      local n, kop = l:match("^%s*%[?(%d+)%]?%s*[:%.%)]%s*(.+)$")
+      if n and kop then
+        kop = vim.trim(kop):gsub("^%*+", ""):gsub("%*+$", ""):gsub("%.$", "")
+        if kop ~= "" then table.insert(koppen, { n = tonumber(n), kop = kop }) end
+      end
     end
-    local new_body = vim.split(results.koppen, "\n", { plain = true })
-    while #new_body > 0 and vim.trim(new_body[#new_body]) == "" do table.remove(new_body) end
+
+    local new_body = insert_headings(body, koppen, paras)
+    if #koppen == 0 then
+      vim.notify("Geen tussenkopjes toegevoegd (artikel te kort of AI gaf niets terug).", vim.log.levels.INFO)
+    end
+
     if results.streamer and results.streamer ~= "" then
       local with_streamer = insert_streamer_midway(new_body, results.streamer)
       if with_streamer then
@@ -1647,13 +1696,13 @@ function M.tussenkopjes_streamer()
 
   ai_system(
     { aitext, "tussenkopjes" },
-    { text = true, stdin = body_text },
+    { text = true, stdin = numbered_text },
     function(result)
       vim.schedule(function()
         if result.code == 0 then
           results.koppen = result.stdout
         else
-          results.err = result.stderr
+          vim.notify("Tussenkopjes mislukt: " .. (result.stderr or ""), vim.log.levels.WARN)
         end
         pending = pending - 1
         finish()
