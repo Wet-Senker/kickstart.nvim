@@ -834,73 +834,20 @@ function M.pubble_send()
   local file_path = vim.api.nvim_buf_get_name(buf)
 
   -- Detect what will be sent, so we can build the summary header afterwards.
-  -- editie: B  (raw control code before <leader>am)  OR
-  --   editions: B, SW  (YAML frontmatter after <leader>am)
+  -- De editie zelf wordt NIET hier bepaald maar door
+  -- `pubble-send --resolve-editions` (zie verderop): pubble-send is de enige
+  -- bron van waarheid voor waar het artikel heengaat, zodat de datumdialoog
+  -- gegarandeerd over dezelfde edities loopt als de daadwerkelijke verzending.
   local editie = nil
+  local editie_namen = {
+    B = "De Brug", SW = "De Swollenaer", ST = "De Stadskoerier",
+    Z = "Zeewolde Actueel", D = "De Drontenaar", K = "Nieuwsbode De Kop",
+  }
   local has_calendar = false
   local has_facebook = false
-  local pub_site_id = nil
   for _, line in ipairs(lines) do
-    local e = line:match("^e:%s*(.+)$") or line:match("^editie:%s*(.+)$") or line:match("^%s*editions:%s*(.+)$")
-    if e then
-      local v = vim.trim(e)
-      if v ~= "" and v ~= "null" then editie = v end
-    end
-    local s = line:match("^%s*publication_site_id:%s*['\"]?(%d+)['\"]?")
-    if s then pub_site_id = tonumber(s) end
     if line:match("^## Kalender") then has_calendar = true end
     if line:match("^## Facebook") then has_facebook = true end
-  end
-  -- Fallback: leid de editie af uit publication_site_id als editions: null was.
-  if not editie and pub_site_id then
-    local site_to_code = { [19]="B", [20]="SW", [21]="ST", [24]="Z", [22]="D", [27]="K" }
-    editie = site_to_code[pub_site_id]
-  end
-  -- Fallback: leid de editie af uit de dateline in de artikeltekst.
-  -- HOUD DEZE TABEL GELIJK aan DATELINE_LOOKUP in
-  -- ~/workspace/texttools/src/texttools/pubble_publications.py — pubble-send
-  -- gebruikt die tabel om de editie te bepalen; wijken ze af, dan toont de
-  -- datumdialoog een andere editie dan waar het artikel heengaat en wordt de
-  -- gekozen datum genegeerd.
-  if not editie then
-    local dateline_to_code = {
-      -- De Brug (B)
-      KAMPEN="B", GRAFHORST="B", IJSSELMUIDEN="B", KAMPERVEEN="B", WILSUM="B",
-      ["DE ZANDE"]="B", ["'S-HEERENBROEK"]="B", ["S-HEERENBROEK"]="B",
-      MASTENBROEK="B",
-      -- De Stadskoerier (ST)
-      ZWARTEWATERLAND="ST", ZWARTSLUIS="ST", GENEMUIDEN="ST", HASSELT="ST",
-      -- De Swollenaer (SW)
-      ZWOLLE="SW", STADSHAGEN="SW",
-      -- Zeewolde (Z)
-      ZEEWOLDE="Z",
-      -- De Drontenaar (D)
-      DRONTEN="D", KETELHAVEN="D", SWIFTERBANT="D",
-      -- Biddinghuizen valt onder De Drontenaar én Zeewolde Actueel
-      BIDDINGHUIZEN="D, Z",
-      -- De Kop van Overijssel (K)
-      STEENWIJKERLAND="K", WANNEPERVEEN="K", ["BELT SCHUTSLOOT"]="K",
-      VOLLENHOVE="K", ["SINT JANSKLOOSTER"]="K", STEENWIJK="K", TUK="K",
-      ["WITTE PAARDEN"]="K", BAARS="K", ["DE POL"]="K", WILLEMSOORD="K",
-      MARIJENKAMPEN="K", STEENWIJKERWOLD="K", BASSE="K", ZUIDVEEN="K",
-      ONNA="K", KALLENKOTE="K", EESVEEN="K", ["DE BULT"]="K", GIETHOORN="K",
-      BLOKZIJL="K", IJSSELHAM="K", WETERING="K", SCHEERWOLDE="K", BAARLO="K",
-      BLANKENHAM="K", KUINRE="K", OLDEMARKT="K", OSSENZIJL="K", KALENBERG="K",
-      PAASLOO="K", VLEDDER="K", FREDERIKSOORD="K", NEIJENSLEEK="K",
-      MARKNESSE="K", LUTTELGEEST="K", KRAGGENBURG="K",
-      -- Groepen
-      OVERIJSSEL="overijssel", FLEVOLAND="flevoland",
-    }
-    for _, line in ipairs(lines) do
-      -- Dateline: "**KAMPEN - " of "KAMPEN - " aan het begin van een regel;
-      -- ook meerwoordige plaatsnamen ("SINT JANSKLOOSTER - ") en
-      -- 'S-HEERENBROEK worden herkend.
-      local dl = line:match("^%*?%*?'?([A-Z][A-Z%s%-']+[A-Z])%s*[%-–]")
-      if dl and dateline_to_code[dl] then
-        editie = dateline_to_code[dl]
-        break
-      end
-    end
   end
 
   -- Write the temp file inside Pubble Inbox so pubble-media can find photos
@@ -978,7 +925,12 @@ function M.pubble_send()
             vim.ui.open(article_url)
           end
 
-          local msg = "Verzonden naar krant: " .. (editie or "B") .. " | website"
+          local verzonden = {}
+          for token in (editie or "B"):gmatch("[^,]+") do
+            local code = vim.trim(token)
+            table.insert(verzonden, editie_namen[code] or code)
+          end
+          local msg = "Verzonden naar: " .. table.concat(verzonden, " + ") .. " (krant + website)"
           if has_calendar then msg = msg .. " | kalender" end
           if has_facebook then msg = msg .. " | Facebook" end
           vim.notify(msg, vim.log.levels.INFO)
@@ -1160,14 +1112,43 @@ function M.pubble_send()
   for _, line in ipairs(pubble_lines) do
     if line:match("^112 [A-Z]") then is_112 = true; break end
   end
-  if is_112 then
-    _do_pubble_send({})
-    return
-  end
 
-  -- Haal planningsuggesties op en toon per editie een keuze.
-  -- Bij fout in pubble-schedule: toon alsnog een minimale dialog per editie.
-  vim.system({ pubble_schedule, editie or "B" }, { text = true }, function(sched_result)
+  -- Vraag pubble-send waar dit artikel heengaat (expliciete e:/editions →
+  -- dateline → default De Brug). Dit is dezelfde logica als de echte
+  -- verzending, dus dialoog en verzending kunnen nooit meer uiteenlopen.
+  vim.system({ pubble_send, temp_file, "--resolve-editions" }, { text = true }, function(resolve_result)
+    vim.schedule(function()
+      local rok, resolved = pcall(vim.fn.json_decode, resolve_result.stdout or "")
+      if resolve_result.code ~= 0 or not rok or type(resolved) ~= "table" or type(resolved.editions) ~= "table" then
+        local err = vim.trim(resolve_result.stderr or "")
+        vim.fn.delete(temp_file)
+        vim.notify(
+          "Editie bepalen mislukt" .. (err ~= "" and (": " .. err) or "") .. " — verzending afgebroken.",
+          vim.log.levels.ERROR
+        )
+        return
+      end
+
+      editie = table.concat(resolved.editions, ", ")
+      local bestemming = {}
+      for i, code in ipairs(resolved.editions) do
+        if resolved.names and resolved.names[i] then editie_namen[code] = resolved.names[i] end
+        table.insert(bestemming, editie_namen[code] or code)
+      end
+      vim.notify(
+        "Artikel gaat naar: " .. table.concat(bestemming, " + ")
+          .. (resolved.source and ("  (" .. resolved.source .. ")") or ""),
+        vim.log.levels.INFO
+      )
+
+      if is_112 then
+        _do_pubble_send({})
+        return
+      end
+
+      -- Haal planningsuggesties op en toon per editie een keuze.
+      -- Bij fout in pubble-schedule: toon alsnog een minimale dialog per editie.
+      vim.system({ pubble_schedule, editie }, { text = true }, function(sched_result)
     vim.schedule(function()
       local display_dates = {}
       local ok, sched_data = pcall(vim.fn.json_decode, sched_result.stdout or "")
@@ -1181,18 +1162,9 @@ function M.pubble_send()
         )
       end
 
-      -- Edities: uit sched_data als beschikbaar, anders uit editie-string.
+      -- Edities in de volgorde van resolve: primaire krant eerst.
       local edition_codes = {}
-      if has_data then
-        for code, _ in pairs(sched_data) do table.insert(edition_codes, code) end
-        table.sort(edition_codes)
-      else
-        local raw = editie or "B"
-        for token in raw:gmatch("[^,]+") do
-          local code = vim.trim(token):upper()
-          if code ~= "" then table.insert(edition_codes, code) end
-        end
-      end
+      for _, code in ipairs(resolved.editions) do table.insert(edition_codes, code) end
 
       -- Voeg N dagen toe aan een YYYY-MM-DD datum string.
       local function date_add_days(date_str, n)
@@ -1253,10 +1225,6 @@ function M.pubble_send()
         local code = edition_codes[idx]
         local info = has_data and sched_data[code]
 
-        local edition_names = {
-          B="De Brug", SW="De Swollenaer", ST="De Stadskoerier",
-          Z="Zeewolde Actueel", D="De Drontenaar", K="De Kop van Overijssel",
-        }
         local function show_week(week_offset)
           local items, item_values, base = build_week_items(info, week_offset)
           if week_offset > 0 then
@@ -1269,9 +1237,10 @@ function M.pubble_send()
           table.insert(item_values, "direct")
 
           local week_nr = tonumber(os.date("%V", base + 3 * 86400))  -- donderdag bepaalt ISO-weeknummer
-          local krant_naam = edition_names[code] or code
+          local krant_naam = editie_namen[code] or code
+          local volgnr = #edition_codes > 1 and ("  [" .. idx .. "/" .. #edition_codes .. "]") or ""
           vim.ui.select(items, {
-            prompt = krant_naam .. "  —  week " .. week_nr .. ":",
+            prompt = krant_naam .. volgnr .. "  —  week " .. week_nr .. ":",
           }, function(choice, choice_idx)
             if choice == nil then
               vim.fn.delete(temp_file)
@@ -1294,6 +1263,8 @@ function M.pubble_send()
       end
 
       ask_edition(1)
+    end)
+      end)
     end)
   end)
 end
