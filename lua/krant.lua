@@ -54,6 +54,8 @@ M.templates = {
 
   {
     name = 'Column Kamper Ambassadeur',
+    -- Geen lezersnieuws-export: deze column gaat gewoon naar website + print.
+    no_export = true,
     text = {
     'Kamper Ambassadeur: {{title}}',
     '',
