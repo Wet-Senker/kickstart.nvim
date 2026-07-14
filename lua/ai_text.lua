@@ -875,7 +875,9 @@ function M.pubble_send()
       -- Zeewolde (Z)
       ZEEWOLDE="Z",
       -- De Drontenaar (D)
-      DRONTEN="D", BIDDINGHUIZEN="D", KETELHAVEN="D", SWIFTERBANT="D",
+      DRONTEN="D", KETELHAVEN="D", SWIFTERBANT="D",
+      -- Biddinghuizen valt onder De Drontenaar én Zeewolde Actueel
+      BIDDINGHUIZEN="D, Z",
       -- De Kop van Overijssel (K)
       STEENWIJKERLAND="K", WANNEPERVEEN="K", ["BELT SCHUTSLOOT"]="K",
       VOLLENHOVE="K", ["SINT JANSKLOOSTER"]="K", STEENWIJK="K", TUK="K",
