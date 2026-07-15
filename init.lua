@@ -976,8 +976,15 @@ vim.api.nvim_create_autocmd('FileType', {
     vim.opt_local.spelllang = 'nl,en_us'
     vim.opt_local.conceallevel = 2
     vim.opt_local.textwidth = 0
-    vim.keymap.set('n', 'j', 'gj', { buffer = true })
-    vim.keymap.set('n', 'k', 'gk', { buffer = true })
+
+    vim.keymap.set('n', 'j', function()
+      return vim.v.count == 0 and 'gj' or 'j'
+    end, { expr = true, silent = true, buffer = true })
+
+    vim.keymap.set('n', 'k', function()
+      return vim.v.count == 0 and 'gk' or 'k'
+    end, { expr = true, silent = true, buffer = true })
+
     vim.keymap.set('n', '0', 'g0', { buffer = true })
     vim.keymap.set('n', '$', 'g$', { buffer = true })
   end,
