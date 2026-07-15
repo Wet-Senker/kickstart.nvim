@@ -1223,16 +1223,19 @@ function M.pubble_send()
         if resolved.names and resolved.names[i] then editie_namen[code] = resolved.names[i] end
         table.insert(bestemming, editie_namen[code] or code)
       end
-      -- Alleen melden als de bestemming iets toevoegt (dateline of expliciete
-      -- editie). Bij de kale default naar De Brug is de melding overbodig —
-      -- dat zie je meteen aan de datumpicker die verschijnt.
-      if not (resolved.source and resolved.source:match("^standaard")) then
-        vim.notify(
-          "Artikel gaat naar: " .. table.concat(bestemming, " + ")
-            .. (resolved.source and ("  (" .. resolved.source .. ")") or ""),
-          vim.log.levels.INFO
-        )
+      -- Melding tonen waar het artikel heengaat. De bron (dateline/editie)
+      -- alleen erbij als die iets toevoegt — bij de kale default naar De Brug
+      -- niet, want die brontekst is lang en zou de melding laten wrappen naar
+      -- twee regels, wat een 'Press ENTER'-prompt afdwingt. Voor de zekerheid
+      -- kappen we sowieso af op vensterbreedte.
+      local msg = "Artikel gaat naar: " .. table.concat(bestemming, " + ")
+      if resolved.source and not resolved.source:match("^standaard") then
+        msg = msg .. "  (" .. resolved.source .. ")"
       end
+      if #msg > vim.o.columns - 1 then
+        msg = msg:sub(1, math.max(1, vim.o.columns - 2)) .. "…"
+      end
+      vim.notify(msg, vim.log.levels.INFO)
 
       if is_112 then
         _do_pubble_send({})
