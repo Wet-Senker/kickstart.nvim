@@ -60,6 +60,8 @@ Alternatief (herkend in eerste 4 regels van de body):
   Titel: Naam evenement
   Datum: 2026-07-23
   Einddatum: 2026-07-31     (alleen bij meerdaags evenement, anders weglaten)
+  Herhaling: wekelijks      (of maandelijks; reeks i.p.v. Einddatum)
+  Herhaal tot: 2026-08-27   (verplicht bij Herhaling)
   Tijd: 20:00
   Eindtijd: 22:00
   Locatie: Naam locatie
@@ -70,6 +72,11 @@ Alternatief (herkend in eerste 4 regels van de body):
 
   Tijd mag ook als 19.30 / 19u30 / 20 uur — wordt genormaliseerd naar HH:MM.
   Een datum in het verleden geeft een waarschuwing bij het versturen.
+
+  Herhaling: de weekdag volgt uit Datum, dus "elke donderdag" = Datum op een
+  donderdag + Herhaling: wekelijks. Bij maandelijks wordt ook de positie in de
+  maand ("tweede woensdag") uit Datum afgeleid. Einddatum en Herhaling
+  sluiten elkaar uit.
 
 ---
 
