@@ -761,6 +761,14 @@ local function _calendar_autodetect(buf)
   if #lines == 0 then return end
   local text = table.concat(lines, "\n")
 
+  -- Sla over als er al een ## Kalender-blok in de buffer staat: de
+  -- kalenderdata bestaat dan al (bijv. een reeds gemaakt artikel dat opnieuw
+  -- verstuurd wordt). Opnieuw de AI draaien zou dat blok overschrijven.
+  -- Handmatig hergenereren kan altijd nog via <leader>ac.
+  if text:find("\n## Kalender", 1, true) or text:match("^## Kalender") then
+    return
+  end
+
   -- Sla over als calendar_article_id al een echte waarde heeft (al verwerkt).
   if text:find("calendar_article_id:") and not text:find("calendar_article_id:%s*null") then
     return
