@@ -77,7 +77,7 @@ Alternatief (herkend in eerste 4 regels van de body):
   > "citaat"         QUOTE-blok
   [tekst](url)       hyperlink
 
-  Print: bold/italic gestript, > quote blijft op zijn plek met <<STREAMER>> ervoor
+  Print: bold/italic gestript, > quote blijft op zijn plek als "STREAMER: quote"
 
   Streamer zelf plaatsen: zet "> 'citaat'" op de gewenste regel.
   <leader>at genereert er alleen een als je er nog geen hebt (AI kiest de
