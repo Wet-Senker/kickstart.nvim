@@ -1128,8 +1128,11 @@ function M.pubble_send()
           end
           clean = vim.list_slice(clean, s)
 
-          -- Prepend editie-regel
-          local header = { "Editie: " .. (editie or "B"), "" }
+          -- Prepend editie-regel + link naar het gepubliceerde artikel, zodat
+          -- je ook maanden later vanuit het archief direct bij Pubble komt.
+          local header = { "Editie: " .. (editie or "B") }
+          if article_url then table.insert(header, article_url) end
+          table.insert(header, "")
           local out = {}
           for _, l in ipairs(header) do table.insert(out, l) end
           for _, l in ipairs(clean) do table.insert(out, l) end
@@ -1163,14 +1166,24 @@ function M.pubble_send()
           end
 
           -- Zet bovenaan de (nog open) buffer wanneer verzonden is, zodat je bij
-          -- meerdere open buffers in één oogopslag ziet wat al gelukt is.
-          -- Opnieuw verzenden vervangt de bestaande regel i.p.v. te stapelen.
+          -- meerdere open buffers in één oogopslag ziet wat al gelukt is. De
+          -- artikel-URL komt eronder: klikbaar met gx en meteen de weg terug.
+          -- Opnieuw verzenden vervangt het bestaande blok i.p.v. te stapelen.
           local sent_marker = "**Verstuurd naar Pubble op " .. os.date("%d-%m-%Y %H:%M") .. "**"
+          local marker_block = { sent_marker }
+          if article_url then table.insert(marker_block, article_url) end
+
           local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
           if buf_lines[1] and buf_lines[1]:match("^%*%*Verstuurd naar Pubble op ") then
-            vim.api.nvim_buf_set_lines(buf, 0, 1, false, { sent_marker })
+            -- Vervang het bestaande blok (marker + evt. eerdere URL-regel).
+            local replace_to = 1
+            if buf_lines[2] and buf_lines[2]:match("^https?://") then replace_to = 2 end
+            vim.api.nvim_buf_set_lines(buf, 0, replace_to, false, marker_block)
           else
-            vim.api.nvim_buf_set_lines(buf, 0, 0, false, { sent_marker, "" })
+            local prepend = {}
+            for _, l in ipairs(marker_block) do table.insert(prepend, l) end
+            table.insert(prepend, "")
+            vim.api.nvim_buf_set_lines(buf, 0, 0, false, prepend)
           end
         else
           local output = vim.trim(result.stderr or result.stdout or "")
