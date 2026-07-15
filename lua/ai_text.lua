@@ -672,12 +672,13 @@ local function build_calendar_section_lines(lines)
     end
   end
 
-  add("Titel",    f.calendar_title or f.event_title)
-  add("Datum",    f.event_date)
-  add("Tijd",     f.start_time)
-  add("Eindtijd", f.end_time)
-  add("Locatie",  f.location_name)
-  add("Stad",     f.city)
+  add("Titel",     f.calendar_title or f.event_title)
+  add("Datum",     f.event_date)
+  add("Einddatum", f.event_end_date)
+  add("Tijd",      f.start_time)
+  add("Eindtijd",  f.end_time)
+  add("Locatie",   f.location_name)
+  add("Stad",      f.city)
 
   if f.calendar_body and f.calendar_body ~= "" then
     table.insert(section, "")

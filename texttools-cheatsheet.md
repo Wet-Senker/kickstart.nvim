@@ -59,6 +59,7 @@ Alternatief (herkend in eerste 4 regels van de body):
 
   Titel: Naam evenement
   Datum: 2026-07-23
+  Einddatum: 2026-07-31     (alleen bij meerdaags evenement, anders weglaten)
   Tijd: 20:00
   Eindtijd: 22:00
   Locatie: Naam locatie
@@ -66,6 +67,9 @@ Alternatief (herkend in eerste 4 regels van de body):
   Stad: Plaatsnaam
 
   Korte omschrijving. Geen datum/tijd/locatie herhalen.
+
+  Tijd mag ook als 19.30 / 19u30 / 20 uur — wordt genormaliseerd naar HH:MM.
+  Een datum in het verleden geeft een waarschuwing bij het versturen.
 
 ---
 
