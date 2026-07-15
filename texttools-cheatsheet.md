@@ -112,6 +112,12 @@ Alternatief (herkend in eerste 4 regels van de body):
   overijssel   B, SW, ST, K
   flevoland    D, Z
 
+Plaatsenscan: pubble-places leest het clipboard (of stdin/bestand) en toont
+per krant de gevonden plaatsnamen — snelle check of een artikel voor ons
+interessant is. Alleen treffers met hoofdletter tellen. Bij <leader>aw zie
+je dezelfde scan als "Tekst noemt ook: ..." — suggestie, stuurt niet;
+zelf e: toevoegen als je erheen wilt.
+
 ---
 
 ## pubble-batch

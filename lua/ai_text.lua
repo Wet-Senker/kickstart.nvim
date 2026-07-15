@@ -1243,6 +1243,17 @@ function M.pubble_send()
       if resolved.source and not resolved.source:match("^standaard") then
         msg = msg .. "  (" .. resolved.source .. ")"
       end
+      -- Plaatsenscan: kranten die de tekst wél noemt maar die niet gekozen
+      -- zijn. Alleen tonen — wil je erheen, dan zelf e: toevoegen. In
+      -- dezelfde melding geplakt: een tweede vim.notify in dezelfde tick
+      -- geeft met de standaard-notifier een 'Press ENTER'-prompt.
+      if type(resolved.suggestions) == "table" and #resolved.suggestions > 0 then
+        local parts = {}
+        for _, s in ipairs(resolved.suggestions) do
+          table.insert(parts, s.place .. " → " .. table.concat(s.names or s.editions, " + "))
+        end
+        msg = msg .. "  ·  Tekst noemt ook: " .. table.concat(parts, ", ")
+      end
       if #msg > vim.o.columns - 1 then
         msg = msg:sub(1, math.max(1, vim.o.columns - 2)) .. "…"
       end
