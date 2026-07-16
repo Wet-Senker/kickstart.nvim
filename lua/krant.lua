@@ -44,7 +44,6 @@ M.templates = {
   },
    {
     name = "Kiek op de wiek (Sander de Rouwe)",
-    column = true,
     text = {
       "De Kamper 'kiek op de wîêk' van burgemeester Sander de Rouwe",
       "",
