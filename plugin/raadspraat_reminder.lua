@@ -9,6 +9,10 @@ local function dutch_short_date(iso_date)
   return string.format('%s-%s-%s', day, month, year)
 end
 
+local function is_sent(item)
+  return type(item.sent_at) == 'string' and item.sent_at ~= ''
+end
+
 local function run(args)
   local output = vim.fn.system(vim.list_extend({ python, '-m', module }, args))
   if vim.v.shell_error ~= 0 then
@@ -109,6 +113,49 @@ local function copy_mail(item, buf)
   end)
 end
 
+-- ? in de reminderbuffer — zelfde vorm als de texttools-cheatsheet.
+local function show_help()
+  local lines = {
+    ' Raadspraat-reminder',
+    '',
+    ' <leader>aw   concept openen in Apple Mail',
+    ' c            reminder naar het klembord',
+    ' s            verzendstatus wisselen (○ / ✓)',
+    ' ?            deze hulp',
+    ' q            sluiten',
+    '',
+    ' In het menu (<leader>kr):',
+    ' ▶  de reminder van deze week — die gaat nu de deur uit',
+    ' ○  nog niet verstuurd      ✓  verstuurd',
+    '',
+    ' De tekst hierboven is bewerkbaar; wat je wijzigt gaat mee',
+    ' naar Apple Mail of het klembord.',
+  }
+
+  local width = 62
+  local height = #lines
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = 'editor',
+    width = width,
+    height = height,
+    row = math.floor((vim.o.lines - height) / 2),
+    col = math.floor((vim.o.columns - width) / 2),
+    style = 'minimal',
+    border = 'rounded',
+    title = ' Toetsen ',
+    title_pos = 'center',
+  })
+  vim.wo[win].wrap = false
+
+  for _, key in ipairs({ 'q', '<Esc>', '?' }) do
+    vim.keymap.set('n', key, '<cmd>close<cr>', { buffer = buf, silent = true })
+  end
+end
+
 local function open_preview(item)
   vim.cmd('new')
   local buf = vim.api.nvim_get_current_buf()
@@ -137,7 +184,7 @@ local function open_preview(item)
     silent = true,
     desc = 'Open Raadspraat-concept in Apple Mail',
   })
-  vim.keymap.set('n', 's', function() mark(item, not item.sent_at) end, {
+  vim.keymap.set('n', 's', function() mark(item, not is_sent(item)) end, {
     buffer = buf,
     silent = true,
     desc = 'Wissel verzendstatus',
@@ -147,7 +194,12 @@ local function open_preview(item)
     silent = true,
     desc = 'Sluit reminder',
   })
-  vim.notify('<leader>aw = Apple Mail  •  c = kopiëren  •  s = status  •  q = sluiten')
+  vim.keymap.set('n', '?', show_help, {
+    buffer = buf,
+    silent = true,
+    desc = 'Toon toetsen',
+  })
+  vim.notify('<leader>aw = Apple Mail  •  c = kopiëren  •  s = status  •  ? = hulp  •  q = sluiten')
 end
 
 function M.menu()
@@ -162,9 +214,12 @@ function M.menu()
   vim.ui.select(items, {
     prompt = 'Raadspraat-reminder:',
     format_item = function(item)
-      local status = item.sent_at and '✓' or '○'
+      local status = is_sent(item) and '✓' or '○'
+      -- ▶ = de reminder van deze week; die hoor je nu te versturen.
+      local marker = item.is_current and '▶' or ' '
       return string.format(
-        '%s %-22s  aanleveren W%02d %s  →  plaatsing W%02d %s',
+        '%s %s %-22s  aanleveren W%02d %s  →  plaatsing W%02d %s',
+        marker,
         status,
         item.party,
         item.deadline_week,

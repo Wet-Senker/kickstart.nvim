@@ -17,6 +17,7 @@
 | <leader>ak   | Verdachte tekens scannen (U+FFFD, control chars)                   |
 | <leader>a?   | Deze cheatsheet                                                    |
 | <leader>kt   | Rubriektemplate invoegen (Raadspraat, 112, etc.)                   |
+| <leader>kr   | Raadspraat-reminders: ▶ = deze week, ○/✓ = status; ? = toetsen     |
 
 ---
 
