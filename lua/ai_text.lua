@@ -375,6 +375,69 @@ local function _calendar_signal_score(text)
   return score
 end
 
+-- Vul (of vervang) de e:-controleregel op basis van dateline + plaatsenscan.
+-- Draait direct na het herschrijven (<leader>ar) — dan is er een dateline en
+-- een redelijk complete tekst. De regel wordt: `e: <kranten>, SUGGESTIE,
+-- <suggesties>`. pubble-send negeert bij het versturen alles vanaf SUGGESTIE,
+-- dus een suggestie gaat pas mee als de gebruiker die vóór SUGGESTIE zet.
+-- Puur een hulpje: bij een fout stil overslaan, nooit de herschrijving breken.
+local function fill_editions_line(buf, content)
+  local tmp = vim.fn.tempname() .. ".md"
+  vim.fn.writefile(vim.split(content, "\n", { plain = true }), tmp)
+  vim.system({ pubble_send, tmp, "--resolve-editions" }, { text = true }, function(res)
+    vim.schedule(function()
+      vim.fn.delete(tmp)
+      local ok, r = pcall(vim.fn.json_decode, res.stdout or "")
+      if res.code ~= 0 or not ok or type(r) ~= "table" or type(r.editions) ~= "table" then
+        return
+      end
+
+      -- Gekozen kranten eerst, daarna de suggesties (dedup, niet al gekozen).
+      local seen, chosen, suggested = {}, {}, {}
+      for _, code in ipairs(r.editions) do
+        if not seen[code] then seen[code] = true; table.insert(chosen, code) end
+      end
+      if type(r.suggestions) == "table" then
+        for _, s in ipairs(r.suggestions) do
+          for _, code in ipairs(s.editions or {}) do
+            if not seen[code] then seen[code] = true; table.insert(suggested, code) end
+          end
+        end
+      end
+      if #chosen == 0 then return end
+
+      local e_line = "e: " .. table.concat(chosen, ", ")
+      if #suggested > 0 then
+        e_line = e_line .. ", SUGGESTIE, " .. table.concat(suggested, ", ")
+      end
+
+      -- Bestaande e:/editie:-regel vervangen, anders bovenaan de controleregels.
+      local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      local fm, body_start = split_frontmatter_lines(lines)
+      local rest = {}
+      for i = body_start, #lines do table.insert(rest, lines[i]) end
+      local ctrl, body = extract_leading_control_lines(rest)
+
+      local new_ctrl = { e_line }
+      for _, l in ipairs(ctrl) do
+        local key = vim.trim(l):match("^([%a][%a%d_]*)%s*:")
+        if not (key and (key:lower() == "e" or key:lower() == "editie")) then
+          table.insert(new_ctrl, l)
+        end
+      end
+
+      local out = {}
+      if #fm > 0 then
+        for _, l in ipairs(fm) do table.insert(out, l) end
+        table.insert(out, "")
+      end
+      for _, l in ipairs(new_ctrl) do table.insert(out, l) end
+      for _, l in ipairs(body) do table.insert(out, l) end
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, out)
+    end)
+  end)
+end
+
 function M.rewrite_article_buffer()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -480,6 +543,10 @@ function M.rewrite_article_buffer()
       vim.b[buf].cached_metadata = nil
       vim.b[buf].cached_calendar_metadata = nil
       vim.b[buf].cached_facebook_text = nil
+
+      -- Vul de e:-regel met de kranten (dateline) + suggesties (plaatsenscan),
+      -- zodat je vóór <leader>aw ziet en kunt bijsturen waar het heen gaat.
+      fill_editions_line(buf, rewritten_str)
 
       -- Detecteer calendar: x en facebook: x in de controleregelblok.
       local needs_calendar = false

@@ -155,9 +155,15 @@ Alternatief (herkend in eerste 4 regels van de body):
 
 Plaatsenscan: pubble-places leest het clipboard (of stdin/bestand) en toont
 per krant de gevonden plaatsnamen — snelle check of een artikel voor ons
-interessant is. Alleen treffers met hoofdletter tellen. Bij <leader>aw zie
-je dezelfde scan als "Tekst noemt ook: ..." — suggestie, stuurt niet;
-zelf e: toevoegen als je erheen wilt.
+interessant is. Alleen treffers met hoofdletter tellen.
+
+e:-regel na <leader>ar: zodra het artikel herschreven is (en er dus een
+dateline staat) vult het systeem bovenaan een e:-regel in:
+  e: D, SUGGESTIE, SW
+De kranten vóór SUGGESTIE zijn de bestemming (uit de dateline); daarachter
+staan de suggesties van de plaatsenscan (kranten die de tekst wél noemt).
+Wil je een suggestie meesturen, zet hem dan vóór SUGGESTIE (of haal het
+woord SUGGESTIE weg). Bij <leader>aw gaat alleen wat vóór SUGGESTIE staat mee.
 
 ---
 
