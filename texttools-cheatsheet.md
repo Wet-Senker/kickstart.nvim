@@ -19,6 +19,9 @@
 | <leader>kt   | Rubriektemplate invoegen (Raadspraat, 112, etc.)                   |
 | <leader>kr   | Raadspraat-reminders: ▶ = deze week, ○/✓ = status; ? = toetsen     |
 
+Planning naar een fractie sturen:  raadspraat-reminder overzicht [partij]
+  bijv. `raadspraat-reminder overzicht vvd | pbcopy`
+
 ---
 
 ## Controlecodes bovenaan artikel
