@@ -17,10 +17,15 @@
 | <leader>ak   | Verdachte tekens scannen (U+FFFD, control chars)                   |
 | <leader>a?   | Deze cheatsheet                                                    |
 | <leader>kt   | Rubriektemplate invoegen (Raadspraat, 112, etc.)                   |
-| <leader>kr   | Raadspraat-reminders: ▶ = deze week, ○/✓ = status; ? = toetsen     |
+| <leader>kr   | Raadspraat: reminders / overzicht / artikel maken                   |
 
-Planning naar een fractie sturen:  raadspraat-reminder overzicht [partij]
-  bijv. `raadspraat-reminder overzicht vvd | pbcopy`
+Raadspraat-menu (<leader>kr):
+  Reminders       de rotatie; ▶ = deze week, ○/✓ = verzendstatus, s = wisselen
+  Overzicht       planning voor één fractie of alle elf tegelijk
+  Artikel maken   foto + template (zat voorheen onder <leader>kt)
+In de mailbuffer: <leader>aw = Apple Mail, c = kopiëren, ? = toetsen
+
+Ook vanuit de terminal:  raadspraat-reminder overzicht [partij] | pbcopy
 
 ---
 

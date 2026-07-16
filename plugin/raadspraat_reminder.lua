@@ -13,6 +13,12 @@ local function is_sent(item)
   return type(item.sent_at) == 'string' and item.sent_at ~= ''
 end
 
+-- Het fractie-overzicht opent in dezelfde mailbuffer als een reminder, maar
+-- hoort geen verzendstatus te krijgen: er valt niets af te vinken.
+local function markable(item)
+  return type(item.id) == 'string' and item.id ~= ''
+end
+
 local function run(args)
   local output = vim.fn.system(vim.list_extend({ python, '-m', module }, args))
   if vim.v.shell_error ~= 0 then
@@ -23,10 +29,11 @@ local function run(args)
 end
 
 local function reload_menu()
-  vim.schedule(function() M.menu() end)
+  vim.schedule(function() M.reminders() end)
 end
 
 local function mark(item, sent)
+  if not markable(item) then return end
   local result = run({ sent and 'sent' or 'unsent', item.id })
   if not result then return end
   vim.notify(sent and 'Reminder gemarkeerd als verstuurd.' or 'Verzendmarkering verwijderd.')
@@ -86,7 +93,7 @@ local function open_in_mail(item, buf)
     return
   end
 
-  confirm_sent_on_return(item)
+  if markable(item) then confirm_sent_on_return(item) end
   vim.notify('Concept voor ' .. item.party .. ' geopend in Apple Mail.')
 end
 
@@ -104,8 +111,9 @@ local function copy_mail(item, buf)
     '',
   }, '\n')
   vim.fn.setreg('+', mail)
-  vim.notify('Reminder voor ' .. item.party .. ' staat op het klembord.')
+  vim.notify('Tekst voor ' .. item.party .. ' staat op het klembord.')
 
+  if not markable(item) then return end
   vim.ui.select({ 'Ja', 'Nee' }, {
     prompt = 'Nu markeren als verstuurd?',
   }, function(choice)
@@ -116,17 +124,19 @@ end
 -- ? in de reminderbuffer — zelfde vorm als de texttools-cheatsheet.
 local function show_help()
   local lines = {
-    ' Raadspraat-reminder',
+    ' Raadspraat',
     '',
     ' <leader>aw   concept openen in Apple Mail',
-    ' c            reminder naar het klembord',
-    ' s            verzendstatus wisselen (○ / ✓)',
+    ' c            tekst naar het klembord',
+    ' s            verzendstatus wisselen (○ / ✓) — alleen bij een reminder',
     ' ?            deze hulp',
     ' q            sluiten',
     '',
     ' In het menu (<leader>kr):',
-    ' ▶  de reminder van deze week — die gaat nu de deur uit',
-    ' ○  nog niet verstuurd      ✓  verstuurd',
+    ' Reminders                 de rotatie; ▶ = deze week de deur uit',
+    '                           ○ nog niet verstuurd   ✓ verstuurd',
+    ' Overzicht                 planning voor één fractie of voor allemaal',
+    ' Artikel maken             foto + template kiezen',
     '',
     ' De tekst hierboven is bewerkbaar; wat je wijzigt gaat mee',
     ' naar Apple Mail of het klembord.',
@@ -184,11 +194,13 @@ local function open_preview(item)
     silent = true,
     desc = 'Open Raadspraat-concept in Apple Mail',
   })
-  vim.keymap.set('n', 's', function() mark(item, not is_sent(item)) end, {
-    buffer = buf,
-    silent = true,
-    desc = 'Wissel verzendstatus',
-  })
+  if markable(item) then
+    vim.keymap.set('n', 's', function() mark(item, not is_sent(item)) end, {
+      buffer = buf,
+      silent = true,
+      desc = 'Wissel verzendstatus',
+    })
+  end
   vim.keymap.set('n', 'q', '<cmd>close<cr>', {
     buffer = buf,
     silent = true,
@@ -199,17 +211,30 @@ local function open_preview(item)
     silent = true,
     desc = 'Toon toetsen',
   })
-  vim.notify('<leader>aw = Apple Mail  •  c = kopiëren  •  s = status  •  ? = hulp  •  q = sluiten')
+
+  local hint = '<leader>aw = Apple Mail  •  c = kopiëren  •  ? = hulp  •  q = sluiten'
+  if markable(item) then
+    hint = '<leader>aw = Apple Mail  •  c = kopiëren  •  s = status  •  ? = hulp  •  q = sluiten'
+  end
+  vim.notify(hint)
 end
 
-function M.menu()
+local function fetch_rotation()
   local output = run({ 'list', '--json' })
-  if not output then return end
+  if not output then return nil end
   local ok, items = pcall(vim.json.decode, output)
-  if not ok then
+  if not ok or type(items) ~= 'table' then
     vim.notify('De Raadspraat-planning kon niet worden gelezen.', vim.log.levels.ERROR)
-    return
+    return nil
   end
+  return items
+end
+
+-- `items` mag vooraf opgehaald zijn (M.menu doet dat al voor zijn label),
+-- zodat één keer <leader>kr niet twee keer Python start.
+function M.reminders(items)
+  items = items or fetch_rotation()
+  if not items then return end
 
   vim.ui.select(items, {
     prompt = 'Raadspraat-reminder:',
@@ -233,8 +258,82 @@ function M.menu()
   end)
 end
 
+-- Het overzicht is óók gewoon een mail, dus het opent in dezelfde buffer:
+-- c kopieert en <leader>aw maakt er een concept van, net als bij een reminder.
+function M.overview(items)
+  items = items or fetch_rotation()
+  if not items then return end
+
+  local choices = { { label = 'Alle fracties tegelijk' } }
+  for _, item in ipairs(items) do
+    table.insert(choices, { label = item.party, party = item.party })
+  end
+
+  vim.ui.select(choices, {
+    prompt = 'Overzicht sturen aan:',
+    format_item = function(choice) return choice.label end,
+  }, function(choice)
+    if not choice then return end
+
+    local args = { 'overzicht', '--json' }
+    if choice.party then table.insert(args, 2, choice.party) end
+    local output = run(args)
+    if not output then return end
+
+    local ok, mail = pcall(vim.json.decode, output)
+    if not ok or type(mail) ~= 'table' or type(mail.body) ~= 'string' then
+      vim.notify('Het overzicht kon niet worden gelezen.', vim.log.levels.ERROR)
+      return
+    end
+
+    -- Waarschuwing bóven de tekst, niet erin: de mail moet schoon blijven.
+    for _, warning in ipairs(mail.warnings or {}) do
+      vim.notify('LET OP — ' .. warning, vim.log.levels.WARN)
+    end
+
+    open_preview({
+      party = choice.party or 'alle fracties',
+      email = table.concat(mail.recipients or {}, ', '),
+      subject = mail.subject,
+      body = mail.body,
+    })
+  end)
+end
+
+function M.menu()
+  local items = fetch_rotation()
+  if not items then return end
+
+  local huidig
+  for _, item in ipairs(items) do
+    if item.is_current then huidig = item.party end
+  end
+
+  local entries = {
+    {
+      label = huidig and ('Reminders  (▶ ' .. huidig .. ' deze week)') or 'Reminders',
+      action = function() M.reminders(items) end,
+    },
+    {
+      label = 'Overzicht voor de fracties',
+      action = function() M.overview(items) end,
+    },
+    {
+      label = 'Artikel maken (foto + template)',
+      action = function() require('krant').raadspraat_menu() end,
+    },
+  }
+
+  vim.ui.select(entries, {
+    prompt = 'Raadspraat:',
+    format_item = function(entry) return entry.label end,
+  }, function(entry)
+    if entry then entry.action() end
+  end)
+end
+
 vim.keymap.set('n', '<leader>kr', M.menu, {
-  desc = '[K]rant [R]aadspraat-reminders',
+  desc = '[K]rant [R]aadspraat',
 })
 
 return M

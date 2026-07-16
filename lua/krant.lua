@@ -761,8 +761,9 @@ function M.stock_rubriek_flow(config)
 end
 
 function M.menu()
+  -- Raadspraat staat hier bewust niet meer: alles rondom Raadspraat zit
+  -- sinds 16 juli 2026 onder <leader>kr (reminders, overzicht, artikel).
   local items = {
-    { name = 'Raadspraat...', _special = 'raadspraat' },
     { name = 'Kamper Kiek op de Wiek', _special = 'kamperkiek' },
     { name = 'Ondernemen in Kampen...', _special = 'ondernemen' },
   }
@@ -782,9 +783,7 @@ function M.menu()
     format_item = function(t) return t.name end,
   }, function(choice)
     if not choice then return end
-    if choice._special == 'raadspraat' then
-      M.raadspraat_menu()
-    elseif choice._special == 'ondernemen' then
+    if choice._special == 'ondernemen' then
       M.ondernemen_menu()
     elseif choice._special == 'stock_rubriek' then
       M.stock_rubriek_flow(choice._config)
