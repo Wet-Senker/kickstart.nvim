@@ -33,6 +33,7 @@ M.templates = {
   -- TIER 1 — plain stock text
   {
     name = 'Column Natuurvereniging',
+    column = true,
     text = {
   'Column Natuurvereniging: {{title}}',
   '',
@@ -43,6 +44,7 @@ M.templates = {
   },
    {
     name = "Kiek op de wiek (Sander de Rouwe)",
+    column = true,
     text = {
       "De Kamper 'kiek op de wîêk' van burgemeester Sander de Rouwe",
       "",
@@ -54,6 +56,7 @@ M.templates = {
 
   {
     name = 'Column Kamper Ambassadeur',
+    column = true,
     -- Geen lezersnieuws-export: deze column gaat gewoon naar website + print.
     no_export = true,
     text = {
@@ -65,6 +68,7 @@ M.templates = {
   },
   {
     name = 'Column Vogelgroep Kampen',
+    column = true,
     text = {
       "Column Vogelgroep Kampen: {{title}}",
       "",
@@ -75,6 +79,7 @@ M.templates = {
   },
   {
     name = 'Uit de Kunst',
+    column = true,
     text = {
       "Uit de Kunst",
       "",
@@ -110,6 +115,7 @@ M.templates = {
   -- TIER 2 — stock text + a fixed image copied into the article folder
   {
     name = 'Column Hondenhoek',
+    column = true,
     image = 'hondenhoek.jpg', -- lives in M.config.stock_images
     text = {
       'In de column Hondenhoek belicht kynologisch gedragstherapeut en doorgewinterd hondenkenner Bert Nieuwenhuis telkens één actueel gedragsthema. Aan de hand van herkenbare voorbeelden vertaalt hij dat naar heldere, direct toepasbare tips voor een harmonieuzer leven met uw hond.',
@@ -130,6 +136,7 @@ M.templates = {
 
   {
     name = 'Humor met een boodschap',
+    column = true,
     image = 'humor.jpg',
     no_export = true,
     text = {
@@ -149,7 +156,7 @@ M.templates = {
       '',
       '{{body}}',
       '',
-      'Dit is alle informatie die onze redactie op dit moment heeft. We vinden zorgvuldige berichtgeving belangrijk en gaan zo zorgvuldig mogelijk om met de privacy van betrokkenen. Klopt er iets niet, heb je aanvullende informatie die van publiek belang is of vind je dat dit bericht niet aan de journalistieke normen voldoet? Mail dan naar redactie.debrug@brugmedia.nl. Uiteraard gaan we vertrouwelijk met je gegevens om.',
+      'Wij vinden zorgvuldige berichtgeving belangrijk en gaan zorgvuldig om met de privacy van betrokkenen. Zie je iets dat niet klopt of heb je aanvullende informatie? Mail het de redactie via redactie.debrug@brugmedia.nl.',
     },
   },
 
@@ -571,7 +578,15 @@ local function apply(t, vars, target_buf)
   end
 
   -- Rubriek templates always get priority 1 (vaste rubriek = moet mee).
-  vim.api.nvim_buf_set_lines(target_buf, 0, 0, false, { "prio: 1", "" })
+  -- Columns krijgen daarnaast rubriek: column, zodat pubble-send op de
+  -- website de column-slotregel eronder zet ("Wil je reageren op deze
+  -- column?") i.p.v. de gewone nieuwsregel. Zie web_closing.py.
+  local control = { "prio: 1" }
+  if t.column then
+    table.insert(control, "rubriek: column")
+  end
+  table.insert(control, "")
+  vim.api.nvim_buf_set_lines(target_buf, 0, 0, false, control)
 
   -- Stel lezersnieuws export in; txt wordt geschreven bij <leader>aw.
   if not t.no_export then
