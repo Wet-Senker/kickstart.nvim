@@ -324,6 +324,21 @@ end
 
 -- Parse personen.md: blocks separated by blank lines, each with key: value lines.
 -- Returns a table keyed by lowercase naam.
+--
+-- Het bestand staat in de fotomap (iCloud), niet in git. Twee dingen om te
+-- weten als je een `functie:` schrijft, want die belandt via het bijschrift in
+-- de YAML-frontmatter als  caption: "<tekst>"  :
+--
+--   \n   wordt een échte regelovergang. YAML leest dat als escape binnen
+--        dubbele aanhalingstekens. Ziet eruit als een tikfout, is het niet —
+--        Jenneke Palland heeft er bewust een. (Een schuine streep, /n, doet
+--        niks en wordt letterlijk afgedrukt.)
+--   "    breekt de frontmatter. De regel wordt hieronder simpel aan elkaar
+--        geplakt, dus een dubbel aanhalingsteken sluit de caption te vroeg.
+--        Gebruik ze niet in een functieomschrijving.
+--
+-- De `naam:` wordt letterlijk in het bijschrift overgenomen: schrijf hem dus
+-- met hoofdletters, ook al is de sleutel case-insensitief.
 local function parse_personen_md(path)
   local ok, lines = pcall(vim.fn.readfile, path)
   if not ok then return {} end

@@ -31,6 +31,11 @@ Ook vanuit de terminal:
   raadspraat-reminder overzicht [fractie] | pbcopy
   ondernemen-reminder overzicht [naam]    | pbcopy
 
+Fotobijschriften Ondernemen komen uit personen.md in de fotomap:
+  ~/krant-fotos/ondernemen_in_kampen/personen.md   (iCloud, niet in git)
+  naam:      exact zoals hij in de krant moet staan (mét hoofdletters)
+  functie:   \n geeft een echte regelovergang; " breekt de frontmatter
+
 ---
 
 ## Controlecodes bovenaan artikel
