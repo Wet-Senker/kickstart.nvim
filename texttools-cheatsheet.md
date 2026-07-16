@@ -11,6 +11,7 @@
 | <leader>ar   | Herschrijven naar krantenartikel (AI)                              |
 | <leader>af   | Facebook-post genereren — bewerkbare ## Facebook sectie            |
 | <leader>aw   | Versturen naar Pubble                                              |
+| <leader>ae   | Evenement-vervolgplaatsingen inplannen (na de vragen bij aw)       |
 | <leader>ap   | Ad-hoc rewrite: typ *** + instructie, buffer wordt vervangen       |
 | <leader>ag   | AI gesprek: typ *** + vraag, antwoord verschijnt eronder           |
 | <leader>ah   | Codes invoegen via zoeklijst                                       |
@@ -30,6 +31,15 @@ In de mailbuffer: <leader>aw = Apple Mail, c = kopiëren, ? = toetsen
 Ook vanuit de terminal:
   raadspraat-reminder overzicht [fractie] | pbcopy
   ondernemen-reminder overzicht [naam]    | pbcopy
+
+Evenement-vervolgplaatsingen (artikel met ## Kalender + toekomstige datum):
+  na <leader>aw twee vragen: korte versie op T-10? dagreminder(s)?
+  bij ja: AI-teksten verschijnen onderaan als ## Korte versie / ## Dagreminder
+  controleer/bewerk, dan <leader>ae — alles wordt met een toekomstige
+  publicatiedatum aangemaakt, Pubble zet het zelf live (ook de Facebooktekst)
+  "groot evenement" = jouw vinkje; wordt onthouden op een generieke sleutel
+  (bijv. "live muziek ukien" — kies woorden die elke keer terugkomen)
+  Ook vanuit de terminal: pubble-event opties/teksten/plaats/geheugen
 
 Fotobijschriften Ondernemen komen uit personen.md in de fotomap:
   ~/krant-fotos/ondernemen_in_kampen/personen.md   (iCloud, niet in git)

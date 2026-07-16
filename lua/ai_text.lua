@@ -33,6 +33,7 @@ local pubble_web_draft = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-w
 local pubble_send = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-send")
 local pubble_schedule = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-schedule")
 local pubble_media = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-media")
+local pubble_event = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-event")
 
 local rewrite_prompts = {
   {
@@ -995,7 +996,13 @@ function M.pubble_send()
     end
     ai_system(cmd, { text = true }, function(result)
       vim.schedule(function()
-        vim.fn.delete(temp_file)
+        -- Het tempbestand niet meteen verwijderen: bij succes staan de
+        -- teruggeschreven Pubble-ids erin en heeft de evenement-vervolgflow
+        -- (M._event_followup) ze nodig. Die ruimt het bestand zelf op;
+        -- bij een fout doen we het hier.
+        if result.code ~= 0 then
+          vim.fn.delete(temp_file)
+        end
 
         if result.code == 0 then
           -- Strip eventueel achtergebleven control lines uit de originele buffer.
@@ -1196,6 +1203,12 @@ function M.pubble_send()
             table.insert(prepend, "")
             vim.api.nvim_buf_set_lines(buf, 0, 0, false, prepend)
           end
+
+          -- Evenement-vervolg: bij een artikel met een toekomstige
+          -- evenementdatum vragen om de korte versie (T-10) en de
+          -- dagreminder(s). Deze flow bepaalt zelf of het tempbestand
+          -- (met de Pubble-ids) bewaard blijft of opgeruimd wordt.
+          M._event_followup(buf, temp_file)
         else
           local output = vim.trim(result.stderr or result.stdout or "")
           vim.notify(output ~= "" and output or "Pubble send mislukt", vim.log.levels.ERROR)
@@ -1395,6 +1408,211 @@ vim.api.nvim_create_user_command("PubbleSend", M.pubble_send, {
 
 vim.keymap.set("n", "<leader>aw", M.pubble_send, {
   desc = "Send to CMS",
+})
+
+-- ---------------------------------------------------------------------------
+-- Evenement-vervolgplaatsingen: korte versie op T-10 en dagreminder(s).
+-- Alle kennis (regels, datums, links, geheugen) leeft in `pubble-event`;
+-- dit is alleen de vraag- en plakkant. Flow: na een geslaagde <leader>aw
+-- stelt M._event_followup de twee vragen, genereert de sectieteksten en
+-- plakt ze onderaan de buffer ter controle; <leader>ae plant ze in.
+-- ---------------------------------------------------------------------------
+
+-- "2026-08-28" → "28-08" (alleen weergave in prompts).
+local function korte_datum(iso)
+  local m, d = tostring(iso):match("^%d+%-(%d+)%-(%d+)$")
+  if not m then return tostring(iso) end
+  return d .. "-" .. m
+end
+
+function M._event_followup(buf, file)
+  vim.system({ pubble_event, "opties", file, "--json" }, { text = true }, function(result)
+    vim.schedule(function()
+      local ok, opties = pcall(vim.fn.json_decode, result.stdout or "")
+      if result.code ~= 0 or not ok or type(opties) ~= "table" or not opties.beschikbaar then
+        -- Geen evenement (of niets meer mogelijk) → normale opruiming.
+        vim.fn.delete(file)
+        return
+      end
+
+      local geheugen = (type(opties.geheugen) == "table") and opties.geheugen or nil
+      local function vorige_keer(veld)
+        if not geheugen then return "" end
+        local label = geheugen.label or geheugen.sleutel or "?"
+        return "  [vorige keer '" .. label .. "': " .. (geheugen[veld] and "ja" or "nee") .. "]"
+      end
+
+      -- Twee ja/nee-vragen na elkaar (vim.ui.select kent geen multi-select);
+      -- Esc telt als nee.
+      local keuzes = { kort = false, reminder = false }
+
+      local function klaar()
+        if not keuzes.kort and not keuzes.reminder then
+          vim.fn.delete(file)
+          return
+        end
+        local cmd = { pubble_event, "teksten", file }
+        if keuzes.kort then table.insert(cmd, "--kort") end
+        if keuzes.reminder then table.insert(cmd, "--reminder") end
+        ai_system(cmd, { text = true }, function(tekst_result)
+          vim.schedule(function()
+            if tekst_result.code ~= 0 then
+              local err = vim.trim(tekst_result.stderr or "")
+              vim.fn.delete(file)
+              vim.notify(
+                "Vervolgteksten genereren mislukt" .. (err ~= "" and (": " .. err) or ""),
+                vim.log.levels.ERROR
+              )
+              return
+            end
+            local append = { "" }
+            for _, l in ipairs(vim.split(vim.trim(tekst_result.stdout or ""), "\n", { plain = true })) do
+              table.insert(append, l)
+            end
+            vim.api.nvim_buf_set_lines(buf, -1, -1, false, append)
+            vim.b[buf].event_state = {
+              file = file,
+              geheugen_sleutel = geheugen and geheugen.sleutel or nil,
+              voorstel_sleutel = opties.voorstel_sleutel or "",
+            }
+            vim.notify(
+              "Controleer de vervolgteksten onderaan, dan <leader>ae om in te plannen.",
+              vim.log.levels.INFO
+            )
+          end)
+        end, "Evenement · Vervolgteksten")
+      end
+
+      local function vraag_reminder()
+        if not (type(opties.reminder) == "table" and opties.reminder.mogelijk) then
+          return klaar()
+        end
+        local dagen = opties.reminder.dagen or {}
+        local omschrijving
+        if #dagen <= 1 then
+          omschrijving = korte_datum(dagen[1])
+        else
+          omschrijving = korte_datum(dagen[1]) .. " t/m " .. korte_datum(dagen[#dagen])
+            .. " (" .. #dagen .. " dagen)"
+        end
+        vim.ui.select({ "Ja", "Nee" }, {
+          prompt = "Dagreminder(s) op " .. omschrijving .. "?" .. vorige_keer("reminder"),
+        }, function(choice)
+          keuzes.reminder = (choice == "Ja")
+          klaar()
+        end)
+      end
+
+      local function vraag_kort()
+        if not (type(opties.kort) == "table" and opties.kort.mogelijk) then
+          return vraag_reminder()
+        end
+        vim.ui.select({ "Ja", "Nee" }, {
+          prompt = "Korte versie op " .. korte_datum(opties.kort.datum)
+            .. " (10 dagen vooraf)?" .. vorige_keer("kort"),
+        }, function(choice)
+          keuzes.kort = (choice == "Ja")
+          vraag_reminder()
+        end)
+      end
+
+      vraag_kort()
+    end)
+  end)
+end
+
+function M.event_plaats()
+  local buf = vim.api.nvim_get_current_buf()
+  local state = vim.b[buf].event_state
+  if not state or not state.file or vim.fn.filereadable(state.file) ~= 1 then
+    vim.notify(
+      "Geen evenement-vervolg in voorbereiding. Handmatig kan altijd: pubble-event plaats <bestand>.",
+      vim.log.levels.WARN
+    )
+    return
+  end
+
+  -- Neem de (mogelijk bewerkte) secties uit de buffer over in het bestand
+  -- met de Pubble-ids: alles vanaf de eerste ## Korte versie/## Dagreminder.
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local start_idx = nil
+  for i, l in ipairs(lines) do
+    if l:match("^## Korte versie") or l:match("^## Dagreminder") then
+      start_idx = i
+      break
+    end
+  end
+  if not start_idx then
+    vim.notify("Geen ## Korte versie of ## Dagreminder in de buffer.", vim.log.levels.ERROR)
+    return
+  end
+  local sectie_chunk = vim.list_slice(lines, start_idx)
+
+  -- In het bestand: eerdere secties vervangen (rerun) of onderaan plakken.
+  local file_lines = vim.fn.readfile(state.file)
+  local file_cut = #file_lines
+  for i, l in ipairs(file_lines) do
+    if l:match("^## Korte versie") or l:match("^## Dagreminder") then
+      file_cut = i - 1
+      break
+    end
+  end
+  local out = vim.list_slice(file_lines, 1, file_cut)
+  while #out > 0 and vim.trim(out[#out]) == "" do table.remove(out) end
+  table.insert(out, "")
+  for _, l in ipairs(sectie_chunk) do table.insert(out, l) end
+  vim.fn.writefile(out, state.file)
+
+  local function run_plaats(sleutel)
+    local cmd = { pubble_event, "plaats", state.file, "--json" }
+    if sleutel and sleutel ~= "" then
+      table.insert(cmd, "--sleutel")
+      table.insert(cmd, sleutel)
+    end
+    ai_system(cmd, { text = true }, function(result)
+      vim.schedule(function()
+        local ok, data = pcall(vim.fn.json_decode, result.stdout or "")
+        if result.code ~= 0 or not ok or type(data) ~= "table" then
+          local err = vim.trim(result.stderr or result.stdout or "")
+          local msg = "Inplannen mislukt" .. (err ~= "" and (": " .. err) or "")
+            .. " — <leader>ae probeert het idempotent opnieuw."
+          if #msg > vim.o.columns - 1 then msg = msg:sub(1, math.max(1, vim.o.columns - 2)) .. "…" end
+          -- Bestand en state blijven staan voor de rerun.
+          vim.notify(msg, vim.log.levels.ERROR)
+          return
+        end
+        local msg = "Vervolgplaatsingen: " .. #(data.geplaatst or {}) .. " ingepland"
+        if #(data.overgeslagen or {}) > 0 then
+          msg = msg .. ", " .. #(data.overgeslagen or {}) .. " bestond al"
+        end
+        for _, w in ipairs(data.waarschuwingen or {}) do
+          msg = msg .. "  ·  " .. w
+        end
+        -- Eén samengevoegde melding, afgekapt (Press-ENTER-valkuil).
+        if #msg > vim.o.columns - 1 then msg = msg:sub(1, math.max(1, vim.o.columns - 2)) .. "…" end
+        vim.notify(msg, vim.log.levels.INFO)
+        vim.fn.delete(state.file)
+        vim.b[buf].event_state = nil
+      end)
+    end, "Evenement · Inplannen")
+  end
+
+  if state.geheugen_sleutel and state.geheugen_sleutel ~= "" then
+    -- Bekend evenement: pubble-event matcht het geheugen zelf opnieuw.
+    run_plaats(nil)
+  else
+    vim.ui.input({
+      prompt = "Onthouden als (generiek, bijv. 'live muziek ukien'): ",
+      default = state.voorstel_sleutel or "",
+    }, function(sleutel)
+      -- Esc of leeg → pubble-event valt terug op het voorstel (locatie+stad).
+      run_plaats(sleutel)
+    end)
+  end
+end
+
+vim.keymap.set("n", "<leader>ae", M.event_plaats, {
+  desc = "Evenement-vervolgplaatsingen inplannen",
 })
 
 -- ---------------------------------------------------------------------------
