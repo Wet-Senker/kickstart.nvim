@@ -103,6 +103,15 @@ local function copy_mail(item, buf)
     vim.notify(error_message, vim.log.levels.ERROR)
     return
   end
+  -- Een overzicht plak je zelf in een mail die je al aan het schrijven bent,
+  -- dus Aan:/Onderwerp: zouden midden in je tekst belanden. Bij een reminder
+  -- is de hele mail juist wél wat je wilt.
+  if not markable(item) then
+    vim.fn.setreg('+', message.body .. '\n')
+    vim.notify('Planning staat op het klembord.')
+    return
+  end
+
   local mail = table.concat({
     'Aan: ' .. message.recipient,
     'Onderwerp: ' .. message.subject,
@@ -111,9 +120,8 @@ local function copy_mail(item, buf)
     '',
   }, '\n')
   vim.fn.setreg('+', mail)
-  vim.notify('Tekst voor ' .. item.party .. ' staat op het klembord.')
+  vim.notify('Reminder voor ' .. item.party .. ' staat op het klembord.')
 
-  if not markable(item) then return end
   vim.ui.select({ 'Ja', 'Nee' }, {
     prompt = 'Nu markeren als verstuurd?',
   }, function(choice)
@@ -127,7 +135,8 @@ local function show_help()
     ' Raadspraat',
     '',
     ' <leader>aw   concept openen in Apple Mail',
-    ' c            tekst naar het klembord',
+    ' c            naar het klembord — bij een reminder de hele mail,',
+    '              bij een overzicht alleen de planning (zonder Aan:)',
     ' s            verzendstatus wisselen (○ / ✓) — alleen bij een reminder',
     ' ?            deze hulp',
     ' q            sluiten',
