@@ -18,14 +18,18 @@
 | <leader>a?   | Deze cheatsheet                                                    |
 | <leader>kt   | Rubriektemplate invoegen (Raadspraat, 112, etc.)                   |
 | <leader>kr   | Raadspraat: reminders / overzicht / artikel maken                   |
+| <leader>ko   | Ondernemen in Kampen: idem, acht columnisten                        |
 
-Raadspraat-menu (<leader>kr):
+Rubriekmenu (<leader>kr = Raadspraat, <leader>ko = Ondernemen):
   Reminders       de rotatie; ▶ = deze week, ○/✓ = verzendstatus, s = wisselen
-  Overzicht       planning voor één fractie of alle elf tegelijk
-  Artikel maken   foto + template (zat voorheen onder <leader>kt)
+  Overzicht       planning voor één deelnemer of iedereen tegelijk
+  Artikel maken   foto + template (zaten voorheen onder <leader>kt)
 In de mailbuffer: <leader>aw = Apple Mail, c = kopiëren, ? = toetsen
+  c geeft bij een reminder de hele mail, bij een overzicht alleen de planning
 
-Ook vanuit de terminal:  raadspraat-reminder overzicht [partij] | pbcopy
+Ook vanuit de terminal:
+  raadspraat-reminder overzicht [fractie] | pbcopy
+  ondernemen-reminder overzicht [naam]    | pbcopy
 
 ---
 

@@ -761,11 +761,11 @@ function M.stock_rubriek_flow(config)
 end
 
 function M.menu()
-  -- Raadspraat staat hier bewust niet meer: alles rondom Raadspraat zit
-  -- sinds 16 juli 2026 onder <leader>kr (reminders, overzicht, artikel).
+  -- Raadspraat en Ondernemen staan hier bewust niet meer: die hebben sinds
+  -- 16 juli 2026 hun eigen menu met reminders, overzicht én artikel —
+  -- <leader>kr en <leader>ko.
   local items = {
     { name = 'Kamper Kiek op de Wiek', _special = 'kamperkiek' },
-    { name = 'Ondernemen in Kampen...', _special = 'ondernemen' },
   }
   for _, r in ipairs(stock_rubrieken) do
     table.insert(items, { name = r.name, _special = 'stock_rubriek', _config = r })
@@ -783,9 +783,7 @@ function M.menu()
     format_item = function(t) return t.name end,
   }, function(choice)
     if not choice then return end
-    if choice._special == 'ondernemen' then
-      M.ondernemen_menu()
-    elseif choice._special == 'stock_rubriek' then
+    if choice._special == 'stock_rubriek' then
       M.stock_rubriek_flow(choice._config)
     elseif choice._special == 'kamperkiek' then
       local kiek_template = nil
