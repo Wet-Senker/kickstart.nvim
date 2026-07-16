@@ -56,9 +56,10 @@ Werken in beide workflows (leader aw én pubble-batch):
   prio: 2            1=moet mee  2=mag mee  3=rest(standaard)  4=nood
   rubriek: 112       112-bericht (articleCategoryId 24); op de web verwijst
                      de slotregel naar de knoppen, in print naar het mailadres
-  rubriek: column    column: web krijgt "Wil je reageren op deze column? Doe
-                     het via de links hieronder." (column-templates zetten dit
-                     zelf via de vlag column = true in krant.lua)
+  rubriek: column    column: krant + web krijgen een reactie-uitnodiging
+                     (krant via mailadres, web via de link eronder). De
+                     column-templates zetten dit zelf via de vlag
+                     column = true in krant.lua
   week: 29           uiterste publicatieweek overschrijven (x = geen deadline)
   b: Bijschrift      globaal bijschrift (alle foto's)
   c: Fotograaf       globale credit
@@ -130,10 +131,13 @@ Alternatief (herkend in eerste 4 regels van de body):
   ## Suggesties (van <leader>ao) hoef je nooit op te ruimen:
   pubble-send stript die sectie automatisch bij verzenden.
 
-  Web-slotregel: gewoon nieuws krijgt op de website automatisch onderaan
-  "Spot jij iets dat niet klopt? ... Meld het hieronder." (alleen web, niet
-  in print). 112 en columns hebben hun eigen variant; Raadspraat/Ondernemen
-  houden hun bestaande slotregel.
+  Slotregel per artikeltype (automatisch bij verzenden): op de website
+  reageer je via de knoppen onder het artikel, in de krant via het mailadres.
+  - gewoon nieuws: alleen op de website "Spot jij iets dat niet klopt? ...
+    Meld het hieronder."
+  - column (rubriek: column): krant + web een reactie-uitnodiging
+  - 112: web verwijst naar de knoppen, krant naar het mailadres
+  - Raadspraat/Ondernemen: houden hun eigen slotregel
 
 ---
 
