@@ -1491,7 +1491,9 @@ function M.pubble_send(target_buf)
 
       -- Haal planningsuggesties op en toon per editie een keuze.
       -- Bij fout in pubble-schedule: toon alsnog een minimale dialog per editie.
-      vim.system({ pubble_schedule, editie }, { text = true }, function(sched_result)
+      -- Geef het tijdelijke artikel mee: pubble-schedule gebruikt
+      -- calendar.event_date als uiterste aanbevelingsdatum voor events.
+      vim.system({ pubble_schedule, editie, "--article", temp_file }, { text = true }, function(sched_result)
     vim.schedule(function()
       local display_dates = {}
       local ok, sched_data = pcall(vim.fn.json_decode, sched_result.stdout or "")
@@ -1525,6 +1527,7 @@ function M.pubble_send(target_buf)
         local item_values = {}
         local counts = (info and info.counts) or {}
         local suggested = info and info.suggested
+        local latest_date = info and info.latest_date
         local pub_dates = (info and info.publication_dates) or {}
         -- Sla krantendatums op in een set voor snelle lookup.
         local krant_set = {}
@@ -1552,6 +1555,9 @@ function M.pubble_send(target_buf)
           end
           if d == suggested then
             label = label .. " ← aanbevolen"
+          end
+          if latest_date and d > latest_date then
+            label = label .. "  (na evenement)"
           end
           table.insert(items, label)
           table.insert(item_values, val)
@@ -1616,6 +1622,16 @@ function M.pubble_send(target_buf)
         local suggested = info and info.suggested
         if not suggested then
           all_recommended = false
+          if info and info.latest_date then
+            vim.notify(
+              string.format(
+                "Geen aanbevolen datum voor %s uiterlijk %s; kies handmatig.",
+                code,
+                info.latest_date
+              ),
+              vim.log.levels.WARN
+            )
+          end
         else
           local is_krant = false
           for _, publication_date in ipairs(info.publication_dates or {}) do
@@ -1807,8 +1823,8 @@ M._event_prepare = event_prepare
 -- :TeamsRedactie — beheer van de Teams-meldingen naar eindredacteuren.
 -- De bron van waarheid is ~/.texttools/teams_notify.json (geseed en gelezen
 -- door pubble-send/pubble_teams.py). Dit menu is puur de UI erop: waarneming
--- instellen (tijdelijk ander e-mailadres), terugzetten naar de vaste
--- eindredacteur, meldingen per editie uitzetten, of alles aan/uit.
+-- uit een lokale lijst kiezen, een nieuwe vervanger bewaren, terugzetten naar
+-- de vaste eindredacteur, meldingen per editie uitzetten, of alles aan/uit.
 -- ---------------------------------------------------------------------------
 local teams_config_file = vim.fn.expand("~/.texttools/teams_notify.json")
 
@@ -1832,6 +1848,95 @@ local function teams_write_config(config)
   vim.fn.writefile(vim.split(vim.json.encode(config), "\n"), teams_config_file)
 end
 
+local function teams_email(value)
+  if value == nil or value == vim.NIL then return nil end
+  local email = vim.trim(tostring(value))
+  if email == "" then return nil end
+  return email
+end
+
+local function teams_same_email(left, right)
+  left = teams_email(left)
+  right = teams_email(right)
+  if left == nil or right == nil then return left == right end
+  return left:lower() == right:lower()
+end
+
+local function teams_valid_email(email)
+  return email:match("^[^%s@]+@[^%s@]+%.[^%s@]+$") ~= nil
+end
+
+-- Bouw de keuzelijst uit lokaal opgeslagen vervangers plus de vaste
+-- eindredacteuren van alle edities. Een bestaand configbestand zonder
+-- `recipients` werkt daardoor direct, zonder migratiestap.
+local function teams_known_recipients(config)
+  local recipients = {}
+  local by_email = {}
+
+  local function add(name, email)
+    email = teams_email(email)
+    if not email then return end
+    name = vim.trim(tostring(name or ""))
+    if name == "" then name = email end
+    local key = email:lower()
+    local existing = by_email[key]
+    if existing then
+      if existing.name == existing.email and name ~= email then
+        existing.name = name
+      end
+      return
+    end
+    local person = { name = name, email = email }
+    by_email[key] = person
+    table.insert(recipients, person)
+  end
+
+  if type(config.recipients) == "table" then
+    for _, person in ipairs(config.recipients) do
+      if type(person) == "table" then add(person.name, person.email) end
+    end
+  end
+
+  for _, code in ipairs({ "B", "SW", "ST", "Z", "D", "K" }) do
+    local edition = config.editions[code]
+    if edition then
+      add(edition.name, edition.default_email)
+      -- Laat ook een oude, handmatig ingestelde waarnemer zien, zelfs als die
+      -- nog niet in de nieuwe recipients-lijst is opgeslagen.
+      add(nil, edition.email)
+    end
+  end
+
+  table.sort(recipients, function(left, right)
+    local left_key = (left.name .. "\0" .. left.email):lower()
+    local right_key = (right.name .. "\0" .. right.email):lower()
+    return left_key < right_key
+  end)
+  return recipients
+end
+
+local function teams_recipient_label(config, email)
+  for _, person in ipairs(teams_known_recipients(config)) do
+    if teams_same_email(person.email, email) then
+      if person.name == person.email then return person.email end
+      return string.format("%s <%s>", person.name, person.email)
+    end
+  end
+  return teams_email(email) or "geen melding"
+end
+
+local function teams_store_recipient(config, name, email)
+  if type(config.recipients) ~= "table" then config.recipients = {} end
+  for _, person in ipairs(config.recipients) do
+    if type(person) == "table" and teams_same_email(person.email, email) then
+      person.name = name
+      person.email = email
+      return
+    end
+  end
+  table.insert(config.recipients, { name = name, email = email })
+end
+
 function M.teams_redactie()
   local config = teams_read_config()
   if not config then return end
@@ -1850,10 +1955,10 @@ function M.teams_redactie()
       if e.email == vim.NIL or e.email == nil then
         status = (e.default_email == vim.NIL or e.default_email == nil)
           and "geen melding (standaard)" or "UITGEZET"
-      elseif e.email ~= e.default_email then
-        status = "WAARNEMING: " .. e.email
+      elseif not teams_same_email(e.email, e.default_email) then
+        status = "WAARNEMING: " .. teams_recipient_label(config, e.email)
       else
-        status = e.email .. " (" .. (e.name or "?") .. ")"
+        status = teams_recipient_label(config, e.email)
       end
       table.insert(items, {
         kind = "edition", code = code,
@@ -1876,32 +1981,76 @@ function M.teams_redactie()
     end
 
     local e = config.editions[choice.code]
-    local default_shown = (e.default_email ~= vim.NIL and e.default_email ~= nil)
-      and e.default_email or "geen"
-    vim.ui.input({
-      prompt = string.format(
-        "Ontvanger voor %s (leeg = standaard: %s, 'uit' = geen melding): ",
-        e.krant or choice.code, default_shown
-      ),
-    }, function(input)
-      if input == nil then return end -- Escape: niets wijzigen
-      input = vim.trim(input)
-      if input == "" then
-        e.email = e.default_email
-      elseif input:lower() == "uit" then
-        e.email = vim.NIL
-      else
-        e.email = input
+    local recipient_items = {}
+    local default_label = teams_email(e.default_email)
+      and teams_recipient_label(config, e.default_email) or "geen melding"
+    table.insert(recipient_items, {
+      kind = "default",
+      label = "Standaardontvanger — " .. default_label,
+    })
+    for _, person in ipairs(teams_known_recipients(config)) do
+      if not teams_same_email(person.email, e.default_email) then
+        table.insert(recipient_items, {
+          kind = "recipient",
+          email = person.email,
+          label = person.name == person.email
+            and person.email or string.format("%s <%s>", person.name, person.email),
+        })
       end
+    end
+    table.insert(recipient_items, {
+      kind = "off",
+      label = "Geen melding voor deze editie",
+    })
+    table.insert(recipient_items, {
+      kind = "new",
+      label = "Nieuwe vervanger toevoegen…",
+    })
+
+    local function save_email(email)
+      e.email = email or vim.NIL
       teams_write_config(config)
       local nieuw = (e.email == vim.NIL) and "geen melding" or tostring(e.email or "geen melding")
       vim.notify(string.format("%s → %s", e.krant or choice.code, nieuw), vim.log.levels.INFO)
+    end
+
+    vim.ui.select(recipient_items, {
+      prompt = "Teams-ontvanger voor " .. (e.krant or choice.code) .. ":",
+      format_item = function(item) return item.label end,
+    }, function(recipient_choice)
+      if not recipient_choice then return end
+      if recipient_choice.kind == "default" then
+        save_email(teams_email(e.default_email))
+      elseif recipient_choice.kind == "off" then
+        save_email(nil)
+      elseif recipient_choice.kind == "recipient" then
+        save_email(recipient_choice.email)
+      elseif recipient_choice.kind == "new" then
+        vim.ui.input({ prompt = "Naam van de nieuwe vervanger: " }, function(name)
+          if name == nil then return end
+          name = vim.trim(name)
+          if name == "" then
+            vim.notify("Naam is verplicht; vervanger niet opgeslagen", vim.log.levels.ERROR)
+            return
+          end
+          vim.ui.input({ prompt = "E-mailadres van " .. name .. ": " }, function(email)
+            if email == nil then return end
+            email = vim.trim(email)
+            if not teams_valid_email(email) then
+              vim.notify("Geen geldig e-mailadres; vervanger niet opgeslagen", vim.log.levels.ERROR)
+              return
+            end
+            teams_store_recipient(config, name, email)
+            save_email(email)
+          end)
+        end)
+      end
     end)
   end)
 end
 
 vim.api.nvim_create_user_command("TeamsRedactie", M.teams_redactie, {
-  desc = "Teams-meldingen eindredactie: waarneming instellen of meldingen aan/uit",
+  desc = "Teams-meldingen: ontvanger kiezen, vervanger opslaan of aan/uit",
   force = true,
 })
 
