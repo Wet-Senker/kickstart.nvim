@@ -280,27 +280,34 @@ local function reassemble_article(fm, ctrl, body, sections, has_boundary)
   return out
 end
 
--- Een losse fotocredit hoort bij de controleregels, niet bij de artikeltekst.
--- Herken alleen een volledige, zelfstandige regel met een ondersteunde globale
--- tag. De naam blijft gewone tekst; alleen de positie en spelling van de tag
--- worden deterministisch genormaliseerd.
-local _photographer_control_keys = {
-  c = true,
-  credit = true,
-  foto = true,
-  fotograaf = true,
+-- Losse globale fotometadata hoort bij de beschermde controleregels, nooit bij
+-- de artikeltekst. De AI kan zowel credit als bijschrift uit de bron halen;
+-- herken alleen volledige zelfstandige regels en normaliseer hun labels.
+local _media_control_kinds = {
+  b = "caption",
+  bijschrift = "caption",
+  fotobijschrift = "caption",
+  c = "photographer",
+  credit = "photographer",
+  foto = "photographer",
+  fotograaf = "photographer",
 }
 
-local function extract_photographer_control(body)
+local function extract_media_controls(body)
   local cleaned = {}
-  local photographer_line
+  local media = {}
 
   for _, line in ipairs(body) do
     local key, value = vim.trim(line):match("^([%a]+)%s*:%s*(.-)%s*$")
-    if key and _photographer_control_keys[key:lower()] and value ~= "" then
-      if not photographer_line then
-        value = value:gsub("^[Ff][Oo][Tt][Oo]%s*:%s*", "")
-        photographer_line = "Foto: " .. value
+    local kind = key and _media_control_kinds[key:lower()] or nil
+    if kind and value ~= "" then
+      if not media[kind] then
+        if kind == "caption" then
+          media[kind] = "Bijschrift: " .. value
+        else
+          value = value:gsub("^[Ff][Oo][Tt][Oo]%s*:%s*", "")
+          media[kind] = "Foto: " .. value
+        end
       end
     else
       table.insert(cleaned, line)
@@ -309,24 +316,32 @@ local function extract_photographer_control(body)
 
   while #cleaned > 0 and vim.trim(cleaned[1]) == "" do table.remove(cleaned, 1) end
   while #cleaned > 0 and vim.trim(cleaned[#cleaned]) == "" do table.remove(cleaned) end
-  return cleaned, photographer_line
+  return cleaned, media
 end
 
-local function has_photographer_control(ctrl)
+local function has_media_control(ctrl, wanted_kind)
   for _, line in ipairs(ctrl) do
     local key = vim.trim(line):match("^([%a]+)%s*:")
-    if key and _photographer_control_keys[key:lower()] then return true end
+    if key and _media_control_kinds[key:lower()] == wanted_kind then return true end
   end
   return false
 end
 
-local function add_photographer_control(ctrl, photographer_line)
-  if not photographer_line or has_photographer_control(ctrl) then return ctrl end
+local function add_media_controls(ctrl, media)
   local result = {}
   for _, line in ipairs(ctrl) do table.insert(result, line) end
-  table.insert(result, photographer_line)
+  -- Houd dezelfde zichtbare volgorde aan als de rewriteprompt: foto, bijschrift.
+  for _, kind in ipairs({ "photographer", "caption" }) do
+    if media[kind] and not has_media_control(ctrl, kind) then
+      table.insert(result, media[kind])
+    end
+  end
   return result
 end
+
+-- Kleine inspecteerbare testpunten voor regressietests van de grenslogica.
+M._extract_media_controls = extract_media_controls
+M._add_media_controls = add_media_controls
 
 local _run_articlemeta_calendar  -- forward declaration
 local _112_signal_score          -- forward declaration
@@ -539,12 +554,11 @@ function M.rewrite_article_buffer()
   local saved_fm, saved_ctrl, body_lines, saved_sections, saved_boundary =
     split_article_parts(lines)
 
-  -- Een expliciete Foto:/Fotograaf:/Credit:-regel uit de bron hoeft niet door
-  -- AI verplaatst te worden. Haal hem vóór de call uit de body en draag hem
-  -- apart mee; een credit die AI uit lopende tekst afleidt wordt na de call
-  -- via dezelfde helper afgevangen.
-  local source_photographer
-  body_lines, source_photographer = extract_photographer_control(body_lines)
+  -- Expliciete foto-/bijschriftregels uit de bron hoeven niet door AI verplaatst
+  -- te worden. Haal ze vóór de call uit de body; mediaregels die de AI uit
+  -- lopende tekst afleidt worden na de call via dezelfde helper afgevangen.
+  local source_media
+  body_lines, source_media = extract_media_controls(body_lines)
 
   -- Detecteer 112-templatestructuur: stuur alleen titel + body naar AI,
   -- niet de plaatsafhankelijke `112 <PLAATS>:` prefix en disclaimer.
@@ -564,9 +578,12 @@ function M.rewrite_article_buffer()
       end
 
       local new_lines = vim.split(result.stdout, "\n", { plain = true })
-      local output_photographer
-      new_lines, output_photographer = extract_photographer_control(new_lines)
-      local photographer_line = source_photographer or output_photographer
+      local output_media
+      new_lines, output_media = extract_media_controls(new_lines)
+      local media_controls = {
+        photographer = source_media.photographer or output_media.photographer,
+        caption = source_media.caption or output_media.caption,
+      }
 
       -- Bij 112-template: herschreven output terugzetten in de templatestructuur.
       if is_112_template then
@@ -611,7 +628,7 @@ function M.rewrite_article_buffer()
         split_article_parts(current_lines)
       local final_fm = #current_fm > 0 and current_fm or saved_fm
       local final_ctrl = #current_ctrl > 0 and current_ctrl or saved_ctrl
-      final_ctrl = add_photographer_control(final_ctrl, photographer_line)
+      final_ctrl = add_media_controls(final_ctrl, media_controls)
       local final_sections = #current_sections > 0 and current_sections or saved_sections
       local rewritten_body_str = table.concat(new_lines, "\n")
       new_lines = reassemble_article(

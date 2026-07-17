@@ -69,6 +69,11 @@ Bij `<leader>aw` valideert Python iedere regel daar strikt. `f:` is geen tag;
 gebruik `c:` of `Foto:`. `***` is bewust iets anders: die regel blijft voor
 inline AI-prompts en gesprekken gereserveerd.
 
+Als `<leader>ar` een letterlijke fotocredit of een bijschrift uit de brontekst
+haalt, verplaatst de nabewerking zowel `Foto:` als `Bijschrift:` automatisch
+naar dit beschermde blok boven `=== ARTIKEL ===`; ze blijven nooit in de
+artikelbody staan.
+
 ---
 
 ## Automatische detectie bij import
