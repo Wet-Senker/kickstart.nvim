@@ -8,7 +8,7 @@
 | <leader>ac   | Metadata + kalenderitem — bewerkbare ## Kalender sectie            |
 | <leader>ao   | Tekstcheck: spelling/grammatica; twijfel → ## Suggesties onderaan  |
 | <leader>at   | Tussenkopjes + streamer (geen streamer als er al een > staat)      |
-| <leader>ar   | Herschrijven naar krantenartikel (AI)                              |
+| <leader>ar   | Herschrijven; fotocredit verhuist vóór === ARTIKEL ===             |
 | <leader>af   | Facebook-post genereren — bewerkbare ## Facebook sectie            |
 | <leader>aw   | Versturen; bij eventteksten: eerst controleren, nogmaals publiceren|
 | <leader>ap   | Ad-hoc rewrite: typ *** + instructie, buffer wordt vervangen       |
@@ -62,7 +62,8 @@ eronder. `<leader>ah` kiest en plaatst codes op de juiste plek.
                      (krant via mailadres, web via de link eronder). De
                      column-templates zetten dit zelf via de vlag
                      column = true in krant.lua
-  week: 29           uiterste publicatieweek overschrijven (x = geen deadline)
+  week: 29           publicatieweek overschrijven (x = geen deadline)
+  week: 30, 31       meerdere mogelijke weken; beide komen in de werktitel
   b: Bijschrift      globaal bijschrift (alle foto's)
   c: Fotograaf       globale credit
   b1: Bijschrift 1   bijschrift specifiek voor foto 1
@@ -137,7 +138,8 @@ bij de inline AI-prompt- en gespreksleaders.
 
   Streamer zelf plaatsen: zet "> 'citaat'" op de gewenste regel.
   <leader>at genereert er alleen een als je er nog geen hebt (AI kiest de
-  tekst, de plaatsing — midden van het artikel — is automatisch).
+  tekst; de plaatsing is automatisch rond het inhoudelijke midden, nooit
+  direct na de lead/eerste tekstalinea).
 
   ## Suggesties (van <leader>ao) hoef je nooit op te ruimen:
   pubble-send stript die sectie automatisch bij verzenden.

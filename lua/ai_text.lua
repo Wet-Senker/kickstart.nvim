@@ -280,6 +280,54 @@ local function reassemble_article(fm, ctrl, body, sections, has_boundary)
   return out
 end
 
+-- Een losse fotocredit hoort bij de controleregels, niet bij de artikeltekst.
+-- Herken alleen een volledige, zelfstandige regel met een ondersteunde globale
+-- tag. De naam blijft gewone tekst; alleen de positie en spelling van de tag
+-- worden deterministisch genormaliseerd.
+local _photographer_control_keys = {
+  c = true,
+  credit = true,
+  foto = true,
+  fotograaf = true,
+}
+
+local function extract_photographer_control(body)
+  local cleaned = {}
+  local photographer_line
+
+  for _, line in ipairs(body) do
+    local key, value = vim.trim(line):match("^([%a]+)%s*:%s*(.-)%s*$")
+    if key and _photographer_control_keys[key:lower()] and value ~= "" then
+      if not photographer_line then
+        value = value:gsub("^[Ff][Oo][Tt][Oo]%s*:%s*", "")
+        photographer_line = "Foto: " .. value
+      end
+    else
+      table.insert(cleaned, line)
+    end
+  end
+
+  while #cleaned > 0 and vim.trim(cleaned[1]) == "" do table.remove(cleaned, 1) end
+  while #cleaned > 0 and vim.trim(cleaned[#cleaned]) == "" do table.remove(cleaned) end
+  return cleaned, photographer_line
+end
+
+local function has_photographer_control(ctrl)
+  for _, line in ipairs(ctrl) do
+    local key = vim.trim(line):match("^([%a]+)%s*:")
+    if key and _photographer_control_keys[key:lower()] then return true end
+  end
+  return false
+end
+
+local function add_photographer_control(ctrl, photographer_line)
+  if not photographer_line or has_photographer_control(ctrl) then return ctrl end
+  local result = {}
+  for _, line in ipairs(ctrl) do table.insert(result, line) end
+  table.insert(result, photographer_line)
+  return result
+end
+
 local _run_articlemeta_calendar  -- forward declaration
 local _112_signal_score          -- forward declaration
 local _112_THRESHOLD = 6
@@ -490,6 +538,13 @@ function M.rewrite_article_buffer()
   local saved_fm, saved_ctrl, body_lines, saved_sections, saved_boundary =
     split_article_parts(lines)
 
+  -- Een expliciete Foto:/Fotograaf:/Credit:-regel uit de bron hoeft niet door
+  -- AI verplaatst te worden. Haal hem vóór de call uit de body en draag hem
+  -- apart mee; een credit die AI uit lopende tekst afleidt wordt na de call
+  -- via dezelfde helper afgevangen.
+  local source_photographer
+  body_lines, source_photographer = extract_photographer_control(body_lines)
+
   -- Detecteer 112-templatestructuur: stuur alleen titel + body naar AI,
   -- niet de plaatsafhankelijke `112 <PLAATS>:` prefix en disclaimer.
   local is_112_template = _parse_112_template(body_lines)
@@ -508,6 +563,9 @@ function M.rewrite_article_buffer()
       end
 
       local new_lines = vim.split(result.stdout, "\n", { plain = true })
+      local output_photographer
+      new_lines, output_photographer = extract_photographer_control(new_lines)
+      local photographer_line = source_photographer or output_photographer
 
       -- Bij 112-template: herschreven output terugzetten in de templatestructuur.
       if is_112_template then
@@ -552,6 +610,7 @@ function M.rewrite_article_buffer()
         split_article_parts(current_lines)
       local final_fm = #current_fm > 0 and current_fm or saved_fm
       local final_ctrl = #current_ctrl > 0 and current_ctrl or saved_ctrl
+      final_ctrl = add_photographer_control(final_ctrl, photographer_line)
       local final_sections = #current_sections > 0 and current_sections or saved_sections
       local rewritten_body_str = table.concat(new_lines, "\n")
       new_lines = reassemble_article(
@@ -938,10 +997,9 @@ local function _112_autodetect(buf)
     prompt = string.format("112-bericht behandelen? (score %d)", score),
   }, function(choice)
     if choice ~= "Ja" then return end
+    -- De 112-template zet zelf zowel `prio: 1` als `rubriek: 112` en vervangt
+    -- daarbij een eventueel bestaande rubriekregel. Voeg hier niets dubbel toe.
     require("krant").apply_template_by_name("112 nieuws", {}, buf)
-    local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    table.insert(buf_lines, 1, "rubriek: 112")
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, buf_lines)
   end)
 end
 
@@ -1466,23 +1524,19 @@ function M.pubble_send(target_buf)
         if resolved.names and resolved.names[i] then editie_namen[code] = resolved.names[i] end
         table.insert(bestemming, editie_namen[code] or code)
       end
-      -- Melding tonen waar het artikel heengaat. De bron (dateline/editie)
-      -- alleen erbij als die iets toevoegt — bij de kale default naar De Brug
-      -- niet, want die brontekst is lang en zou de melding laten wrappen naar
-      -- twee regels, wat een 'Press ENTER'-prompt afdwingt. Voor de zekerheid
-      -- kappen we sowieso af op vensterbreedte.
-      local msg = "Artikel gaat naar: " .. table.concat(bestemming, " + ")
-      if resolved.source and not resolved.source:match("^standaard") then
-        msg = msg .. "  (" .. resolved.source .. ")"
+      -- Bij meerdere edities toont het aansluitende planningsmenu alle kranten
+      -- en datums al; een extra melding onderaan is dan alleen een tussenstap.
+      -- Voor één editie blijft de korte bestemmingsbevestiging wel nuttig.
+      if #resolved.editions == 1 then
+        local msg = "Artikel gaat naar: " .. table.concat(bestemming, " + ")
+        if resolved.source and not resolved.source:match("^standaard") then
+          msg = msg .. "  (" .. resolved.source .. ")"
+        end
+        if #msg > vim.o.columns - 1 then
+          msg = msg:sub(1, math.max(1, vim.o.columns - 2)) .. "…"
+        end
+        vim.notify(msg, vim.log.levels.INFO)
       end
-      -- De plaatsenscan-suggesties staan sinds juli 2026 op de e:-regel
-      -- (ingevuld na <leader>ar, achter het woord SUGGESTIE) — daar zijn ze
-      -- leesbaar én bewerkbaar. Hier niet meer herhalen: de melding werd er
-      -- onleesbaar van (afgekapt op vensterbreedte).
-      if #msg > vim.o.columns - 1 then
-        msg = msg:sub(1, math.max(1, vim.o.columns - 2)) .. "…"
-      end
-      vim.notify(msg, vim.log.levels.INFO)
 
       if is_112 then
         _do_pubble_send({})
@@ -1520,18 +1574,35 @@ function M.pubble_send(target_buf)
         return os.date("%Y-%m-%d", t2)
       end
 
+      -- vim.fn.json_decode zet JSON-null om in de truthy userdata vim.NIL.
+      -- Normaliseer optionele planningsvelden vóór vergelijkingen/indexering.
+      local function optional_string(value)
+        return type(value) == "string" and value or nil
+      end
+
+      local function optional_table(value)
+        return type(value) == "table" and value or {}
+      end
+
+      local function schedule_info(code)
+        local value = has_data and sched_data[code] or nil
+        return type(value) == "table" and value or nil
+      end
+
       -- Bouw een lijst van 7 opeenvolgende dagen (als items + values),
       -- markeer de aanbevolen dag en krantendata.
       local function build_week_items(info, week_offset)
         local items = {}
         local item_values = {}
-        local counts = (info and info.counts) or {}
-        local suggested = info and info.suggested
-        local latest_date = info and info.latest_date
-        local pub_dates = (info and info.publication_dates) or {}
+        local counts = optional_table(info and info.counts)
+        local suggested = optional_string(info and info.suggested)
+        local latest_date = optional_string(info and info.latest_date)
+        local pub_dates = optional_table(info and info.publication_dates)
         -- Sla krantendatums op in een set voor snelle lookup.
         local krant_set = {}
-        for _, pd in ipairs(pub_dates) do krant_set[pd] = true end
+        for _, pd in ipairs(pub_dates) do
+          if type(pd) == "string" then krant_set[pd] = true end
+        end
 
         -- Startdag: vandaag + week_offset * 7 dagen, afgerond naar middernacht.
         local base = os.time() + week_offset * 7 * 86400
@@ -1572,7 +1643,7 @@ function M.pubble_send(target_buf)
         end
 
         local code = edition_codes[idx]
-        local info = has_data and sched_data[code]
+        local info = schedule_info(code)
 
         local function show_week(week_offset)
           local items, item_values, base = build_week_items(info, week_offset)
@@ -1618,28 +1689,32 @@ function M.pubble_send(target_buf)
       local summary = {}
       local all_recommended = has_data
       for _, code in ipairs(edition_codes) do
-        local info = has_data and sched_data[code]
-        local suggested = info and info.suggested
+        local info = schedule_info(code)
+        local suggested = optional_string(info and info.suggested)
+        local latest_date = optional_string(info and info.latest_date)
         if not suggested then
           all_recommended = false
-          if info and info.latest_date then
+          if latest_date then
             vim.notify(
               string.format(
                 "Geen aanbevolen datum voor %s uiterlijk %s; kies handmatig.",
                 code,
-                info.latest_date
+                latest_date
               ),
               vim.log.levels.WARN
             )
           end
         else
           local is_krant = false
-          for _, publication_date in ipairs(info.publication_dates or {}) do
+          for _, publication_date in ipairs(optional_table(info and info.publication_dates)) do
             if publication_date == suggested then is_krant = true; break end
           end
-          local count = (info.counts or {})[suggested] or 0
+          local count = optional_table(info and info.counts)[suggested] or 0
           recommended[code] = suggested .. ":" .. (is_krant and "krant" or tostring(count))
-          table.insert(summary, code .. " " .. suggested:sub(9, 10) .. "-" .. suggested:sub(6, 7))
+          local date_label = suggested == os.date("%Y-%m-%d")
+              and "vandaag"
+              or (suggested:sub(9, 10) .. "-" .. suggested:sub(6, 7))
+          table.insert(summary, code .. " " .. date_label)
         end
       end
 
@@ -1648,9 +1723,11 @@ function M.pubble_send(target_buf)
         return
       end
 
+      local accept_label = #edition_codes == 1 and "Aanbevolen datum accepteren" or "Aanbevolen datums accepteren"
+      local adjust_label = #edition_codes == 1 and "Datum aanpassen" or "Datums per editie aanpassen"
       vim.ui.select({
-        "Aanbevolen datums accepteren",
-        "Datums per editie aanpassen",
+        accept_label,
+        adjust_label,
         "Direct plaatsen",
       }, {
         prompt = "Publicatieplanning — " .. table.concat(summary, ", ") .. ":",
@@ -1658,9 +1735,9 @@ function M.pubble_send(target_buf)
         if choice == nil then
           discard_unpublished_temp()
           vim.notify("Verzending geannuleerd.", vim.log.levels.INFO)
-        elseif choice == "Aanbevolen datums accepteren" then
+        elseif choice == accept_label then
           _do_pubble_send(recommended)
-        elseif choice == "Datums per editie aanpassen" then
+        elseif choice == adjust_label then
           ask_edition(1)
         else
           _do_pubble_send({})
@@ -2201,28 +2278,44 @@ local function insert_headings(body, koppen, paras)
   return out
 end
 
--- Plaats een streamer deterministisch: op de alineagrens die het dichtst bij
--- het midden ligt, nooit direct na de eerste of vóór de laatste alinea, en
--- nooit direct naast een **tussenkop**. Web maakt er een quote-widget van,
--- print een <<STREAMER>>-markering — beide op dezelfde plek.
+-- Plaats een streamer deterministisch rond het inhoudelijke midden. De eerste
+-- bodyalinea is de kop; de tweede is de lead/eerste tekstalinea en telt mee,
+-- ook wanneer die vet staat. Losse vetregels verderop zijn tussenkoppen en
+-- tellen niet mee. De streamer komt nooit direct na die eerste tekstalinea,
+-- nooit na de laatste tekstalinea en nooit direct naast een **tussenkop**.
+-- Web maakt er een quote-widget van, print een <<STREAMER>>-markering — beide
+-- op dezelfde plek.
 local function insert_streamer_midway(body, streamer_text)
   local paras = scan_paragraphs(body)
-  local n = #paras
-  if n < 4 then return nil end  -- te kort voor een mid-tekst streamer
+  local prose = {}
+  for i = 2, #paras do
+    -- Alinea 2 is de lead; scan_paragraphs markeert een vette lead technisch
+    -- als heading, maar inhoudelijk blijft dit de eerste tekstalinea.
+    if i == 2 or not paras[i].heading then
+      table.insert(prose, i)
+    end
+  end
+  if #prose < 3 then return nil end  -- geen veilige grens rond het midden
 
-  -- Kandidaatgrens k = invoegen ná alinea k; zoek vanaf het midden naar buiten.
-  local mid = math.floor(n / 2)
+  -- Kandidaatgrens = invoegen na een echte tekstalinea. Positie 1 (de lead)
+  -- en de laatste positie vallen altijd af. Zoek vanaf het midden naar buiten.
+  local mid = math.ceil(#prose / 2)
   local best
-  for d = 0, n do
-    for _, k in ipairs(d == 0 and { mid } or { mid + d, mid - d }) do
-      if k >= 2 and k <= n - 1 and not paras[k].heading and not paras[k + 1].heading then
-        best = k
-        break
+  for d = 0, #prose do
+    for _, prose_pos in ipairs(d == 0 and { mid } or { mid + d, mid - d }) do
+      if prose_pos >= 2 and prose_pos <= #prose - 1 then
+        local para_idx = prose[prose_pos]
+        if not paras[para_idx + 1].heading then
+          best = para_idx
+          break
+        end
       end
     end
     if best then break end
   end
-  best = best or mid
+  if not best then
+    return nil
+  end
 
   local out = {}
   for idx, l in ipairs(body) do
