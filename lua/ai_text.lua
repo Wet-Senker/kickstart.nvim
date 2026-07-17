@@ -1072,6 +1072,11 @@ function M.pubble_send(target_buf)
     return
   end
 
+  -- Eénmalige keuze uit de agenda-waarschuwing. De buffer zelf blijft intact;
+  -- alleen het tijdelijke Pubble-bestand wordt zonder kalenderdata verwerkt.
+  local skip_calendar = vim.b[buf].skip_calendar_once == true
+  vim.b[buf].skip_calendar_once = nil
+
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   if vim.trim(table.concat(lines, "\n")) == "" then
     vim.notify("Huidig buffer is leeg", vim.log.levels.ERROR)
@@ -1113,6 +1118,7 @@ function M.pubble_send(target_buf)
     if line:match("^## Kalender") then has_calendar = true end
     if line:match("^## Facebook") then has_facebook = true end
   end
+  if skip_calendar then has_calendar = false end
 
   -- Write the temp file inside Pubble Inbox so pubble-media can find photos
   -- in the same dropzone folder when --write-ids triggers the media upload.
@@ -1200,6 +1206,7 @@ function M.pubble_send(target_buf)
       "--write-ids",
       "--require-article-boundary",
     }
+    if skip_calendar then table.insert(cmd, "--without-calendar") end
     if next(display_dates) ~= nil then
       table.insert(cmd, "--display-dates")
       table.insert(cmd, vim.fn.json_encode(display_dates))
@@ -1527,8 +1534,15 @@ function M.pubble_send(target_buf)
   -- Vraag pubble-send waar dit artikel heengaat (expliciete e:/editions →
   -- dateline → default De Brug). Dit is dezelfde logica als de echte
   -- verzending, dus dialoog en verzending kunnen nooit meer uiteenlopen.
+  local resolve_cmd = {
+    pubble_send,
+    temp_file,
+    "--resolve-editions",
+    "--require-article-boundary",
+  }
+  if skip_calendar then table.insert(resolve_cmd, "--without-calendar") end
   vim.system(
-    { pubble_send, temp_file, "--resolve-editions", "--require-article-boundary" },
+    resolve_cmd,
     { text = true },
     function(resolve_result)
     vim.schedule(function()
@@ -1540,6 +1554,35 @@ function M.pubble_send(target_buf)
           "Editie bepalen mislukt" .. (err ~= "" and (": " .. err) or "") .. " — verzending afgebroken.",
           vim.log.levels.ERROR
         )
+        return
+      end
+
+      local calendar_missing = {}
+      if type(resolved.calendar_missing) == "table" then
+        for _, field in ipairs(resolved.calendar_missing) do
+          if type(field) == "string" then table.insert(calendar_missing, field) end
+        end
+      end
+      if #calendar_missing > 0 and not skip_calendar then
+        discard_unpublished_temp()
+        local missing_label = table.concat(calendar_missing, ", ")
+        local publish_without = "Web en print toch plaatsen"
+        local complete_article = "Bericht aanvullen"
+        vim.ui.select({ publish_without, complete_article }, {
+          prompt = "Agenda-item niet geplaatst — ontbreekt: " .. missing_label .. ". Wat wil je doen?",
+        }, function(choice)
+          if choice == publish_without then
+            vim.b[buf].skip_calendar_once = true
+            M.pubble_send(buf)
+          elseif choice == complete_article then
+            vim.notify(
+              "Vul de ontbrekende gegevens aan onder ## Kalender en druk daarna opnieuw <leader>aw.",
+              vim.log.levels.INFO
+            )
+          else
+            vim.notify("Verzending geannuleerd.", vim.log.levels.INFO)
+          end
+        end)
         return
       end
 
