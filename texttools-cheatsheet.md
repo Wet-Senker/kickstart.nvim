@@ -10,12 +10,10 @@
 | <leader>at   | Tussenkopjes + streamer (geen streamer als er al een > staat)      |
 | <leader>ar   | Herschrijven naar krantenartikel (AI)                              |
 | <leader>af   | Facebook-post genereren — bewerkbare ## Facebook sectie            |
-| <leader>aw   | Versturen naar Pubble                                              |
-| <leader>ae   | Evenement-vervolgplaatsingen inplannen (na de vragen bij aw)       |
+| <leader>aw   | Versturen; bij eventteksten: eerst controleren, nogmaals publiceren|
 | <leader>ap   | Ad-hoc rewrite: typ *** + instructie, buffer wordt vervangen       |
 | <leader>ag   | AI gesprek: typ *** + vraag, antwoord verschijnt eronder           |
 | <leader>ah   | Codes invoegen via zoeklijst                                       |
-| <leader>ak   | Verdachte tekens scannen (U+FFFD, control chars)                   |
 | <leader>a?   | Deze cheatsheet                                                    |
 | <leader>kt   | Rubriektemplate invoegen (Raadspraat, 112, etc.)                   |
 | <leader>kr   | Raadspraat: reminders / overzicht / artikel maken                   |
@@ -33,13 +31,14 @@ Ook vanuit de terminal:
   ondernemen-reminder overzicht [naam]    | pbcopy
 
 Evenement-vervolgplaatsingen (artikel met ## Kalender + toekomstige datum):
-  na <leader>aw twee vragen: korte versie op T-10? dagreminder(s)?
-  bij ja: AI-teksten verschijnen onderaan als ## Korte versie / ## Dagreminder
-  controleer/bewerk, dan <leader>ae — alles wordt met een toekomstige
-  publicatiedatum aangemaakt, Pubble zet het zelf live (ook de Facebooktekst)
-  "groot evenement" = jouw vinkje; wordt onthouden op een generieke sleutel
-  (bijv. "live muziek ukien" — kies woorden die elke keer terugkomen)
-  Ook vanuit de terminal: pubble-event opties/teksten/plaats/geheugen
+  na datumkeuze maximaal twee vragen: korte versie op T-10? dagreminder(s)?
+  bij ja: eerste <leader>aw toont ## Korte versie / ## Dagreminder in de buffer
+  controleer/bewerk; tweede <leader>aw maakt hoofdartikel + foto + vervolgen
+  Pubble opent pas wanneer alles klaar en gearchiveerd is (ook Facebooktekst)
+  bij twee keer nee publiceert de eerste <leader>aw het gewone artikel direct
+  "groot evenement" = jouw actuele vinkje; er is geen los event memory
+  vervolgversies blijven gekoppeld en hergebruiken categorie + hoofdafbeelding
+  Ook vanuit de terminal: pubble-event opties/teksten/plaats
 
 Fotobijschriften Ondernemen komen uit personen.md in de fotomap:
   ~/krant-fotos/ondernemen_in_kampen/personen.md   (iCloud, niet in git)
@@ -48,13 +47,16 @@ Fotobijschriften Ondernemen komen uit personen.md in de fotomap:
 
 ---
 
-## Controlecodes bovenaan artikel
+## Controlecodes boven de artikelgrens
 
-Werken in beide workflows (leader aw én pubble-batch):
+`pv` plaatst `=== ARTIKEL ===` automatisch. Zet codes daarboven; de kop staat
+eronder. `<leader>ah` kiest en plaatst codes op de juiste plek.
 
   editie: B          of SW, ST, Z, D, K, all, overijssel, flevoland
   prio: 2            1=moet mee  2=mag mee  3=rest(standaard)  4=nood
-  rubriek: 112       112-bericht (articleCategoryId 24); op de web verwijst
+  rubriek: 112       112-bericht (categorie 112 op krant én web); de kop gebruikt
+                      de eerste bekende plaats uit de tekst, anders alleen `112:`;
+                      op de web verwijst
                      de slotregel naar de knoppen, in print naar het mailadres
   rubriek: column    column: krant + web krijgen een reactie-uitnodiging
                      (krant via mailadres, web via de link eronder). De
@@ -71,10 +73,19 @@ Werken in beide workflows (leader aw én pubble-batch):
   facebook: x        Facebook-post genereren (AI)
   web: draft         webartikel als concept, niet direct publiceren
 
-Alternatief (herkend in eerste 4 regels van de body):
+  === ARTIKEL ===    niet zelf typen of verplaatsen
+
+  Artikelkop
+
+Alternatief voor fotocredit/bijschrift:
 
   Bijschrift: tekst
   Foto: naam fotograaf
+
+`f:` is ongeldig. Bij `<leader>aw` wordt iedere niet-lege regel boven de grens
+gevalideerd voordat AI of Pubble wordt aangeroepen. AI-rewrites ontvangen
+alleen de tekst onder de grens. `***` is geen artikelgrens maar hoort alleen
+bij de inline AI-prompt- en gespreksleaders.
 
 ---
 
@@ -178,7 +189,12 @@ default.meta wordt automatisch aangemaakt bij de eerste run.
 Prioriteit: bovenaan artikel > artikel.meta > default.meta
 
 Foto's op bestandsnaam:  artikel.jpg, artikel2.jpg, artikel3.jpg
-Na verwerking: alles met datum-prefix naar published-archive/
+event_reminder: x maakt kalender + hoofdartikel + één openingsdagreminder
+automatisch in dezelfde run; geen Neovim-controlepauze en geen T-10/reeks.
+Na verwerking: alles met datum-prefix naar ~/Documents/Pubble Archief/JJJJ/MM/
+Archief zoeken: <leader>pa op bestand, <leader>ps door volledige inhoud
+Het archiefpad mag een symlink naar een cloudmap zijn; TEXTTOOLS_ARCHIVE_DIR
+stelt een alternatief pad in voor zowel Python als de Neovimzoekers.
 
 ---
 
