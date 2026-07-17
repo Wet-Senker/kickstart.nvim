@@ -330,6 +330,7 @@ end
 
 local _run_articlemeta_calendar  -- forward declaration
 local _112_signal_score          -- forward declaration
+local _offer_112_template        -- forward declaration
 local _112_THRESHOLD = 6
 
 local _112_DISCLAIMER = (function()
@@ -711,8 +712,8 @@ function M.rewrite_article_buffer()
       end
 
       -- Als dit nog geen 112-templateartikel was maar de rewritten tekst wél
-      -- als 112 scoort: template alsnog toepassen (fallback voor het geval
-      -- autodetect bij import gemist heeft).
+      -- als 112 scoort: opnieuw aanbieden als importdetectie dit niet al aan
+      -- de gebruiker heeft gevraagd. Een eerder expliciet "Nee" blijft staan.
       if not is_112_template then
         local already_112 = false
         for _, line in ipairs(final_ctrl) do
@@ -721,9 +722,9 @@ function M.rewrite_article_buffer()
             already_112 = true; break
           end
         end
-        if not already_112 and _112_signal_score(rewritten_body_str) >= _112_THRESHOLD then
-          vim.notify("112-detectie na rewrite — template wordt toegepast.", vim.log.levels.INFO)
-          require("krant").apply_template_by_name("112 nieuws", {}, buf)
+        local score = _112_signal_score(rewritten_body_str)
+        if not already_112 and score >= _112_THRESHOLD then
+          _offer_112_template(buf, score, "na herschrijven")
         end
       end
     end)
@@ -981,6 +982,34 @@ function _112_signal_score(text)
   return score
 end
 
+-- Eén gedeelde bevestigingsroute voor import en post-rewrite-detectie.
+-- `Nee` is een expliciete bufferbeslissing en mag later in dezelfde workflow
+-- niet door een tweede detector worden genegeerd.
+_offer_112_template = function(buf, score, context)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  if vim.b[buf]._112_rejected or vim.b[buf]._112_prompt_pending then return end
+
+  local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+  if text:find("rubriek:%s*112") then return end
+  if text:find("^112:") or text:find("^112%s+[^:]+:") then return end
+
+  vim.b[buf]._112_prompt_pending = true
+  local suffix = context and (" — " .. context) or ""
+  vim.ui.select({ "Ja", "Nee" }, {
+    prompt = string.format("112-bericht behandelen? (score %d)%s", score, suffix),
+  }, function(choice)
+    vim.b[buf]._112_prompt_pending = false
+    if choice == "Nee" then
+      vim.b[buf]._112_rejected = true
+      vim.notify("112-detectie afgewezen voor dit artikel.", vim.log.levels.INFO)
+      return
+    end
+    if choice ~= "Ja" then return end
+    vim.b[buf]._112_rejected = false
+    require("krant").apply_template_by_name("112 nieuws", {}, buf)
+  end)
+end
+
 local function _112_autodetect(buf)
   if vim.b[buf]._112_autodetect_done then return end
   vim.b[buf]._112_autodetect_done = true
@@ -992,16 +1021,13 @@ local function _112_autodetect(buf)
   if text:find("^112:") or text:find("^112%s+[^:]+:") then return end
   local score = _112_signal_score(text)
   if score < _112_THRESHOLD then return end
-
-  vim.ui.select({ "Ja", "Nee" }, {
-    prompt = string.format("112-bericht behandelen? (score %d)", score),
-  }, function(choice)
-    if choice ~= "Ja" then return end
-    -- De 112-template zet zelf zowel `prio: 1` als `rubriek: 112` en vervangt
-    -- daarbij een eventueel bestaande rubriekregel. Voeg hier niets dubbel toe.
-    require("krant").apply_template_by_name("112 nieuws", {}, buf)
-  end)
+  _offer_112_template(buf, score, "bij import")
 end
+
+-- Alleen als inspecteerbare testpunten exporteren; productie gebruikt de
+-- lokale functies en blijft daardoor ongevoelig voor een oude moduletabel.
+M._112_autodetect = _112_autodetect
+M._offer_112_template = _offer_112_template
 
 vim.api.nvim_create_autocmd("BufReadPost", {
   pattern = vim.fn.expand("~/Desktop") .. "/*.md",

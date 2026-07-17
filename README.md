@@ -75,11 +75,12 @@ inline AI-prompts en gesprekken gereserveerd.
 
 Bij het openen van een `.md`-bestand op `~/Desktop/`:
 
-**112-detectie** — scoort tekst op signaalwoorden (politie, brandweer, ambulance, incident, etc.). Bij score ≥ 6 verschijnt een bevestigingsvraag. Bij "Ja": 112-template toegepast, `rubriek: 112` en `prio: 1` bovenaan gezet. De kop gebruikt via `pubble-places` de eerste bekende plaats uit de centrale verspreidingsgebiedentabel; zonder treffer wordt het `112:`.
+**112-detectie** — scoort tekst op signaalwoorden (politie, brandweer, ambulance, incident, etc.). Bij score ≥ 6 verschijnt een bevestigingsvraag. Bij "Ja": 112-template toegepast, `rubriek: 112` en `prio: 1` bovenaan gezet. Bij "Nee" blijft die keuze voor de huidige buffer staan en mag detectie na `<leader>ar` het template niet alsnog toepassen. De kop gebruikt via `pubble-places` de eerste bekende plaats uit de centrale verspreidingsgebiedentabel; zonder treffer wordt het `112:`.
 
 **Kalenderdetectie** — scoort tekst op datum/tijd/deelname-signalen. Bij score ≥ 8: `articlemeta --calendar` gestart en `## Kalender` sectie toegevoegd (geen bevestiging nodig).
 
-Beide checks lopen ook na `<leader>ar` op de herschreven tekst.
+Beide checks lopen ook na `<leader>ar` op de herschreven tekst. 112 vraagt daar
+alleen opnieuw om bevestiging als bij import nog geen keuze is gemaakt.
 
 ---
 
