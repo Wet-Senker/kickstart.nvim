@@ -6,15 +6,14 @@
 --   -- which-key group:  { '<leader>k', group = '[K]rant' },
 
 local M = {}
+local ARTICLE_BOUNDARY = '=== ARTIKEL ==='
 
 -- ============================================================
--- CONFIG — set these two paths once.
+-- CONFIG — set this path once.
 -- ============================================================
 M.config = {
   -- Fixed images for specific rubrieken (Hondenhoek, Open Hof, ...).
   stock_images = vim.fn.expand('~/krant-fotos/stock'),
-  -- Per-person photos for Raadspraat / Ondernemen (see note at the bottom).
-  photo_db = vim.fn.expand('~/krant-fotos'),
 }
 
 -- ============================================================
@@ -151,7 +150,7 @@ M.templates = {
     name = '112 nieuws',
     no_export = true,
     text = {
-      '112 KAMPEN: {{titel}}',
+      '{{prefix}} {{titel}}',
       '',
       '{{body}}',
       '',
@@ -197,6 +196,71 @@ local function strip_frontmatter(lines)
     end
   end
   return lines
+end
+
+local function visible_frontmatter(lines)
+  if lines[1] ~= '---' then return {} end
+  local result = {}
+  for i, line in ipairs(lines) do
+    table.insert(result, line)
+    if i > 1 and line == '---' then return result end
+  end
+  return {}
+end
+
+-- Splits een zichtbare pv-buffer in beschermd tagblok en artikeltekst. Oude
+-- buffers zonder marker blijven als artikeltekst leesbaar; iedere template
+-- bouwt bij terugschrijven vervolgens wél de nieuwe markerstructuur.
+local function split_visible_article(lines)
+  local content = strip_frontmatter(lines)
+  for marker_index, line in ipairs(content) do
+    if vim.trim(line) == ARTICLE_BOUNDARY then
+      local header, article = {}, {}
+      for i = 1, marker_index - 1 do
+        if vim.trim(content[i]) ~= '' then table.insert(header, content[i]) end
+      end
+      local i = marker_index + 1
+      while i <= #content and vim.trim(content[i]) == '' do i = i + 1 end
+      for j = i, #content do table.insert(article, content[j]) end
+      return header, article
+    end
+  end
+  return {}, content
+end
+
+local function append_visible_article(out, header, article)
+  for _, line in ipairs(header) do table.insert(out, line) end
+  if #header > 0 then table.insert(out, '') end
+  table.insert(out, ARTICLE_BOUNDARY)
+  table.insert(out, '')
+  for _, line in ipairs(article) do table.insert(out, line) end
+end
+
+-- Exports naar vormgeving bevatten alleen journalistieke tekst. YAML,
+-- controlecodes en de interne artikelgrens horen uitsluitend bij de workflow.
+local function visible_article_only(lines)
+  local _, article = split_visible_article(lines)
+  return article
+end
+
+-- Bepaal de 112-kop via dezelfde centrale plaatsentabel die pubble-send voor
+-- verspreidingsgebieden gebruikt. Alleen deze template start het lokale
+-- hulpproces; bij geen bekende stad/plaats blijft de veilige prefix `112:`.
+local function detect_112_prefix(lines)
+  local pubble_places = vim.fn.expand('~/workspace/texttools/.venv/bin/pubble-places')
+  local result = vim.system(
+    { pubble_places, '--json' },
+    { text = true, stdin = table.concat(lines, '\n') }
+  ):wait()
+
+  if result.code == 0 then
+    local ok, data = pcall(vim.fn.json_decode, result.stdout or '')
+    if ok and type(data) == 'table' and type(data.primary_place) == 'string'
+        and vim.trim(data.primary_place) ~= '' then
+      return '112 ' .. vim.fn.toupper(vim.trim(data.primary_place)) .. ':'
+    end
+  end
+  return '112:'
 end
 
 -- Weeknummer voor de aankomende krant: maandag = huidige week, anders volgende week.
@@ -279,11 +343,14 @@ function M.raadspraat_menu()
       end
 
       local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+      local existing_header, article_lines = split_visible_article(buf_lines)
       local new_lines = {}
       for _, l in ipairs(fm_lines) do table.insert(new_lines, l) end
-      for _, l in ipairs(before) do table.insert(new_lines, l) end
-      for _, l in ipairs(buf_lines) do table.insert(new_lines, l) end
-      for _, l in ipairs(after) do table.insert(new_lines, l) end
+      local article = {}
+      for _, l in ipairs(before) do table.insert(article, l) end
+      for _, l in ipairs(article_lines) do table.insert(article, l) end
+      for _, l in ipairs(after) do table.insert(article, l) end
+      append_visible_article(new_lines, existing_header, article)
 
       vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
 
@@ -294,7 +361,7 @@ function M.raadspraat_menu()
       vim.fn.mkdir(gn_dir, 'p')
       local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
 
-      vim.fn.writefile(strip_frontmatter(new_lines), gn_dir .. '/1.raadspraatFOTO.txt')
+      vim.fn.writefile(visible_article_only(new_lines), gn_dir .. '/1.raadspraatFOTO.txt')
       vim.uv.fs_copyfile(photo_src, gn_dir .. '/1.raadspraatFOTO.' .. photo_ext)
 
       -- Copy photo to Pubble Inbox dropzone so <leader>aw picks it up automatically.
@@ -418,13 +485,6 @@ function M.ondernemen_menu()
     table.insert(fm_lines, '---')
     table.insert(fm_lines, '')
 
-    -- Leidende controleregels
-    local ctrl_lines = { 'b: ' .. bijschrift }
-    if fotograaf ~= '' then
-      table.insert(ctrl_lines, 'c: ' .. fotograaf)
-    end
-    table.insert(ctrl_lines, '')
-
     -- Template
     local before = {
       'Column Ondernemen in Kampen: {{titel}}',
@@ -457,12 +517,14 @@ function M.ondernemen_menu()
     end
 
     local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    local existing_header, article_lines = split_visible_article(buf_lines)
     local new_lines = {}
-    for _, l in ipairs(fm_lines)   do table.insert(new_lines, l) end
-    for _, l in ipairs(ctrl_lines) do table.insert(new_lines, l) end
-    for _, l in ipairs(before)     do table.insert(new_lines, l) end
-    for _, l in ipairs(buf_lines)  do table.insert(new_lines, l) end
-    for _, l in ipairs(after)      do table.insert(new_lines, l) end
+    for _, l in ipairs(fm_lines) do table.insert(new_lines, l) end
+    local article = {}
+    for _, l in ipairs(before) do table.insert(article, l) end
+    for _, l in ipairs(article_lines) do table.insert(article, l) end
+    for _, l in ipairs(after) do table.insert(article, l) end
+    append_visible_article(new_lines, existing_header, article)
     vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
 
     -- Kopieer foto naar Pubble Inbox.
@@ -503,8 +565,13 @@ local function apply(t, vars, target_buf)
   -- Als de buffer content heeft, extraheer dan titel (eerste niet-lege regel)
   -- en body (de rest) en gebruik die voor substitutie in het template.
   local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
-  local content = strip_frontmatter(buf_lines)
+  local existing_fm = visible_frontmatter(buf_lines)
+  local existing_header, content = split_visible_article(buf_lines)
   local buf_is_empty = vim.trim(table.concat(content, '\n')) == ''
+
+  if t.name == '112 nieuws' and not vars.prefix then
+    vars.prefix = detect_112_prefix(content)
+  end
 
   if not buf_is_empty then
     -- Eerste niet-lege regel = titel
@@ -534,10 +601,12 @@ local function apply(t, vars, target_buf)
   -- Substitueer {{key}} → waarde; meerdere regels voor {{body}}.
   local result = {}
   for _, l in ipairs(t.text) do
-    if l:match('^%s*{{body}}%s*$') and vars.body then
-      -- Breidt een multi-line body uit over meerdere regels.
-      for _, bl in ipairs(vim.split(vars.body, '\n', { plain = true })) do
-        table.insert(result, bl)
+    if l:match('^%s*{{body}}%s*$') then
+      if vars.body then
+        -- Breidt een multi-line body uit over meerdere regels.
+        for _, bl in ipairs(vim.split(vars.body, '\n', { plain = true })) do
+          table.insert(result, bl)
+        end
       end
     else
       local substituted = (l:gsub('{{(.-)}}', function(key)
@@ -545,30 +614,6 @@ local function apply(t, vars, target_buf)
         return vars[key] or ('{{' .. key .. '}}')
       end))
       table.insert(result, substituted)
-    end
-  end
-
-  if not buf_is_empty then
-    -- Buffer had content: volledig vervangen door het ingevulde template.
-    vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, result)
-  else
-    -- Lege buffer: originele seam-logica (prepend/append).
-    local before, after = result, nil
-    for i, l in ipairs(result) do
-      if l:match('^%s*{{body}}%s*$') then
-        before = vim.list_slice(result, 1, i - 1)
-        after = vim.list_slice(result, i + 1, #result)
-        break
-      end
-    end
-    if after then
-      vim.api.nvim_buf_set_lines(target_buf, 0, 0, false, before)
-      vim.api.nvim_buf_set_lines(target_buf, -1, -1, false, after)
-    elseif (t.position or 'prepend') == 'prepend' then
-      vim.api.nvim_buf_set_lines(target_buf, 0, 0, false, before)
-    else
-      local row = vim.api.nvim_win_get_cursor(0)[1]
-      vim.api.nvim_buf_set_lines(target_buf, row, row, false, before)
     end
   end
 
@@ -580,12 +625,28 @@ local function apply(t, vars, target_buf)
   -- Columns krijgen daarnaast rubriek: column, zodat pubble-send op de
   -- website de column-slotregel eronder zet ("Wil je reageren op deze
   -- column?") i.p.v. de gewone nieuwsregel. Zie web_closing.py.
-  local control = { "prio: 1" }
+  local control = { 'prio: 1' }
+  local replaces_rubriek = false
   if t.column then
-    table.insert(control, "rubriek: column")
+    table.insert(control, 'rubriek: column')
+    replaces_rubriek = true
+  elseif t.name == '112 nieuws' then
+    table.insert(control, 'rubriek: 112')
+    replaces_rubriek = true
   end
-  table.insert(control, "")
-  vim.api.nvim_buf_set_lines(target_buf, 0, 0, false, control)
+  for _, line in ipairs(existing_header) do
+    local key = (vim.trim(line):match('^([%a][%a%d_]*)%s*:') or ''):lower()
+    local is_priority = key == 'p' or key == 'r' or key == 'prio'
+    local is_replaced_rubriek = replaces_rubriek and key == 'rubriek'
+    if not is_priority and not is_replaced_rubriek then
+      table.insert(control, line)
+    end
+  end
+  local final_lines = {}
+  for _, line in ipairs(existing_fm) do table.insert(final_lines, line) end
+  if #existing_fm > 0 then table.insert(final_lines, '') end
+  append_visible_article(final_lines, control, result)
+  vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, final_lines)
 
   -- Stel lezersnieuws export in; txt wordt geschreven bij <leader>aw.
   if not t.no_export then
@@ -647,7 +708,7 @@ function M.kamperkiek_flow(template)
   vim.fn.mkdir(gn_dir, 'p')
 
   local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-  vim.fn.writefile(buf_lines, gn_dir .. '/2.kamperkiekFOTO.txt')
+  vim.fn.writefile(visible_article_only(buf_lines), gn_dir .. '/2.kamperkiekFOTO.txt')
   vim.uv.fs_copyfile(photo_src, gn_dir .. '/2.kamperkiek.' .. photo_ext)
 
   vim.notify(
@@ -755,11 +816,14 @@ function M.stock_rubriek_flow(config)
   end
 
   local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local existing_header, article_lines = split_visible_article(buf_lines)
   local new_lines = {}
   for _, l in ipairs(fm_lines)  do table.insert(new_lines, l) end
-  for _, l in ipairs(before)    do table.insert(new_lines, l) end
-  for _, l in ipairs(buf_lines) do table.insert(new_lines, l) end
-  for _, l in ipairs(after)     do table.insert(new_lines, l) end
+  local article = {}
+  for _, l in ipairs(before) do table.insert(article, l) end
+  for _, l in ipairs(article_lines) do table.insert(article, l) end
+  for _, l in ipairs(after) do table.insert(article, l) end
+  append_visible_article(new_lines, existing_header, article)
   vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
 
   -- Kopieer stockfoto naar Pubble Inbox.
@@ -831,23 +895,4 @@ function M.menu()
   end)
 end
 
-M._apply = apply -- reused by the cascading Raadspraat/Ondernemen step later
-
 return M
-
--- ============================================================
--- NOTE — Raadspraat & Ondernemen (to be wired next)
---
--- Idea: let the photo folder BE the database that drives the menus.
---   ~/krant-fotos/
---     ondernemen/   "Bert de Boer.jpg"   ...
---     raadspraat/
---       CDA/        "Jan Jansen.jpg"     ...
---       GroenLinks/ "Marie Pietersen.jpg" ...
---
--- Ondernemen: list files in ondernemen/  -> author menu.
--- Raadspraat: list subfolders of raadspraat/ -> party menu,
---             then files inside -> author menu.
--- The chosen file is the photo (copy_to_staging); its name fills {{naam}},
--- the folder name fills {{partij}}. Maintain the folder, never edit Lua.
--- ============================================================

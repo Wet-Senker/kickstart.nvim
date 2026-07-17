@@ -1171,3 +1171,4 @@ if not _ok or _result == "" then
 end
 
 -- vim: ts=2 sts=2 sw=2 et
+require('pubble_archive').setup()
