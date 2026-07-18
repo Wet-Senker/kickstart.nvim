@@ -1,5 +1,142 @@
 local M = {}
 
+-- Alleen editor-AI-processen zijn met <leader>aq annuleerbaar. Pubble-writes,
+-- uploads en archivering staan bewust niet in deze lijst: die kunnen extern al
+-- effect hebben gehad en moeten hun idempotente herstelroute afmaken.
+local active_ai_jobs = {}
+local next_ai_job_id = 0
+local AI_CANCELLED = "__AI_CANCELLED__"
+
+-- Normale workflowbevestigingen horen de redactieflow niet te onderbreken.
+-- Fidget toont ze tijdelijk in een zwevend venster; vim.notify kan bij lange
+-- regels terugvallen op de commandoregel en daardoor om Enter vragen.
+local function notify_workflow(message)
+  local ok, notification = pcall(require, "fidget.notification")
+  if ok then
+    notification.notify(message, vim.log.levels.INFO, {
+      annote = "Pubble",
+      ttl = 6,
+    })
+  else
+    vim.notify(message, vim.log.levels.INFO)
+  end
+end
+
+local OPEN_URL_IN_BACKGROUND_SCRIPT = [=[
+function run(argv) {
+  ObjC.import("AppKit");
+  const workspace = $.NSWorkspace.sharedWorkspace;
+  const previousApp = workspace.frontmostApplication;
+  const configuration = $.NSWorkspaceOpenConfiguration.configuration;
+  configuration.activates = false;
+  const targetURL = $.NSURL.URLWithString(argv[0]);
+  workspace.openURLConfigurationCompletionHandler(
+    targetURL,
+    configuration,
+    function() {}
+  );
+  delay(0.6);
+  previousApp.activateWithOptions($.NSApplicationActivateIgnoringOtherApps);
+}
+]=]
+
+local function open_url_without_focus(url)
+  vim.system(
+    { "osascript", "-l", "JavaScript", "-e", OPEN_URL_IN_BACKGROUND_SCRIPT, url },
+    { text = true },
+    function(result)
+      if result.code ~= 0 then
+        vim.schedule(function()
+          local err = vim.trim(result.stderr or "")
+          vim.notify(
+            "Pubble-pagina kon niet op de achtergrond worden geopend"
+              .. (err ~= "" and (": " .. err) or "."),
+            vim.log.levels.WARN
+          )
+        end)
+      end
+    end
+  )
+end
+
+local function is_cancellable_ai_command(cmd)
+  local executable = type(cmd) == "table" and cmd[1] or nil
+  if type(executable) ~= "string" then return false end
+  local name = vim.fs.basename(executable)
+  return name == "aitext"
+      or name == "aichat"
+      or name == "articlemeta"
+      or (name == "pubble-event" and cmd[2] == "teksten")
+end
+
+local function register_ai_job(buf, title)
+  next_ai_job_id = next_ai_job_id + 1
+  local job = {
+    id = next_ai_job_id,
+    buf = buf,
+    title = title or "AI",
+    cancelled = false,
+    done = false,
+  }
+  active_ai_jobs[buf] = active_ai_jobs[buf] or {}
+  table.insert(active_ai_jobs[buf], job)
+  return job
+end
+
+local function unregister_ai_job(job)
+  if not job or job.done then return end
+  job.done = true
+  local jobs = active_ai_jobs[job.buf]
+  if not jobs then return end
+  for index, candidate in ipairs(jobs) do
+    if candidate == job then
+      table.remove(jobs, index)
+      break
+    end
+  end
+  if #jobs == 0 then active_ai_jobs[job.buf] = nil end
+end
+
+function M.cancel_ai(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+  local jobs = active_ai_jobs[buf]
+  if not jobs or #jobs == 0 then return false end
+
+  local cancelled = 0
+  -- Kopieer de lijst: on_exit kan tijdens/na kill dezelfde registry opschonen.
+  local snapshot = {}
+  for _, job in ipairs(jobs) do table.insert(snapshot, job) end
+  for _, job in ipairs(snapshot) do
+    local process = job.process
+    if not job.cancelled and not job.done and process
+        and not process:is_closing() then
+      -- Zet de vlag vóór SIGTERM: een zeer snel on_exit-callback mag het late
+      -- resultaat niet nog net verwerken voordat kill() terugkeert.
+      job.cancelled = true
+      local ok = pcall(function() process:kill("sigterm") end)
+      if ok then
+        cancelled = cancelled + 1
+      else
+        job.cancelled = false
+      end
+    end
+  end
+
+  if cancelled == 0 then return false end
+  local send_was_waiting = vim.api.nvim_buf_is_valid(buf) and vim.b[buf].send_requested
+  if vim.api.nvim_buf_is_valid(buf) then vim.b[buf].send_requested = false end
+  vim.schedule(function()
+    local message = cancelled == 1
+        and "AI-taak geannuleerd."
+        or (cancelled .. " AI-taken geannuleerd.")
+    if send_was_waiting then
+      message = message .. " De wachtende verzending is ook geannuleerd."
+    end
+    vim.notify(message, vim.log.levels.INFO)
+  end)
+  return true
+end
+
 -- Maak Pubble Inbox mappenstructuur aan als Keyboard Maestro een paste-bestand opent.
 vim.api.nvim_create_autocmd("BufNewFile", {
   pattern = vim.fn.expand("~/Desktop") .. "/*.md",
@@ -33,24 +170,59 @@ local function finish_buffer_job(buf)
   end)
 end
 
-local function ai_system(cmd, opts, callback, title, job_buf)
+local function ai_system(cmd, opts, callback, title, job_buf, on_cancel)
   start_buffer_job(job_buf)
   local handle = require("fidget.progress").handle.create {
     title   = title or "AI",
     message = "",
     lsp_client = { name = "aitext" },
   }
-  return vim.system(cmd, opts, function(result)
+  local ai_job = job_buf and is_cancellable_ai_command(cmd)
+      and register_ai_job(job_buf, title)
+      or nil
+  local process = vim.system(cmd, opts, function(result)
     handle:finish()
-    local ok, err = pcall(callback, result)
-    if not ok then
-      vim.schedule(function()
-        vim.notify("Achtergrondtaak gaf een Lua-fout: " .. tostring(err), vim.log.levels.ERROR)
-      end)
+    if ai_job then unregister_ai_job(ai_job) end
+    -- Een geannuleerde call mag zijn late resultaat nooit meer in de buffer
+    -- schrijven en geeft ook geen misleidende foutmelding uit de gewone callback.
+    if ai_job and ai_job.cancelled then
+      if on_cancel then
+        local ok, err = pcall(on_cancel)
+        if not ok then
+          vim.schedule(function()
+            vim.notify("Annuleren van AI-taak gaf een Lua-fout: " .. tostring(err), vim.log.levels.ERROR)
+          end)
+        end
+      end
+    else
+      local ok, err = pcall(callback, result)
+      if not ok then
+        vim.schedule(function()
+          vim.notify("Achtergrondtaak gaf een Lua-fout: " .. tostring(err), vim.log.levels.ERROR)
+        end)
+      end
     end
     finish_buffer_job(job_buf)
   end)
+  if ai_job then ai_job.process = process end
+  return process
 end
+
+-- Expliciete leadercombinatie: Escape blijft volledig beschikbaar voor normale
+-- Vim-bediening en kan daardoor nooit per ongeluk een AI-taak stoppen.
+vim.keymap.set("n", "<leader>aq", function()
+  if not M.cancel_ai(vim.api.nvim_get_current_buf()) then
+    vim.notify("Geen actieve AI-taak in deze buffer.", vim.log.levels.INFO)
+  end
+end, {
+  desc = "Actieve AI-taak in huidige buffer annuleren",
+})
+
+vim.api.nvim_create_user_command("AICancel", function()
+  if not M.cancel_ai(vim.api.nvim_get_current_buf()) then
+    vim.notify("Geen actieve AI-taak in deze buffer.", vim.log.levels.INFO)
+  end
+end, { desc = "Actieve AI-taak in huidige buffer annuleren" })
 
 local aitext = vim.fn.expand("~/workspace/texttools/.venv/bin/aitext")
 local aichat = vim.fn.expand("~/workspace/texttools/.venv/bin/aichat")
@@ -60,14 +232,6 @@ local pubble_schedule = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-sc
 local pubble_event = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-event")
 local texttools_python = vim.fn.expand("~/workspace/texttools/.venv/bin/python")
 local ARTICLE_BOUNDARY = "=== ARTIKEL ==="
-
-local rewrite_prompts = {
-  {
-    label = "Rewrite to newspaper article",
-    name = "journalistiek_schrijven",
-    mode = "replace",
-  },
-}
 
 local function shellescape(value)
   return vim.fn.shellescape(value)
@@ -748,45 +912,17 @@ function M.rewrite_article_buffer()
   end, "AI · Herschrijven", buf)
 end
 
-function M.visual_menu()
-  vim.ui.select(rewrite_prompts, {
-    prompt = "AI text action for selection:",
-    format_item = function(item)
-      return item.label
-    end,
-  }, function(choice)
-    if not choice then
-      return
-    end
-
-    run_on_visual_selection(choice.name, choice.mode == "append")
-  end)
+function M.visual_rewrite()
+  run_on_visual_selection("journalistiek_schrijven", false)
 end
 
 vim.keymap.set("n", "<leader>ar", M.rewrite_article_buffer, {
-  desc = "Rewrite to newspaper article",
+  desc = "Artikel herschrijven naar krantenstijl",
 })
 
-vim.keymap.set("v", "<leader>ai", M.visual_menu, {
-  desc = "AI text menu for visual selection",
+vim.keymap.set("v", "<leader>ai", M.visual_rewrite, {
+  desc = "Selectie direct herschrijven naar krantenstijl",
 })
-
-function M.articlemeta_buffer()
-  local buf = vim.api.nvim_get_current_buf()
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local input = table.concat(lines, "\n")
-
-  ai_system({ articlemeta }, { text = true, stdin = input }, function(result)
-    vim.schedule(function()
-      if result.code == 0 then
-        local new_lines = vim.split(result.stdout, "\n", { plain = true })
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
-      else
-        vim.notify("articlemeta mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
-      end
-    end)
-  end, "AI · Metadata", buf)
-end
 
 -- Read calendar fields from YAML frontmatter lines.
 local function extract_calendar_frontmatter(lines)
@@ -1053,12 +1189,8 @@ vim.api.nvim_create_autocmd("BufReadPost", {
   end,
 })
 
-vim.keymap.set("n", "<leader>am", M.articlemeta_buffer, {
-  desc = "Add article metadata",
-})
-
 vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
-  desc = "Add calendar article and metadata",
+  desc = "Kalendergegevens maken en ter controle tonen",
 })
 
 -- Lokale upvalue voor de eventvoorbereiding. De verzendflow gebruikt bewust
@@ -1302,7 +1434,7 @@ function M.pubble_send(target_buf)
             msg = msg .. " | " .. event_count .. " vervolgplaatsing(en)"
             if existing_count > 0 then msg = msg .. " (" .. existing_count .. " hervat)" end
           end
-          vim.notify(msg, vim.log.levels.INFO)
+          notify_workflow(msg)
 
           -- Exporteer volledig ingevulde buffer naar gemeentenieuws-map indien ingesteld.
           local gn = vim.b[buf].gn_export
@@ -1439,7 +1571,7 @@ function M.pubble_send(target_buf)
           -- Het browsermoment is het eindsignaal: hoofdartikel, media,
           -- eventuele vervolgen en archivering zijn nu allemaal gereed.
           if article_url then
-            vim.system({ "open", "-g", article_url })
+            open_url_without_focus(article_url)
           end
 
           -- Verwijder origineel op bureaublad; buffer blijft zichtbaar voor nacontrole.
@@ -1507,7 +1639,11 @@ function M.pubble_send(target_buf)
         if not ok then
           vim.b[buf].publication_in_progress = false
           discard_unpublished_temp()
-          vim.notify(err or "Evenementvoorbereiding mislukt", vim.log.levels.ERROR)
+          if err == AI_CANCELLED then
+            vim.notify("Genereren van evenementvervolgteksten geannuleerd.", vim.log.levels.INFO)
+          else
+            vim.notify(err or "Evenementvoorbereiding mislukt", vim.log.levels.ERROR)
+          end
           return
         end
         if prepared then
@@ -1517,9 +1653,8 @@ function M.pubble_send(target_buf)
             editions = resolved_editions,
           }
           discard_unpublished_temp()
-          vim.notify(
-            "Controleer of bewerk de vervolgteksten; druk daarna opnieuw <leader>aw om alles samen te publiceren.",
-            vim.log.levels.INFO
+          notify_workflow(
+            "Controleer of bewerk de vervolgteksten; druk daarna opnieuw <leader>aw om alles samen te publiceren."
           )
           return
         end
@@ -1839,12 +1974,12 @@ end
 
 
 vim.api.nvim_create_user_command("PubbleSend", M.pubble_send, {
-  desc = "Send to CMS",
+  desc = "Artikel naar Pubble verzenden",
   force = true,
 })
 
 vim.keymap.set("n", "<leader>aw", M.pubble_send, {
-  desc = "Send to CMS",
+  desc = "Artikel naar Pubble verzenden",
 })
 
 -- ---------------------------------------------------------------------------
@@ -1937,7 +2072,9 @@ event_prepare = function(buf, file, display_dates, edition_codes, done)
             end
             done(true, nil, true)
           end)
-        end, "Evenement · Vervolgteksten", buf)
+        end, "Evenement · Vervolgteksten", buf, function()
+          vim.schedule(function() done(false, AI_CANCELLED) end)
+        end)
       end
 
       local function vraag_reminder()
@@ -2144,7 +2281,9 @@ function M.teams_redactie()
     end
 
     local e = config.editions[choice.code]
-    local recipient_items = {}
+    local recipient_items = {
+      { kind = "back", label = "← Terug naar krantenoverzicht" },
+    }
     local default_label = teams_email(e.default_email)
       and teams_recipient_label(config, e.default_email) or "geen melding"
     table.insert(recipient_items, {
@@ -2182,7 +2321,9 @@ function M.teams_redactie()
       format_item = function(item) return item.label end,
     }, function(recipient_choice)
       if not recipient_choice then return end
-      if recipient_choice.kind == "default" then
+      if recipient_choice.kind == "back" then
+        vim.schedule(M.teams_redactie)
+      elseif recipient_choice.kind == "default" then
         save_email(teams_email(e.default_email))
       elseif recipient_choice.kind == "off" then
         save_email(nil)
@@ -2285,7 +2426,7 @@ function M.generate_facebook()
 end
 
 vim.keymap.set("n", "<leader>af", M.generate_facebook, {
-  desc = "Generate Facebook post",
+  desc = "Facebooktekst genereren en ter controle tonen",
 })
 
 
@@ -2663,7 +2804,7 @@ function M.ai_prompt_rewrite()
 end
 
 vim.keymap.set("n", "<leader>ap", M.ai_prompt_rewrite, {
-  desc = "AI rewrite with inline prompt (*** + instruction)",
+  desc = "Artikel herschrijven met eigen ***-instructie",
 })
 
 
@@ -2746,41 +2887,74 @@ function M.ai_chat()
 end
 
 vim.keymap.set("n", "<leader>ag", M.ai_chat, {
-  desc = "AI gesprek: append answer to *** prompt",
+  desc = "AI-gesprek over het artikel voeren",
 })
 
 
 
--- <leader>ah — cheatsheet for article control codes (editie/prio/bijschrift/facebook).
--- One flat, fuzzy-searchable vim.ui.select list — type "edit" or "face" to filter.
--- Keep in sync with src/texttools/pubble_publications.py and pubble_batch_cli.py.
-local meta_items = {
-  { label = "Editie: B  - brugnieuws (standaard)", insert = "editie: B" },
-  { label = "Editie: SW - deswollenaer", insert = "editie: SW" },
-  { label = "Editie: ST - destadskoerier", insert = "editie: ST" },
-  { label = "Editie: Z  - zeewolde", insert = "editie: Z" },
-  { label = "Editie: D  - dedrontenaar", insert = "editie: D" },
-  { label = "Editie: K  - De Kop van Overijssel", insert = "editie: K" },
-  { label = "Editie: all - alle edities", insert = "editie: all" },
-  { label = "Editie: overijssel - B, SW, ST, K", insert = "editie: overijssel" },
-  { label = "Editie: flevoland - D, Z", insert = "editie: flevoland" },
-  { label = "Prioriteit: 1 - moet mee", insert = "prio: 1" },
-  { label = "Prioriteit: 2 - mag mee", insert = "prio: 2" },
-  { label = "Prioriteit: 3 - rest (standaard)", insert = "prio: 3" },
-  { label = "Prioriteit: 4 - nood", insert = "prio: 4" },
-  { label = "Rubriek: 112  (112-bericht, articleCategoryId 24)", insert = "rubriek: 112" },
-  { label = "Week: ...  (uiterste publicatieweek overschrijven, x = geen deadline)", insert = "week: " },
-  { label = "Bijschrift: ...  (onderschrift bij de foto)", insert = "Bijschrift: " },
-  { label = "Foto: ...  (naam fotograaf / credit)", insert = "Foto: " },
-  { label = "Web: draft  (niet direct publiceren op website)", insert = "web: draft" },
-  { label = "Facebook: x  (AI genereert post)", insert = "facebook: x" },
-  { label = "Facebook: eigen tekst  (geen AI)", insert = "facebook_tekst: " },
-  { label = "Overig: rewrite: x  (herschrijven naar krantenstijl)", insert = "rewrite: x" },
-  { label = "Overig: tekstcheck (<leader>ao) — spelling/grammatica + suggesties", insert = "" },
-  { label = "Overig: tussenkopjes + streamer (<leader>at)", insert = "" },
-  { label = "Overig: eigen streamer — zet > voor de regel (web: quote-widget, print: <<STREAMER>>)", insert = "> " },
-  { label = "Overig: :TeamsRedactie — Teams-meldingen: waarneming instellen / aan-uit", insert = "" },
-  { label = "Overig: calendar: x  (kalenderitem meenemen)", insert = "calendar: x" },
+-- <leader>ah — centraal, hiërarchisch hulpmenu. De eerste laag bevat alleen
+-- herkenbare categorieën; de tweede laag bevat de concrete codes of acties.
+-- Houd editie-items synchroon met pubble_publications.py.
+local help_categories = {
+  {
+    label = "Edities",
+    prompt = "Editie invoegen:",
+    items = {
+      { label = "De Brug (B, standaard)", insert = "editie: B" },
+      { label = "De Swollenaer (SW)", insert = "editie: SW" },
+      { label = "De Stadskoerier (ST)", insert = "editie: ST" },
+      { label = "Zeewolde Actueel (Z)", insert = "editie: Z" },
+      { label = "De Drontenaar (D)", insert = "editie: D" },
+      { label = "De Kop van Overijssel (K)", insert = "editie: K" },
+      { label = "Alle edities", insert = "editie: all" },
+      { label = "Overijssel (B, SW, ST, K)", insert = "editie: overijssel" },
+      { label = "Flevoland (D, Z)", insert = "editie: flevoland" },
+    },
+  },
+  {
+    label = "Planning",
+    prompt = "Planningcode invoegen:",
+    items = {
+      { label = "Prioriteit 1 — moet mee", insert = "prio: 1" },
+      { label = "Prioriteit 2 — mag mee", insert = "prio: 2" },
+      { label = "Prioriteit 3 — rest (standaard)", insert = "prio: 3" },
+      { label = "Prioriteit 4 — nood", insert = "prio: 4" },
+      { label = "Uiterste publicatieweek — x betekent geen deadline", insert = "week: " },
+    },
+  },
+  {
+    label = "Foto en vormgeving",
+    prompt = "Foto of vormgeving:",
+    items = {
+      { label = "Bijschrift invoeren", insert = "Bijschrift: " },
+      { label = "Fotograaf of fotocredit invoeren", insert = "Foto: " },
+      { label = "Eigen streamer op cursorpositie invoeren", action = function() M.insert_streamer_at_cursor() end },
+    },
+  },
+  {
+    label = "Publicatie-extra's",
+    prompt = "Publicatie-extra invoegen:",
+    items = {
+      { label = "Rubriek 112", insert = "rubriek: 112" },
+      { label = "Kalenderitem laten maken", insert = "calendar: x" },
+      { label = "Facebooktekst door AI laten maken", insert = "facebook: x" },
+      { label = "Eigen Facebooktekst schrijven", action = function() M.edit_facebook_text() end },
+    },
+  },
+  {
+    label = "Acties",
+    prompt = "Actie starten:",
+    items = {
+      { label = "Artikel herschrijven (<leader>ar)", action = function() M.rewrite_article_buffer() end },
+      { label = "Tekstcheck (<leader>ao)", action = function() M.tekstcheck() end },
+      { label = "Tussenkopjes en streamer (<leader>at)", action = function() M.tussenkopjes_streamer() end },
+      { label = "Teams-meldingen beheren", action = function() M.teams_redactie() end },
+    },
+  },
+  {
+    label = "Volledige cheatsheet",
+    action = function() M.show_cheatsheet() end,
+  },
 }
 
 local function insert_snippet_above_cursor(text)
@@ -2802,22 +2976,99 @@ local function insert_snippet_above_cursor(text)
   end
 end
 
+function M.insert_streamer_at_cursor()
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local boundary
+  local title_row
+  local first_section
+  for index, line in ipairs(lines) do
+    if vim.trim(line) == ARTICLE_BOUNDARY then
+      boundary = index
+    elseif boundary and not title_row and vim.trim(line) ~= "" then
+      title_row = index
+    elseif boundary and line:match("^## ") then
+      first_section = index
+      break
+    end
+  end
+  local row = vim.api.nvim_win_get_cursor(0)[1]
+  if boundary and (row <= (title_row or boundary)
+      or (first_section and row >= first_section)) then
+    vim.notify(
+      "Zet de cursor in de lopende artikeltekst waar de streamer moet komen.",
+      vim.log.levels.WARN
+    )
+    return
+  end
+  vim.api.nvim_buf_set_lines(0, row - 1, row - 1, false, { "> " })
+  vim.api.nvim_win_set_cursor(0, { row, 2 })
+  vim.cmd("startinsert!")
+end
+
+function M.edit_facebook_text()
+  local buf = vim.api.nvim_get_current_buf()
+  strip_leading_control_line(buf, "^[Ff]acebook%s*:%s*x%s*$")
+  strip_leading_control_line(buf, "^[Ff]acebook_tekst%s*:")
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  for index, line in ipairs(lines) do
+    if line:match("^## Facebook%s*$") then
+      local line_after = index + 1
+      if lines[line_after] == nil or lines[line_after] ~= "" then
+        vim.api.nvim_buf_set_lines(0, index, index, false, { "" })
+      end
+      vim.api.nvim_win_set_cursor(0, { line_after, 0 })
+      vim.cmd("startinsert!")
+      return
+    end
+  end
+
+  while #lines > 0 and vim.trim(lines[#lines]) == "" do table.remove(lines) end
+  for _, line in ipairs({ "", "---", "", "## Facebook", "" }) do
+    table.insert(lines, line)
+  end
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+  vim.api.nvim_win_set_cursor(0, { #lines, 0 })
+  vim.cmd("startinsert!")
+end
+
 function M.show_meta_cheatsheet()
-  vim.ui.select(meta_items, {
-    prompt = "Pubble cheatsheet:",
+  vim.ui.select(help_categories, {
+    prompt = "Texttools hulp:",
     format_item = function(i) return i.label end,
-  }, function(item)
-    if not item then return end
-    insert_snippet_above_cursor(item.insert)
+  }, function(category)
+    if not category then return end
+    if category.action then
+      category.action()
+      return
+    end
+    local submenu = {
+      { label = "← Terug naar hoofdmenu", back = true },
+    }
+    for _, item in ipairs(category.items) do table.insert(submenu, item) end
+    vim.ui.select(submenu, {
+      prompt = category.prompt,
+      format_item = function(i) return i.label end,
+    }, function(item)
+      if not item then return end
+      if item.back then
+        -- Plan het hoofdmenu na het sluiten van de huidige picker; sommige
+        -- vim.ui.select-implementaties kunnen niet twee vensters tegelijk wisselen.
+        vim.schedule(M.show_meta_cheatsheet)
+      elseif item.action then
+        item.action()
+      else
+        insert_snippet_above_cursor(item.insert)
+      end
+    end)
   end)
 end
 
 vim.keymap.set("n", "<leader>ah", M.show_meta_cheatsheet, {
-  desc = "Cheatsheet: editie/prio/bijschrift/facebook codes",
+  desc = "Texttools hulp: codes, acties en volledige cheatsheet",
 })
 
 
--- <leader>a? — open texttools cheatsheet in a floating window.
+-- Volledige texttools-cheatsheet, geopend vanuit het centrale <leader>ah-menu.
 function M.show_cheatsheet()
   local cheatsheet = vim.fn.expand("~/.config/nvim/texttools-cheatsheet.md")
   local lines = vim.fn.readfile(cheatsheet)
@@ -2850,9 +3101,5 @@ function M.show_cheatsheet()
     vim.keymap.set("n", key, "<cmd>close<cr>", { buffer = buf, silent = true })
   end
 end
-
-vim.keymap.set("n", "<leader>a?", M.show_cheatsheet, {
-  desc = "Texttools cheatsheet",
-})
 
 return M

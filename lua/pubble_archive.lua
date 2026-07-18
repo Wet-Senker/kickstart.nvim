@@ -37,8 +37,8 @@ function M.setup()
   vim.api.nvim_create_user_command("PubbleArchiefZoek", M.search_contents, {
     desc = "Zoek in de inhoud van het operationele Pubble-archief",
   })
-  vim.keymap.set("n", "<leader>pa", M.find_articles, { desc = "[P]ubble [A]rchief" })
-  vim.keymap.set("n", "<leader>ps", M.search_contents, { desc = "[P]ubble archive [S]earch" })
+  vim.keymap.set("n", "<leader>pa", M.find_articles, { desc = "[P]ubble-archief: [A]rtikelen" })
+  vim.keymap.set("n", "<leader>ps", M.search_contents, { desc = "[P]ubble-archief: inhoud doorzoeken" })
 end
 
 return M

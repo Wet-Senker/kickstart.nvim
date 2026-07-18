@@ -4,7 +4,6 @@
 
 | Leader       | Actie                                                              |
 |--------------|--------------------------------------------------------------------|
-| <leader>am   | Metadata genereren (krant + web)                                   |
 | <leader>ac   | Metadata + kalenderitem — bewerkbare ## Kalender sectie            |
 | <leader>ao   | Tekstcheck: spelling/grammatica; twijfel → ## Suggesties onderaan  |
 | <leader>at   | Tussenkopjes + streamer (geen streamer als er al een > staat)      |
@@ -13,8 +12,9 @@
 | <leader>aw   | Versturen; bij eventteksten: eerst controleren, nogmaals publiceren|
 | <leader>ap   | Ad-hoc rewrite: typ *** + instructie, buffer wordt vervangen       |
 | <leader>ag   | AI gesprek: typ *** + vraag, antwoord verschijnt eronder           |
-| <leader>ah   | Codes invoegen via zoeklijst                                       |
-| <leader>a?   | Deze cheatsheet                                                    |
+| <leader>ah   | Hulp per categorie: codes, acties of deze cheatsheet               |
+| visueel ai   | Geselecteerde artikeltekst direct herschrijven                     |
+| <leader>aq   | Actieve AI-taken in deze buffer annuleren                          |
 | <leader>kt   | Rubriektemplate invoegen (Raadspraat, 112, etc.)                   |
 | <leader>kr   | Raadspraat: reminders / overzicht / artikel maken                   |
 | <leader>ko   | Ondernemen in Kampen: idem, acht columnisten                        |
@@ -50,7 +50,13 @@ Fotobijschriften Ondernemen komen uit personen.md in de fotomap:
 ## Controlecodes boven de artikelgrens
 
 `pv` plaatst `=== ARTIKEL ===` automatisch. Zet codes daarboven; de kop staat
-eronder. `<leader>ah` kiest en plaatst codes op de juiste plek.
+eronder. `<leader>ah` toont eerst Edities, Planning, Foto en vormgeving,
+Publicatie-extra's, Acties en Volledige cheatsheet. Na de categorie kies je de
+concrete code of actie; codes worden automatisch op de juiste plek geplaatst.
+Ieder submenu heeft `← Terug naar hoofdmenu`; Escape sluit het hele hulpmenu.
+Een eigen streamer wordt op de cursorpositie in de artikelbody ingevoegd. Een
+eigen Facebooktekst opent een echte `## Facebook`-sectie; `facebook_tekst:` en
+`web: draft` blijven batch/technische codes en staan niet in het hulpmenu.
 
   editie: B          of SW, ST, Z, D, K, all, overijssel, flevoland
   prio: 2            1=moet mee  2=mag mee  3=rest(standaard)  4=nood

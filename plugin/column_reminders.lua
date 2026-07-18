@@ -238,12 +238,18 @@ function M.reminders(series, items)
   items = items or fetch_rotation(series)
   if not items then return end
 
+  local choices = {
+    { _back = true, label = '← Terug naar rubriekmenu' },
+  }
+  for _, item in ipairs(items) do table.insert(choices, item) end
+
   local breedte = 0
   for _, item in ipairs(items) do breedte = math.max(breedte, #item.label) end
 
-  vim.ui.select(items, {
+  vim.ui.select(choices, {
     prompt = (RUBRIEKEN[series] or {}).naam or 'Reminder',
     format_item = function(item)
+      if item._back then return item.label end
       local status = is_sent(item) and '✓' or '○'
       -- ▶ = de reminder van deze week; die hoor je nu te versturen.
       local marker = item.is_current and '▶' or ' '
@@ -255,7 +261,12 @@ function M.reminders(series, items)
       )
     end,
   }, function(item)
-    if item then open_preview(item) end
+    if not item then return end
+    if item._back then
+      vim.schedule(function() M.menu(series, items) end)
+    else
+      open_preview(item)
+    end
   end)
 end
 
@@ -264,7 +275,10 @@ function M.overview(series, items)
   items = items or fetch_rotation(series)
   if not items then return end
 
-  local choices = { { label = 'Iedereen tegelijk' } }
+  local choices = {
+    { _back = true, label = '← Terug naar rubriekmenu' },
+    { label = 'Iedereen tegelijk' },
+  }
   for _, item in ipairs(items) do
     table.insert(choices, { label = item.label, wie = item.label })
   end
@@ -274,6 +288,10 @@ function M.overview(series, items)
     format_item = function(choice) return choice.label end,
   }, function(choice)
     if not choice then return end
+    if choice._back then
+      vim.schedule(function() M.menu(series, items) end)
+      return
+    end
 
     local args = { 'overzicht', '--json' }
     if choice.wie then table.insert(args, 2, choice.wie) end
@@ -301,9 +319,9 @@ function M.overview(series, items)
   end)
 end
 
-function M.menu(series)
+function M.menu(series, items)
   local rubriek = RUBRIEKEN[series]
-  local items = fetch_rotation(series)
+  items = items or fetch_rotation(series)
   if not items then return end
 
   local huidig

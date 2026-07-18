@@ -14,7 +14,6 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 <leader>ar    Herschrijven naar krantenartikel (AI)
               ↳ start background jobs (metadata, kalender, Facebook) op basis van controlecodes
               ↳ detecteert 112 en kalender automatisch
-<leader>am    Metadata genereren (krant + web)
 <leader>ac    Kalendermetadata + ## Kalender sectie
 <leader>ao    Tekstcheck: spelling/grammatica + ## Suggesties
 <leader>at    Tussenkopjes + optionele streamer
@@ -29,7 +28,6 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 | Leader | Actie |
 |---|---|
 | `<leader>ar` | Herschrijven naar krantenartikel (AI). Start background jobs voor metadata, kalender en/of Facebook op basis van controlecodes. Detecteert 112 en agendaberichten automatisch. |
-| `<leader>am` | Metadata genereren (krant + web). |
 | `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
 | `<leader>at` | Tussenkopjes en, als er nog geen eigen `>` staat, een streamer. |
@@ -37,8 +35,11 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 | `<leader>aw` | Versturen naar Pubble. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Bij gekozen eventvervolgen toont de eerste druk de teksten; de tweede publiceert alles samen. |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen. |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder. |
-| `<leader>ah` | Cheatsheet: editie/prio/bijschrift/foto codes invoegen. |
+| `<leader>ah` | Hiërarchisch hulpmenu: kies Edities, Planning, Foto en vormgeving, Publicatie-extra's, Acties of de volledige cheatsheet. |
+| visueel `<leader>ai` | Herschrijf de selectie direct naar krantenstijl, zonder een eenkeuzemenu. |
 | `<leader>kt` | Rubriektemplate invoegen (Raadspraat, 112, Hondenhoek, etc.). |
+| `<leader>aq` | Annuleer alle actieve editor-AI-taken van de huidige buffer. |
+| `:AICancel` | Zelfde expliciete annulering als `<leader>aq`. |
 
 ---
 
@@ -117,6 +118,22 @@ Druk je tijdens zo'n taak op `<leader>aw`, dan wordt één verzendverzoek onthou
 de laatste taak start het direct na haar bufferwijziging. Er is geen
 driesecondenpoll meer. Controlecodes worden gestript zodra de bijbehorende taak
 klaar is.
+
+Druk in normal mode op `<leader>aq` om de actieve `aitext`-, `aichat`-,
+`articlemeta`- en AI-eventtekstprocessen voor alleen de huidige buffer te stoppen. Late resultaten
+worden genegeerd, `pending_jobs` loopt terug naar nul en een wachtende verzending
+wordt ingetrokken. Pubble-publicaties, uploads en archivering zijn bewust niet
+annuleerbaar met `<leader>aq`, omdat daar extern al state kan zijn geschreven.
+Escape behoudt overal zijn normale Vim-gedrag.
+
+De melding na het voorbereiden van evenementvervolgen en de uiteindelijke
+verzendsamenvatting verschijnen als tijdelijke, niet-blokkerende notificatie.
+Je hoeft ze niet met Enter te sluiten en kunt meteen verder typen of opnieuw
+`<leader>aw` gebruiken.
+
+Na een geslaagde publicatie opent de Pubble-pagina in de standaardbrowser. De
+verzendflow onthoudt eerst welk macOS-programma vooraan staat en activeert dat
+na het openen opnieuw, zodat de browser NeoVim niet blijvend uit focus haalt.
 
 ---
 

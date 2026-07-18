@@ -290,8 +290,9 @@ do
       { '<leader>s', group = '[S]earch', mode = { 'n', 'v' } },
       { '<leader>t', group = '[T]oggle' },
       { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } }, -- Enable gitsigns recommended keymaps first
-      { '<leader>a', group = '[A]I / Pubble' },
+      { '<leader>a', group = '[A]rtikel / Pubble' },
       { '<leader>k', group = '[K]rant' },
+      { '<leader>p', group = '[P]ubble-archief' },
       { '<leader>o', group = '[O]bsidian' },
       { 'gr', group = 'LSP Actions', mode = { 'n' } },
     },
@@ -1152,7 +1153,7 @@ vim.keymap.set('n', '<leader>m',
   { desc = 'Markdown buffer to rich-text clipboard' }
 )
 
-vim.keymap.set('n', '<leader>kt', function() require('krant').menu() end, { desc = '[K]rant [T]emplate' })
+vim.keymap.set('n', '<leader>kt', function() require('krant').menu() end, { desc = '[K]rant [T]emplate kiezen' })
 
 require("ai_text")
 
