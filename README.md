@@ -155,6 +155,7 @@ De 112-disclaimer in het 112-template is de enige bron — `ai_text.lua` leest h
 | `lua/ai_text.lua` | Alle leaders, AI-aanroepen, 112/kalender-detectie, pubble-send |
 | `lua/krant.lua` | Rubriek-templates (`<leader>kt`), `apply_template_by_name()` |
 | `lua/pubble_archive.lua` | Telescope-zoekingangen voor bestandsnaam en archiefinhoud |
+| `lua/texttools_paths.lua` | Gedeeld, configureerbaar pad naar de Pubble Inbox |
 
 ---
 
@@ -171,3 +172,13 @@ Symlink voor Raadspraat-foto's:
 ```bash
 ln -s ~/Library/Mobile\ Documents/com~apple~CloudDocs/krant-fotos ~/krant-fotos
 ```
+
+De Pubble Inbox staat in iCloud en wordt via een vast lokaal pad gevonden:
+```bash
+mkdir -p ~/.texttools
+ln -s ~/Library/Mobile\ Documents/com~apple~CloudDocs/texttools/Pubble\ Inbox ~/.texttools/pubble-inbox
+```
+
+Alle workflows gebruiken standaard `~/.texttools/pubble-inbox`. Alleen voor
+een bewust afwijkende inrichting stel je `TEXTTOOLS_INBOX_DIR` in. Het volledige
+stappenplan staat in `INSTALLATIE_NIEUWE_MAC.md` in de texttools-repository.

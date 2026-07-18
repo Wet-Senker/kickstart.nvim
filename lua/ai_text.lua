@@ -141,7 +141,7 @@ end
 vim.api.nvim_create_autocmd("BufNewFile", {
   pattern = vim.fn.expand("~/Desktop") .. "/*.md",
   callback = function()
-    local inbox = vim.fn.expand("~/Desktop/Pubble Inbox")
+    local inbox = require('texttools_paths').inbox()
     vim.fn.mkdir(inbox .. "/pubble-batch", "p")
   end,
 })
@@ -1272,7 +1272,7 @@ function M.pubble_send(target_buf)
   -- Write the temp file inside Pubble Inbox so pubble-media can find photos
   -- in the same dropzone folder when --write-ids triggers the media upload.
   -- Use the original file's stem so photos get renamed to match in used/.
-  local inbox = vim.fn.expand("~/Desktop/Pubble Inbox")
+  local inbox = require('texttools_paths').inbox()
   local stem = (file_path ~= "") and vim.fn.fnamemodify(file_path, ":t:r") or ("verzenden-" .. os.time())
   local resume_file = vim.b[buf].failed_send_file
   local temp_file
@@ -1344,8 +1344,43 @@ function M.pubble_send(target_buf)
 
   vim.fn.writefile(pubble_lines, temp_file)
 
+  local _do_pubble_send
+
+  -- Zet het webartikel expliciet als ongepubliceerd concept klaar. De control
+  -- line staat boven de vaste artikelgrens, zodat pubble-send hem valideert,
+  -- naar web.draft omzet en nooit als artikeltekst publiceert.
+  local function mark_web_unpublished()
+    local current = vim.fn.readfile(temp_file)
+    local boundary_index = nil
+    for i, line in ipairs(current) do
+      local trimmed = vim.trim(line)
+      if trimmed:lower():match("^web:%s*draft%s*$") then
+        return true
+      end
+      if trimmed == ARTICLE_BOUNDARY then
+        boundary_index = i
+        break
+      end
+    end
+    if not boundary_index then
+      return false
+    end
+    table.insert(current, boundary_index, "web: draft")
+    vim.fn.writefile(current, temp_file)
+    return true
+  end
+
+  local function send_unpublished()
+    if not mark_web_unpublished() then
+      discard_unpublished_temp()
+      vim.notify("Ongepubliceerd plaatsen mislukt: artikelgrens ontbreekt.", vim.log.levels.ERROR)
+      return
+    end
+    _do_pubble_send({})
+  end
+
   -- Bouw pubble-send-aanroep en voer hem uit (na eventuele planningsdialoog).
-  local function _do_pubble_send(display_dates, event_reviewed)
+  _do_pubble_send = function(display_dates, event_reviewed)
     vim.b[buf].publication_in_progress = true
     local cmd = {
       pubble_send,
@@ -1876,6 +1911,8 @@ function M.pubble_send(target_buf)
           table.insert(item_values, "__next__")
           table.insert(items, "Direct plaatsen")
           table.insert(item_values, "direct")
+          table.insert(items, "Ongepubliceerd plaatsen")
+          table.insert(item_values, "__unpublished__")
 
           local week_nr = tonumber(os.date("%V", base + 3 * 86400))  -- donderdag bepaalt ISO-weeknummer
           local krant_naam = editie_namen[code] or code
@@ -1893,6 +1930,8 @@ function M.pubble_send(target_buf)
               show_week(week_offset + 1)
             elseif value == "__prev__" then
               show_week(week_offset - 1)
+            elseif value == "__unpublished__" then
+              send_unpublished()
             else
               display_dates[code] = value
               ask_edition(idx + 1)
@@ -1946,10 +1985,12 @@ function M.pubble_send(target_buf)
 
       local accept_label = #edition_codes == 1 and "Aanbevolen datum accepteren" or "Aanbevolen datums accepteren"
       local adjust_label = #edition_codes == 1 and "Datum aanpassen" or "Datums per editie aanpassen"
+      local unpublished_label = "Ongepubliceerd plaatsen"
       vim.ui.select({
         accept_label,
         adjust_label,
         "Direct plaatsen",
+        unpublished_label,
       }, {
         prompt = "Publicatieplanning — " .. table.concat(summary, ", ") .. ":",
       }, function(choice)
@@ -1960,6 +2001,8 @@ function M.pubble_send(target_buf)
           _do_pubble_send(recommended)
         elseif choice == adjust_label then
           ask_edition(1)
+        elseif choice == unpublished_label then
+          send_unpublished()
         else
           _do_pubble_send({})
         end
@@ -2887,7 +2930,7 @@ function M.ai_chat()
 end
 
 vim.keymap.set("n", "<leader>ag", M.ai_chat, {
-  desc = "AI-gesprek over het artikel voeren",
+  desc = "AI-gesprek via *** over artikel voeren",
 })
 
 
@@ -2948,6 +2991,8 @@ local help_categories = {
       { label = "Artikel herschrijven (<leader>ar)", action = function() M.rewrite_article_buffer() end },
       { label = "Tekstcheck (<leader>ao)", action = function() M.tekstcheck() end },
       { label = "Tussenkopjes en streamer (<leader>at)", action = function() M.tussenkopjes_streamer() end },
+      { label = "Eigen opdracht via *** (<leader>ap)", action = function() M.ai_prompt_rewrite() end },
+      { label = "AI-gesprek via *** (<leader>ag)", action = function() M.ai_chat() end },
       { label = "Teams-meldingen beheren", action = function() M.teams_redactie() end },
     },
   },

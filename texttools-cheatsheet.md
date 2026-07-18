@@ -20,11 +20,11 @@
 | <leader>ko   | Ondernemen in Kampen: idem, acht columnisten                        |
 
 Rubriekmenu (<leader>kr = Raadspraat, <leader>ko = Ondernemen):
-  Reminders       de rotatie; ▶ = deze week, ○/✓ = verzendstatus, s = wisselen
-  Overzicht       planning voor één deelnemer of iedereen tegelijk
+  Reminders       de rotatie; ▶ = deze week, ○/✓ = verzendstatus
+  Overzicht       planning voor één deelnemer of alle deelnemers
   Artikel maken   foto + template (zaten voorheen onder <leader>kt)
-In de mailbuffer: <leader>aw = Apple Mail, c = kopiëren, ? = toetsen
-  c geeft bij een reminder de hele mail, bij een overzicht alleen de planning
+In de mailbuffer: <leader>aw = Apple Mail, c = volledige mail kopiëren, ? = toetsen
+  Kopiëren wijzigt nooit de status; s corrigeert reminderstatus handmatig
 
 Ook vanuit de terminal:
   raadspraat-reminder overzicht [fractie] | pbcopy
@@ -188,7 +188,7 @@ woord SUGGESTIE weg). Bij <leader>aw gaat alleen wat vóór SUGGESTIE staat mee.
 
 ## pubble-batch
 
-Bestanden in: ~/Desktop/Pubble Inbox/pubble-batch/
+Bestanden in: ~/.texttools/pubble-inbox/pubble-batch/
 
 Controlecodes bovenaan het document (voor de kop), in artikel.meta naast het
 document, of in default.meta voor de hele map.
@@ -203,6 +203,10 @@ Na verwerking: alles met datum-prefix naar ~/Documents/Pubble Archief/JJJJ/MM/
 Archief zoeken: <leader>pa op bestand, <leader>ps door volledige inhoud
 Het archiefpad mag een symlink naar een cloudmap zijn; TEXTTOOLS_ARCHIVE_DIR
 stelt een alternatief pad in voor zowel Python als de Neovimzoekers.
+
+Pubble Inbox: ~/.texttools/pubble-inbox is de lokale koppeling naar
+iCloud Drive/texttools/Pubble Inbox. TEXTTOOLS_INBOX_DIR kan dit overschrijven.
+Gebruik dezelfde actieve Inbox niet gelijktijdig op twee Macs.
 
 ---
 

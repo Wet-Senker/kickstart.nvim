@@ -365,7 +365,7 @@ function M.raadspraat_menu()
       vim.uv.fs_copyfile(photo_src, gn_dir .. '/1.raadspraatFOTO.' .. photo_ext)
 
       -- Copy photo to Pubble Inbox dropzone so <leader>aw picks it up automatically.
-      local inbox = vim.fn.expand('~/Desktop/Pubble Inbox')
+      local inbox = require('texttools_paths').inbox()
       vim.uv.fs_copyfile(photo_src, inbox .. '/' .. photo_file)
 
       vim.notify(
@@ -499,7 +499,7 @@ function M.ondernemen_menu()
     }
 
     -- Waarschuw als er al foto's in de inbox staan (voorkomt verwarring met oude foto's).
-    local inbox = vim.fn.expand('~/Desktop/Pubble Inbox')
+    local inbox = require('texttools_paths').inbox()
     local inbox_files = scan_dir(inbox, 'file')
     local inbox_images = {}
     for _, f in ipairs(inbox_files) do
@@ -677,7 +677,7 @@ end
 
 
 function M.kamperkiek_flow(template)
-  local inbox = vim.fn.expand('~/Desktop/Pubble Inbox')
+  local inbox = require('texttools_paths').inbox()
   local all = scan_dir(inbox, 'file')
   local images = {}
   for _, f in ipairs(all) do
@@ -774,7 +774,7 @@ end
 
 function M.stock_rubriek_flow(config)
   local stock_src = M.config.stock_images .. '/' .. config.stock_image
-  local inbox = vim.fn.expand('~/Desktop/Pubble Inbox')
+  local inbox = require('texttools_paths').inbox()
 
   -- Waarschuw als er al foto's in de inbox staan.
   local inbox_files = scan_dir(inbox, 'file')

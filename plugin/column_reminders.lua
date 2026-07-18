@@ -23,11 +23,6 @@ local RUBRIEKEN = {
   },
 }
 
-local function dutch_short_date(iso_date)
-  local year, month, day = iso_date:match('^(%d%d%d%d)%-(%d%d)%-(%d%d)$')
-  return string.format('%s-%s-%s', day, month, year)
-end
-
 local function is_sent(item)
   return type(item.sent_at) == 'string' and item.sent_at ~= ''
 end
@@ -116,15 +111,6 @@ local function copy_mail(item, buf)
     return
   end
 
-  -- Een overzicht plak je zelf in een mail die je al aan het schrijven bent,
-  -- dus Aan:/Onderwerp: zouden midden in je tekst belanden. Bij een reminder
-  -- is de hele mail juist wél wat je wilt.
-  if not markable(item) then
-    vim.fn.setreg('+', message.body .. '\n')
-    vim.notify('Planning staat op het klembord.')
-    return
-  end
-
   vim.fn.setreg('+', table.concat({
     'Aan: ' .. message.recipient,
     'Onderwerp: ' .. message.subject,
@@ -132,13 +118,8 @@ local function copy_mail(item, buf)
     message.body,
     '',
   }, '\n'))
-  vim.notify('Reminder voor ' .. item.label .. ' staat op het klembord.')
-
-  vim.ui.select({ 'Ja', 'Nee' }, {
-    prompt = 'Nu markeren als verstuurd?',
-  }, function(choice)
-    if choice == 'Ja' then mark(item, true) end
-  end)
+  local soort = markable(item) and ('Reminder voor ' .. item.label) or 'Planningsmail'
+  vim.notify(soort .. ' staat volledig op het klembord. De verzendstatus is niet gewijzigd.')
 end
 
 -- ? in de mailbuffer — zelfde vorm als de texttools-cheatsheet.
@@ -147,9 +128,8 @@ local function show_help()
     ' Rubriekreminders',
     '',
     ' <leader>aw   concept openen in Apple Mail',
-    ' c            naar het klembord — bij een reminder de hele mail,',
-    '              bij een overzicht alleen de planning (zonder Aan:)',
-    ' s            verzendstatus wisselen (○ / ✓) — alleen bij een reminder',
+    ' c            volledige mail kopiëren; status blijft gelijk',
+    ' s            status handmatig corrigeren (○ / ✓) — alleen reminder',
     ' ?            deze hulp',
     ' q            sluiten',
     '',
@@ -202,21 +182,21 @@ local function open_preview(item)
   vim.bo[buf].modified = false
 
   vim.keymap.set('n', 'c', function() copy_mail(item, buf) end,
-    { buffer = buf, silent = true, desc = 'Kopieer naar klembord' })
+    { buffer = buf, silent = true, desc = 'Kopieer volledige mail' })
   vim.keymap.set('n', '<leader>aw', function() open_in_mail(item, buf) end,
     { buffer = buf, silent = true, desc = 'Open concept in Apple Mail' })
   if markable(item) then
     vim.keymap.set('n', 's', function() mark(item, not is_sent(item)) end,
-      { buffer = buf, silent = true, desc = 'Wissel verzendstatus' })
+      { buffer = buf, silent = true, desc = 'Corrigeer verzendstatus handmatig' })
   end
   vim.keymap.set('n', 'q', '<cmd>close<cr>',
     { buffer = buf, silent = true, desc = 'Sluiten' })
   vim.keymap.set('n', '?', show_help,
     { buffer = buf, silent = true, desc = 'Toon toetsen' })
 
-  local hint = '<leader>aw = Apple Mail  •  c = kopiëren  •  ? = hulp  •  q = sluiten'
+  local hint = '<leader>aw = Apple Mail  •  c = volledige mail kopiëren  •  ? = hulp  •  q = sluiten'
   if markable(item) then
-    hint = '<leader>aw = Apple Mail  •  c = kopiëren  •  s = status  •  ? = hulp  •  q = sluiten'
+    hint = '<leader>aw = Apple Mail  •  c = volledige mail kopiëren  •  s = status corrigeren  •  ? = hulp  •  q = sluiten'
   end
   vim.notify(hint)
 end
@@ -254,10 +234,11 @@ function M.reminders(series, items)
       -- ▶ = de reminder van deze week; die hoor je nu te versturen.
       local marker = item.is_current and '▶' or ' '
       return string.format(
-        '%s %s %-' .. breedte .. 's  aanleveren W%02d %s  →  plaatsing W%02d %s',
+        '%s %s %-' .. breedte .. 's  Reminder W%02d - aanleveren W%02d - pub W%02d',
         marker, status, item.label,
-        item.deadline_week, dutch_short_date(item.deadline),
-        item.publication_week, dutch_short_date(item.publication_date)
+        item.reminder_week,
+        item.deadline_week,
+        item.publication_week
       )
     end,
   }, function(item)
@@ -277,7 +258,7 @@ function M.overview(series, items)
 
   local choices = {
     { _back = true, label = '← Terug naar rubriekmenu' },
-    { label = 'Iedereen tegelijk' },
+    { label = 'Gezamenlijke planning voor alle deelnemers' },
   }
   for _, item in ipairs(items) do
     table.insert(choices, { label = item.label, wie = item.label })
@@ -324,14 +305,9 @@ function M.menu(series, items)
   items = items or fetch_rotation(series)
   if not items then return end
 
-  local huidig
-  for _, item in ipairs(items) do
-    if item.is_current then huidig = item.label end
-  end
-
   local entries = {
     {
-      label = huidig and ('Reminders  (▶ ' .. huidig .. ' deze week)') or 'Reminders',
+      label = 'Reminders',
       action = function() M.reminders(series, items) end,
     },
     {
