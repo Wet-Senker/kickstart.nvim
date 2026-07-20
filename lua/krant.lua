@@ -270,6 +270,19 @@ local function publication_week()
   return os.date('%V', ref_time)
 end
 
+-- Bijschrift-vorm van de partijnaam: raadsfracties heten "de <partij>-fractie",
+-- maar eenmansfracties/groepen zijn geen fractie en houden hun eigen naam.
+local NIET_FRACTIE = {
+  ['Hart voor Kampen'] = true,
+  ['Groep Azer-Zwitser'] = true,
+  ['Lid Schmidt-Blokzijl'] = true,
+}
+
+local function partij_in_bijschrift(party)
+  if NIET_FRACTIE[party] then return party end
+  return 'de ' .. party .. '-fractie'
+end
+
 function M.raadspraat_menu()
   local base = vim.fn.expand('~/krant-fotos/raadspraat')
   local parties = scan_dir(base, 'directory')
@@ -301,7 +314,7 @@ function M.raadspraat_menu()
       local naam = vim.fn.fnamemodify(photo_file, ':r')
       local photo_src = party_dir .. '/' .. photo_file
 
-      local bijschrift = 'Deze editie van Raadspraat is geschreven door ' .. naam .. ' van ' .. party .. '.'
+      local bijschrift = 'Deze editie van Raadspraat is geschreven door ' .. naam .. ' van ' .. partij_in_bijschrift(party) .. '.'
       local working_title = 'z - 1 Raadspraat ' .. party .. ' ' .. naam
 
       -- Minimal frontmatter stub — articlemeta preserves working_title and caption if set.
@@ -552,7 +565,7 @@ function M.ondernemen_menu()
       'Ondernemen in Kampen: ' .. naam .. '\n'
       .. '→ Pubble Inbox/' .. photo_file .. '\n'
       .. '→ ' .. week_prefix .. '_ondernemen_in_kampen/1.ondernemen_in_kampenFOTO.' .. photo_ext .. '\n'
-      .. 'Tekst wordt bij <leader>aw weggeschreven naar gemeentenieuws.',
+      .. 'Tekst wordt bij <leader>aw weggeschreven naar ondernemen in kampen.',
       vim.log.levels.INFO
     )
   end)
