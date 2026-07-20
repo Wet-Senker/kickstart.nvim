@@ -2975,7 +2975,7 @@ local help_categories = {
       { label = "Fotograaf foto 1 (c1:)", insert = "c1: " },
       { label = "Bijschrift foto 2 (b2:)", insert = "b2: " },
       { label = "Fotograaf foto 2 (c2:)", insert = "c2: " },
-      { label = "Foto's: leg ze los in de Inbox (leader aw pakt alle, op tijd+naam)", insert = "" },
+      { label = "Foto's: nummer ze foto1/foto2 → koppelt aan b1/c1, b2/c2 (Inbox)", insert = "" },
       { label = "Eigen streamer op cursorpositie invoeren", action = function() M.insert_streamer_at_cursor() end },
     },
   },
