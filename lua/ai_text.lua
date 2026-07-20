@@ -689,6 +689,16 @@ local function fill_editions_line(buf, content)
         e_line = e_line .. ", SUGGESTIE, " .. table.concat(suggested, ", ")
       end
 
+      -- Geen dateline herkend → e: valt terug op De Brug. Dat is precies de
+      -- stille misser die een artikel per ongeluk naar B stuurt; hier, waar de
+      -- e:-regel ontstaat, expliciet waarschuwen zodat het opvalt.
+      if type(r.source) == "string" and r.source:match("^standaard") then
+        vim.notify(
+          "LET OP: geen dateline herkend — e: staat standaard op De Brug. Klopt dat niet, pas e: aan.",
+          vim.log.levels.WARN
+        )
+      end
+
       -- Bestaande e:/editie:-regel vervangen, anders bovenaan de controleregels.
       local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
       local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
@@ -1783,9 +1793,17 @@ function M.pubble_send(target_buf)
       -- Bij meerdere edities toont het aansluitende planningsmenu alle kranten
       -- en datums al; een extra melding onderaan is dan alleen een tussenstap.
       -- Voor één editie blijft de korte bestemmingsbevestiging wel nuttig.
-      if #resolved.editions == 1 then
+      if resolved.source and resolved.source:match("^standaard") then
+        -- Geen dateline herkend → stille terugval naar De Brug. Als
+        -- waarschuwing tonen zodat een verkeerde bestemming opvalt vóór het
+        -- versturen (dit is de misser die je met annuleren opving).
+        vim.notify(
+          "LET OP: geen dateline herkend — gaat standaard naar De Brug. Voeg e: toe als dat niet klopt.",
+          vim.log.levels.WARN
+        )
+      elseif #resolved.editions == 1 then
         local msg = "Artikel gaat naar: " .. table.concat(bestemming, " + ")
-        if resolved.source and not resolved.source:match("^standaard") then
+        if resolved.source then
           msg = msg .. "  (" .. resolved.source .. ")"
         end
         if #msg > vim.o.columns - 1 then
