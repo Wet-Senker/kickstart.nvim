@@ -76,6 +76,8 @@ eigen Facebooktekst opent een echte `## Facebook`-sectie; `facebook_tekst:` en
   c1: Fotograaf 1
   b2: Bijschrift 2   bijschrift specifiek voor foto 2
   c2: Fotograaf 2
+                     (het cijfer volgt de fotovolgorde, niet de bestandsnaam:
+                      foto 1 = eerste foto in de sortering — zie Pubble Inbox)
   calendar: x        kalenderitem meenemen
   facebook: x        Facebook-post genereren (AI)
   web: draft         webartikel als concept, niet direct publiceren
@@ -207,6 +209,15 @@ stelt een alternatief pad in voor zowel Python als de Neovimzoekers.
 Pubble Inbox: ~/.texttools/pubble-inbox is de lokale koppeling naar
 iCloud Drive/texttools/Pubble Inbox. TEXTTOOLS_INBOX_DIR kan dit overschrijven.
 Gebruik dezelfde actieve Inbox niet gelijktijdig op twee Macs.
+
+Foto's bij <leader>aw (los artikel): leg de foto's los in de Inbox-root.
+ALLE .jpg/.jpeg/.png daar worden aan het artikel gekoppeld — geen vaste naam
+nodig. Volgorde = wijzigingstijd, dan bestandsnaam; die volgorde bepaalt foto
+1, 2, 3 (en dus welke b1/b2-code erbij hoort). Na verzending gaan de foto's
+naar used/. Let op: laat geen restfoto's van een vorig artikel liggen.
+
+Foto's bij pubble-batch: juist WEL op bestandsnaam — artikel.jpg / artikel2.jpg
+moeten de documentstam volgen (artikel-extra.jpg matcht niet).
 
 ---
 
