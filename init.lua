@@ -1159,16 +1159,21 @@ require("ai_text")
 
 -- Start a named server socket so external tools (pastevim) can open files
 -- in this instance instead of spawning a new Neovim window.
--- serverstart() throws (not just returns "") when the socket is already
--- claimed by a live process, e.g. a second Neovim instance is open — so
--- both attempts are pcall'd and any failure is silently ignored. If it's
--- a stale socket from a crashed instance, deleting it lets the retry
--- succeed; if it's a live instance, the retry fails too and we move on.
+-- serverstart() throws (not just returns "") when another live Neovim owns the
+-- address; Neovim normally reclaims a crash-stale socket itself. If startup
+-- still fails, probe the path before a fallback cleanup: a live socket must
+-- never be removed, and a non-socket file is left untouched as well.
 local _nvim_socket = vim.fn.expand("~/.cache/nvim/main.sock")
 local _ok, _result = pcall(vim.fn.serverstart, _nvim_socket)
 if not _ok or _result == "" then
-  vim.fn.delete(_nvim_socket)
-  pcall(vim.fn.serverstart, _nvim_socket)
+  local connected, channel = pcall(vim.fn.sockconnect, "pipe", _nvim_socket, { rpc = true })
+  local socket_is_live = connected and type(channel) == "number" and channel > 0
+  if socket_is_live then
+    pcall(vim.fn.chanclose, channel)
+  elseif vim.fn.getftype(_nvim_socket) == "socket" then
+    vim.fn.delete(_nvim_socket)
+    pcall(vim.fn.serverstart, _nvim_socket)
+  end
 end
 
 -- vim: ts=2 sts=2 sw=2 et

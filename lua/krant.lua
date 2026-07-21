@@ -109,29 +109,6 @@ M.templates = {
     },
   },
 
-
-  -- TIER 2 — stock text + a fixed image copied into the article folder
-  {
-    name = 'Column Hondenhoek',
-    column = true,
-    image = 'hondenhoek.jpg', -- lives in M.config.stock_images
-    text = {
-      'In de column Hondenhoek belicht kynologisch gedragstherapeut en doorgewinterd hondenkenner Bert Nieuwenhuis telkens één actueel gedragsthema. Aan de hand van herkenbare voorbeelden vertaalt hij dat naar heldere, direct toepasbare tips voor een harmonieuzer leven met uw hond.',
-            '',
-    },
-  },
-  {
-    name = 'Verslag Open Hof',
-    image = 'open-hof.jpg', -- ~/krant-fotos/stock/open-hof.jpg
-    text = {
-      "Verslag Open Hof: {{title}}",
-      "",
-      "Wijkgemeente Open Hof, onderdeel van de Protestantse Gemeente Kampen, biedt sinds 21 november 2024 kerkasiel aan de familie Babayants, die met uitzetting wordt bedreigd. Kerkasiel is een eeuwenoude traditie waarbij kerken bescherming bieden aan mensen die vervolgd worden of dreigen te worden uitgezet. Op www.brugnieuws.nl doet voormalig predikant Kasper Jager wekelijks verslag van het kerkasiel. Ook in de krant wordt periodiek een editie opgenomen.",
-      "",
-      "{{body}}",
-    },
-  },
-
   {
     name = 'Humor met een boodschap',
     column = true,
@@ -776,13 +753,10 @@ local stock_rubrieken = {
   },
 }
 
--- Namen van templates die vervangen worden door een stock_rubriek_flow.
+-- Namen van templates die door een stock_rubriek_flow worden aangeboden.
 local stock_rubriek_names = {}
 for _, r in ipairs(stock_rubrieken) do
   stock_rubriek_names[r.name] = true
-  -- Ook de oude namen in M.templates uitsluiten.
-  stock_rubriek_names['Column Hondenhoek'] = true
-  stock_rubriek_names['Verslag Open Hof']  = true
 end
 
 function M.stock_rubriek_flow(config)
