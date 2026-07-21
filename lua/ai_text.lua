@@ -269,7 +269,10 @@ local _control_keys = {
   calendar=true, cal=true,
   facebook=true, facebook_tekst=true,
   rewrite=true,
-  bijschrift=true, fotograaf=true, foto=true, credit=true,
+  -- Credit-/bijschriftlabels — gelijk aan photo_credit's vocabulaire in Python.
+  bijschrift=true, fotobijschrift=true, onderschrift=true,
+  foto=true, fotograaf=true, fotografie=true, credit=true,
+  fotocredit=true, fotorechten=true, beeld=true,
   rubriek=true, week=true, web=true,
 }
 local function _is_control_key(k)
@@ -447,14 +450,22 @@ end
 -- Losse globale fotometadata hoort bij de beschermde controleregels, nooit bij
 -- de artikeltekst. De AI kan zowel credit als bijschrift uit de bron halen;
 -- herken alleen volledige zelfstandige regels en normaliseer hun labels.
+-- Labelvocabulaire gelijk aan photo_credit (Python). De Lua-matcher pakt
+-- alleen losse woorden (`^([%a]+):`), dus meerwoord-/apostroflabels als
+-- "beeld en tekst" en "foto's" vallen hier bewust buiten.
 local _media_control_kinds = {
   b = "caption",
   bijschrift = "caption",
   fotobijschrift = "caption",
+  onderschrift = "caption",
   c = "photographer",
   credit = "photographer",
   foto = "photographer",
   fotograaf = "photographer",
+  fotografie = "photographer",
+  fotocredit = "photographer",
+  fotorechten = "photographer",
+  beeld = "photographer",
 }
 
 local function extract_media_controls(body)
