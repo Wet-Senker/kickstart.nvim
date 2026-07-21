@@ -12,3 +12,7 @@ spell/
 nvim-pack-lock.json
 
 .DS_Store
+
+# Log-rommel
+nvim.log
+*.log
