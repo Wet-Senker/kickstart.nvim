@@ -10,15 +10,16 @@ local AI_CANCELLED = "__AI_CANCELLED__"
 -- Normale workflowbevestigingen horen de redactieflow niet te onderbreken.
 -- Fidget toont ze tijdelijk in een zwevend venster; vim.notify kan bij lange
 -- regels terugvallen op de commandoregel en daardoor om Enter vragen.
-local function notify_workflow(message)
+local function notify_workflow(message, level)
+  level = level or vim.log.levels.INFO
   local ok, notification = pcall(require, "fidget.notification")
   if ok then
-    notification.notify(message, vim.log.levels.INFO, {
+    notification.notify(message, level, {
       annote = "Pubble",
       ttl = 6,
     })
   else
-    vim.notify(message, vim.log.levels.INFO)
+    vim.notify(message, level)
   end
 end
 
@@ -710,7 +711,7 @@ local function fill_editions_line(buf, content)
       -- stille misser die een artikel per ongeluk naar B stuurt; hier, waar de
       -- e:-regel ontstaat, expliciet waarschuwen zodat het opvalt.
       if type(r.source) == "string" and r.source:match("^standaard") then
-        vim.notify(
+        notify_workflow(
           "LET OP: geen dateline herkend — e: staat standaard op De Brug. Klopt dat niet, pas e: aan.",
           vim.log.levels.WARN
         )
@@ -1972,7 +1973,7 @@ function M.pubble_send(target_buf)
         -- Geen dateline herkend → stille terugval naar De Brug. Als
         -- waarschuwing tonen zodat een verkeerde bestemming opvalt vóór het
         -- versturen (dit is de misser die je met annuleren opving).
-        vim.notify(
+        notify_workflow(
           "LET OP: geen dateline herkend — gaat standaard naar De Brug. Voeg e: toe als dat niet klopt.",
           vim.log.levels.WARN
         )
