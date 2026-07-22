@@ -638,6 +638,14 @@ local function _calendar_signal_score(text)
   if t:find("van%s+%d%d?%s+%a+%s+tot%s+en%s+met") then score = score + 2 end
   if t:find("%d%d?%s+%a+%s+%d%d%d%d")             then score = score + 2 end
 
+  -- Een expliciete meerdaagse reeks is pas een sterk kalendersignaal in
+  -- combinatie met een herkenbaar evenementstype. Zo telt een kunstweekend
+  -- wel mee, maar bijvoorbeeld een meerdaagse wegafsluiting niet.
+  local has_complex_date_range =
+    t:find("van%s+%a+%s+%d%d?%s+%a+%s+tot%s+en%s+met%s+%a+%s+%d%d?") ~= nil
+    or t:find("van%s+%d%d?%s+%a+%s+tot%s+en%s+met%s+%d%d?") ~= nil
+    or t:find("van%s+%d%d?%s+tot%s+en%s+met%s+%d%d?%s+%a+") ~= nil
+
   -- Deelname-/toegangswoorden: 1 pt elk, max 4
   local access = 0
   for _, word in ipairs({
@@ -659,13 +667,35 @@ local function _calendar_signal_score(text)
     "kerkdienst","filmavond","informatieavond","proeverij",
     "benefiet","jubileum","herdenking","clinic","rondleiding",
     "speurtocht","fietstocht","rondvaart","repetitie","open dag",
+    "kunstweekend",
   }) do
     if t:find(word) then act = act + 1 end
   end
+  if has_complex_date_range and act > 0 then score = score + 3 end
   score = score + math.min(3, math.floor(act / 2))
+
+  -- Datum- en tijdtaal komt ook voor bij wegafsluitingen, vergadernotulen en
+  -- andere nieuwsfeiten. Zonder aanwijzing dat publiek of deelnemers welkom
+  -- zijn, mag zo'n tekst de AI-drempel daarom nooit bereiken.
+  local explicitly_not_public = t:find("niet toegankelijk voor publiek", 1, true)
+    or t:find("besloten bijeenkomst", 1, true)
+    or t:find("besloten vergadering", 1, true)
+  local has_audience_signal = not explicitly_not_public and (
+    t:find("bezoeker") ~= nil
+    or t:find("deelnemer") ~= nil
+    or t:find("belangstellend") ~= nil
+    or t:find("publiek") ~= nil
+    or t:find("iedereen kan", 1, true) ~= nil
+  )
+  if act == 0 and access == 0 and not has_audience_signal then
+    score = math.min(score, _CALENDAR_THRESHOLD - 1)
+  end
 
   return score
 end
+
+-- Klein inspecteerbaar testpunt: de importflow gebruikt exact deze scorer.
+M._calendar_signal_score = _calendar_signal_score
 
 -- Vul (of vervang) de e:-controleregel op basis van dateline + plaatsenscan.
 -- Draait direct na het herschrijven (<leader>ar) — dan is er een dateline en
