@@ -15,14 +15,13 @@
 | <leader>ah   | Hulp per categorie: codes, acties of deze cheatsheet               |
 | visueel ai   | Geselecteerde artikeltekst direct herschrijven                     |
 | <leader>aq   | Actieve AI-taken in deze buffer annuleren                          |
-| <leader>kt   | Rubriektemplate invoegen (Raadspraat, 112, etc.)                   |
-| <leader>kr   | Raadspraat: reminders / overzicht / artikel maken                   |
-| <leader>ko   | Ondernemen in Kampen: idem, acht columnisten                        |
+| <leader>kt   | Templates; ook Raadspraat/Ondernemen met persoon + foto             |
+| <leader>kp   | Rubriekplanning voor Raadspraat en Ondernemen                       |
 
-Rubriekmenu (<leader>kr = Raadspraat, <leader>ko = Ondernemen):
+Rubriekplanning (<leader>kp; kies daarna Raadspraat of Ondernemen):
   Reminders       de rotatie; ▶ = deze week, ○/✓ = verzendstatus
-  Overzicht       planning voor één deelnemer of alle deelnemers
-  Artikel maken   foto + template (zaten voorheen onder <leader>kt)
+  Planningsoverzicht voor één deelnemer of alle deelnemers
+Artikel maken: <leader>kt → Raadspraat of Ondernemen in Kampen
 In de mailbuffer: <leader>aw = Apple Mail, c = volledige mail kopiëren, ? = toetsen
   Kopiëren wijzigt nooit de status; s corrigeert reminderstatus handmatig
 
@@ -50,10 +49,11 @@ Fotobijschriften Ondernemen komen uit personen.md in de fotomap:
 ## Controlecodes boven de artikelgrens
 
 `pv` plaatst `=== ARTIKEL ===` automatisch. Zet codes daarboven; de kop staat
-eronder. `<leader>ah` toont eerst Edities, Planning, Foto en vormgeving,
+eronder. `<leader>ah` toont eerst Edities, Publicatieplanning, Foto en vormgeving,
 Publicatie-extra's, Acties en Volledige cheatsheet. Na de categorie kies je de
 concrete code of actie; codes worden automatisch op de juiste plek geplaatst.
-Ieder submenu heeft `← Terug naar hoofdmenu`; Escape sluit het hele hulpmenu.
+Ieder submenu heeft `← Terug naar hoofdmenu` als laatste regel; Escape sluit
+het hele hulpmenu.
 Een eigen streamer wordt op de cursorpositie in de artikelbody ingevoegd. Een
 eigen Facebooktekst opent een echte `## Facebook`-sectie; `facebook_tekst:` en
 `web: draft` blijven batch/technische codes en staan niet in het hulpmenu.
@@ -164,12 +164,12 @@ bij de inline AI-prompt- en gespreksleaders.
 
 ## Edities
 
-  B            brugnieuws (standaard)
-  SW           deswollenaer
-  ST           destadskoerier
-  Z            zeewolde
-  D            dedrontenaar
-  K            De Kop van Overijssel
+  B            De Brug (standaard)
+  SW           De Swollenaer
+  ST           De Stadskoerier
+  Z            Zeewolde Actueel
+  D            De Drontenaar
+  K            Nieuwsbode de Kop
   all          alle edities
   overijssel   B, SW, ST, K
   flevoland    D, Z

@@ -35,11 +35,16 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 | `<leader>aw` | Versturen naar Pubble. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Bij gekozen eventvervolgen toont de eerste druk de teksten; de tweede publiceert alles samen. |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen. |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder. |
-| `<leader>ah` | Hiërarchisch hulpmenu: kies Edities, Planning, Foto en vormgeving, Publicatie-extra's, Acties of de volledige cheatsheet. |
+| `<leader>ah` | Hiërarchisch hulpmenu: kies Edities, Publicatieplanning, Foto en vormgeving, Publicatie-extra's, Acties of de volledige cheatsheet. |
 | visueel `<leader>ai` | Herschrijf de selectie direct naar krantenstijl, zonder een eenkeuzemenu. |
-| `<leader>kt` | Rubriektemplate invoegen (Raadspraat, 112, Hondenhoek, etc.). |
+| `<leader>kt` | Rubriektemplate invoegen, inclusief Raadspraat en Ondernemen in Kampen met foto. |
+| `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten voor Raadspraat en Ondernemen in Kampen. |
 | `<leader>aq` | Annuleer alle actieve editor-AI-taken van de huidige buffer. |
 | `:AICancel` | Zelfde expliciete annulering als `<leader>aq`. |
+
+In hiërarchische keuzemenu's staan acties eerst en staat `← Terug naar …`
+altijd onderaan. Escape sluit de volledige workflow. Korte persoon- en
+fotokeuzes gebruiken alleen Escape om de wizard te annuleren.
 
 ---
 
@@ -139,7 +144,10 @@ na het openen opnieuw, zodat de browser NeoVim niet blijvend uit focus haalt.
 
 ## Rubriek-templates (`<leader>kt`)
 
-Gedefinieerd in `~/.config/nvim/lua/krant.lua` als `M.templates`. Elk template heeft:
+Gedefinieerd in `~/.config/nvim/lua/krant.lua`. De gewone templates staan in
+`M.templates`. Raadspraat en Ondernemen in Kampen staan in hetzelfde menu,
+maar gebruiken een dynamische flow voor persoon, foto, bijschrift en template.
+Een gewoon template heeft:
 - `name` — weergavenaam in het menu
 - `text` — template-inhoud met `{{titel}}`, `{{body}}` etc.
 - `no_export` — bij `true`: geen lezersnieuws-export, wel `prio: 1` bovenaan
@@ -154,6 +162,7 @@ De 112-disclaimer in het 112-template is de enige bron — `ai_text.lua` leest h
 |---|---|
 | `lua/ai_text.lua` | Alle leaders, AI-aanroepen, 112/kalender-detectie, pubble-send |
 | `lua/krant.lua` | Rubriek-templates (`<leader>kt`), `apply_template_by_name()` |
+| `plugin/column_reminders.lua` | Rubriekplanning (`<leader>kp`): reminders en overzichten |
 | `lua/pubble_archive.lua` | Telescope-zoekingangen voor bestandsnaam en archiefinhoud |
 | `lua/texttools_paths.lua` | Gedeeld, configureerbaar pad naar de Pubble Inbox |
 

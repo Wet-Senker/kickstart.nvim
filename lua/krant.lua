@@ -137,9 +137,9 @@ M.templates = {
 
   -- ... paste your remaining rubrieken here, same shapes as above ...
 
-  -- TIER 4/5 — Ondernemen in Kampen & Raadspraat: cascading menus + a
-  -- per-person photo. Deliberately left out until the photo-folder layout is
-  -- settled (see note at the bottom of this file).
+  -- Ondernemen in Kampen en Raadspraat zijn dynamische templates: persoon,
+  -- foto en bijschrift worden eerst gekozen. Hun menu-ingangen staan daarom
+  -- in M.menu() en roepen de gespecialiseerde flows hieronder aan.
 }
 
 -- ============================================================
@@ -845,10 +845,9 @@ function M.stock_rubriek_flow(config)
 end
 
 function M.menu()
-  -- Raadspraat en Ondernemen staan hier bewust niet meer: die hebben sinds
-  -- 16 juli 2026 hun eigen menu met reminders, overzicht én artikel —
-  -- <leader>kr en <leader>ko.
   local items = {
+    { name = 'Raadspraat (foto + template)', _special = 'raadspraat' },
+    { name = 'Ondernemen in Kampen (foto + template)', _special = 'ondernemen' },
     { name = 'Kamper Kiek op de Wiek', _special = 'kamperkiek' },
   }
   for _, r in ipairs(stock_rubrieken) do
@@ -869,6 +868,10 @@ function M.menu()
     if not choice then return end
     if choice._special == 'stock_rubriek' then
       M.stock_rubriek_flow(choice._config)
+    elseif choice._special == 'ondernemen' then
+      M.ondernemen_menu()
+    elseif choice._special == 'raadspraat' then
+      M.raadspraat_menu()
     elseif choice._special == 'kamperkiek' then
       local kiek_template = nil
       for _, t in ipairs(M.templates) do

@@ -1,11 +1,9 @@
 -- Reminders voor de vaste rubrieken met een beurtrotatie.
 --
---   <leader>kr  Raadspraat            (elf fracties)
---   <leader>ko  Ondernemen in Kampen  (acht columnisten)
+--   <leader>kp  planning voor Raadspraat en Ondernemen in Kampen
 --
--- Beide menu's zijn hetzelfde: Reminders / Overzicht / Artikel maken. Welke
--- rubriek het is, staat in `item.series` — daar leiden we het commando uit af,
--- zodat er maar één set functies nodig is.
+-- Beide rubrieken gebruiken dezelfde reminder- en overzichtslogica. Artikel
+-- maken hoort bij de templates en loopt daarom via <leader>kt.
 
 local M = {}
 
@@ -15,13 +13,13 @@ local mail_script = vim.fn.expand('~/workspace/texttools/nvim/raadspraat_mail.ap
 local RUBRIEKEN = {
   raadspraat = {
     naam = 'Raadspraat',
-    artikel = function() require('krant').raadspraat_menu() end,
   },
   ondernemen = {
     naam = 'Ondernemen in Kampen',
-    artikel = function() require('krant').ondernemen_menu() end,
   },
 }
+
+local RUBRIEK_VOLGORDE = { 'raadspraat', 'ondernemen' }
 
 local function is_sent(item)
   return type(item.sent_at) == 'string' and item.sent_at ~= ''
@@ -133,11 +131,11 @@ local function show_help()
     ' ?            deze hulp',
     ' q            sluiten',
     '',
-    ' De menu\'s:  <leader>kr = Raadspraat   <leader>ko = Ondernemen',
+    ' Het menu:    <leader>kp = rubriekplanning',
     ' Reminders                 de rotatie; ▶ = deze week de deur uit',
     '                           ○ nog niet verstuurd   ✓ verstuurd',
-    ' Overzicht                 planning voor één deelnemer of voor allemaal',
-    ' Artikel maken             foto + template kiezen',
+    ' Planningsoverzicht        voor één deelnemer of voor allemaal',
+    ' Artikel maken             via <leader>kt (rubriektemplates)',
     '',
     ' De tekst hierboven is bewerkbaar; wat je wijzigt gaat mee',
     ' naar Apple Mail of het klembord.',
@@ -212,16 +210,18 @@ local function fetch_rotation(series)
   return items
 end
 
--- `items` mag vooraf opgehaald zijn (M.menu doet dat al voor zijn label),
--- zodat één keer <leader>kr niet twee keer Python start.
+-- `items` mag vooraf opgehaald zijn, zodat terugnavigeren niet opnieuw Python
+-- hoeft te starten.
 function M.reminders(series, items)
   items = items or fetch_rotation(series)
   if not items then return end
 
-  local choices = {
-    { _back = true, label = '← Terug naar rubriekmenu' },
-  }
+  local choices = {}
   for _, item in ipairs(items) do table.insert(choices, item) end
+  table.insert(choices, {
+    _back = true,
+    label = '← Terug naar ' .. ((RUBRIEKEN[series] or {}).naam or 'rubriekmenu'),
+  })
 
   local breedte = 0
   for _, item in ipairs(items) do breedte = math.max(breedte, #item.label) end
@@ -244,7 +244,7 @@ function M.reminders(series, items)
   }, function(item)
     if not item then return end
     if item._back then
-      vim.schedule(function() M.menu(series, items) end)
+      vim.schedule(function() M.series_menu(series, items) end)
     else
       open_preview(item)
     end
@@ -257,20 +257,23 @@ function M.overview(series, items)
   if not items then return end
 
   local choices = {
-    { _back = true, label = '← Terug naar rubriekmenu' },
     { label = 'Gezamenlijke planning voor alle deelnemers' },
   }
   for _, item in ipairs(items) do
     table.insert(choices, { label = item.label, wie = item.label })
   end
+  table.insert(choices, {
+    _back = true,
+    label = '← Terug naar ' .. ((RUBRIEKEN[series] or {}).naam or 'rubriekmenu'),
+  })
 
   vim.ui.select(choices, {
-    prompt = 'Overzicht voor:',
+    prompt = 'Planningsoverzicht voor:',
     format_item = function(choice) return choice.label end,
   }, function(choice)
     if not choice then return end
     if choice._back then
-      vim.schedule(function() M.menu(series, items) end)
+      vim.schedule(function() M.series_menu(series, items) end)
       return
     end
 
@@ -300,7 +303,7 @@ function M.overview(series, items)
   end)
 end
 
-function M.menu(series, items)
+function M.series_menu(series, items)
   local rubriek = RUBRIEKEN[series]
   items = items or fetch_rotation(series)
   if not items then return end
@@ -311,12 +314,12 @@ function M.menu(series, items)
       action = function() M.reminders(series, items) end,
     },
     {
-      label = 'Overzicht',
+      label = 'Planningsoverzicht',
       action = function() M.overview(series, items) end,
     },
     {
-      label = 'Artikel maken (foto + template)',
-      action = rubriek.artikel,
+      label = '← Terug naar rubriekplanning',
+      action = function() M.menu() end,
     },
   }
 
@@ -328,11 +331,22 @@ function M.menu(series, items)
   end)
 end
 
-vim.keymap.set('n', '<leader>kr', function() M.menu('raadspraat') end, {
-  desc = '[K]rant [R]aadspraat',
-})
-vim.keymap.set('n', '<leader>ko', function() M.menu('ondernemen') end, {
-  desc = '[K]rant [O]ndernemen in Kampen',
+function M.menu()
+  local entries = {}
+  for _, series in ipairs(RUBRIEK_VOLGORDE) do
+    table.insert(entries, { series = series, label = RUBRIEKEN[series].naam })
+  end
+
+  vim.ui.select(entries, {
+    prompt = 'Rubriekplanning:',
+    format_item = function(entry) return entry.label end,
+  }, function(entry)
+    if entry then M.series_menu(entry.series) end
+  end)
+end
+
+vim.keymap.set('n', '<leader>kp', M.menu, {
+  desc = '[K]rant [P]lanning rubrieken',
 })
 
 return M

@@ -1321,7 +1321,7 @@ function M.pubble_send(target_buf)
   local resolved_editions = {}
   local editie_namen = {
     B = "De Brug", SW = "De Swollenaer", ST = "De Stadskoerier",
-    Z = "Zeewolde Actueel", D = "De Drontenaar", K = "Nieuwsbode De Kop",
+    Z = "Zeewolde Actueel", D = "De Drontenaar", K = "Nieuwsbode de Kop",
   }
   local has_calendar = false
   local has_facebook = false
@@ -2239,7 +2239,13 @@ M._event_prepare = event_prepare
 -- uit een lokale lijst kiezen, een nieuwe vervanger bewaren, terugzetten naar
 -- de vaste eindredacteur, meldingen per editie uitzetten, of alles aan/uit.
 -- ---------------------------------------------------------------------------
-local teams_config_file = vim.fn.expand("~/.texttools/teams_notify.json")
+local teams_config_dir = vim.env.TEXTTOOLS_LOG_DIR
+if type(teams_config_dir) ~= "string" or vim.trim(teams_config_dir) == "" then
+  teams_config_dir = vim.fn.expand("~/.texttools")
+else
+  teams_config_dir = vim.fn.expand(teams_config_dir)
+end
+local teams_config_file = vim.fs.joinpath(teams_config_dir, "teams_notify.json")
 
 local function teams_read_config()
   if vim.fn.filereadable(teams_config_file) == 0 then
@@ -2394,9 +2400,7 @@ function M.teams_redactie()
     end
 
     local e = config.editions[choice.code]
-    local recipient_items = {
-      { kind = "back", label = "← Terug naar krantenoverzicht" },
-    }
+    local recipient_items = {}
     local default_label = teams_email(e.default_email)
       and teams_recipient_label(config, e.default_email) or "geen melding"
     table.insert(recipient_items, {
@@ -2420,6 +2424,10 @@ function M.teams_redactie()
     table.insert(recipient_items, {
       kind = "new",
       label = "Nieuwe vervanger toevoegen…",
+    })
+    table.insert(recipient_items, {
+      kind = "back",
+      label = "← Terug naar krantenoverzicht",
     })
 
     local function save_email(email)
@@ -3018,15 +3026,15 @@ local help_categories = {
       { label = "De Stadskoerier (ST)", insert = "editie: ST" },
       { label = "Zeewolde Actueel (Z)", insert = "editie: Z" },
       { label = "De Drontenaar (D)", insert = "editie: D" },
-      { label = "De Kop van Overijssel (K)", insert = "editie: K" },
+      { label = "Nieuwsbode de Kop (K)", insert = "editie: K" },
       { label = "Alle edities", insert = "editie: all" },
       { label = "Overijssel (B, SW, ST, K)", insert = "editie: overijssel" },
       { label = "Flevoland (D, Z)", insert = "editie: flevoland" },
     },
   },
   {
-    label = "Planning",
-    prompt = "Planningcode invoegen:",
+    label = "Publicatieplanning",
+    prompt = "Publicatieplanning invoegen:",
     items = {
       { label = "Prioriteit 1 — moet mee", insert = "prio: 1" },
       { label = "Prioriteit 2 — mag mee", insert = "prio: 2" },
@@ -3161,10 +3169,9 @@ function M.show_meta_cheatsheet()
       category.action()
       return
     end
-    local submenu = {
-      { label = "← Terug naar hoofdmenu", back = true },
-    }
+    local submenu = {}
     for _, item in ipairs(category.items) do table.insert(submenu, item) end
+    table.insert(submenu, { label = "← Terug naar hoofdmenu", back = true })
     vim.ui.select(submenu, {
       prompt = category.prompt,
       format_item = function(i) return i.label end,
