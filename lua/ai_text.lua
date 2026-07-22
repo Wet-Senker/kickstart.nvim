@@ -1554,11 +1554,18 @@ function M.pubble_send(target_buf)
       vim.notify("Ongepubliceerd plaatsen mislukt: artikelgrens ontbreekt.", vim.log.levels.ERROR)
       return
     end
-    _do_pubble_send({})
+    -- Een concept heeft geen publicatiedatum en mag geen toekomstige
+    -- vervolgpublicaties voorbereiden. Het hoofdartikel en de agenda-items
+    -- worden door pubble-send wel als inactieve concepten aangemaakt.
+    _do_pubble_send({}, true, true)
   end
 
   -- Bouw pubble-send-aanroep en voer hem uit (na eventuele planningsdialoog).
-  _do_pubble_send = function(display_dates, event_reviewed)
+  _do_pubble_send = function(
+    display_dates,
+    event_preparation_complete,
+    suppress_event_followups
+  )
     vim.b[buf].publication_in_progress = true
     local cmd = {
       pubble_send,
@@ -1590,7 +1597,7 @@ function M.pubble_send(target_buf)
         -- aangemaakt: dan bestaan articleJoinId, web-URL en media-ID. Pubble
         -- opent en het archief verhuist pas nadat ook deze stap klaar is.
         if result.code == 0 and not event_checked then
-          if not file_has_event_sections() then
+          if suppress_event_followups or not file_has_event_sections() then
             handle_send_result(result, true, nil)
             return
           end
@@ -1832,7 +1839,7 @@ function M.pubble_send(target_buf)
     -- Bij een hervatbestand staan de secties al klaar; stel de vragen dan
     -- niet opnieuw. In een verse flow worden alle keuzes en AI-teksten eerst
     -- voorbereid, dus vóór de eerste Pubble-write.
-    if event_reviewed or file_has_event_sections() then
+    if event_preparation_complete or file_has_event_sections() then
       run_main_send()
       return
     end
@@ -2227,12 +2234,19 @@ local function korte_datum(iso)
 end
 
 event_prepare = function(buf, file, display_dates, edition_codes, done)
+  -- Een lege Lua-tabel krijgt bij json_encode standaard de vorm `[]`, maar
+  -- pubble-event verwacht voor datums altijd een JSON-object. Dit komt onder
+  -- meer voor bij de keuze Direct plaatsen.
+  local display_dates_json = "{}"
+  if type(display_dates) == "table" and next(display_dates) ~= nil then
+    display_dates_json = vim.fn.json_encode(display_dates)
+  end
   local prepare_cmd = {
     pubble_event,
     "voorbereiden",
     file,
     "--display-dates",
-    vim.fn.json_encode(display_dates or {}),
+    display_dates_json,
     "--editions",
     vim.fn.json_encode(edition_codes or {}),
     "--json",
