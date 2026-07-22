@@ -225,6 +225,7 @@ vim.api.nvim_create_user_command("AICancel", function()
 end, { desc = "Actieve AI-taak in huidige buffer annuleren" })
 
 local aitext = vim.fn.expand("~/workspace/texttools/.venv/bin/aitext")
+local kampen_fix = vim.fn.expand("~/workspace/texttools/.venv/bin/kampen-fix")
 local aichat = vim.fn.expand("~/workspace/texttools/.venv/bin/aichat")
 local articlemeta = vim.fn.expand("~/workspace/texttools/.venv/bin/articlemeta")
 local pubble_send = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-send")
@@ -759,7 +760,14 @@ function M.rewrite_article_buffer()
     input = table.concat(body_lines, "\n")
   end
 
-  ai_system({ aitext, "journalistiek_schrijven" }, { text = true, stdin = input }, function(result)
+  -- Rewrite gevolgd door de gerichte Kampen-correctie (kampen-fix). Die is
+  -- deterministisch gepoort op "Kampense", dus zonder dat woord komt de tekst
+  -- instant onveranderd terug. pipefail zorgt dat een fout in de rewrite niet
+  -- door de tweede stap gemaskeerd wordt.
+  local rewrite_cmd = { "bash", "-c",
+    "set -o pipefail; " .. vim.fn.shellescape(aitext)
+      .. " journalistiek_schrijven | " .. vim.fn.shellescape(kampen_fix) }
+  ai_system(rewrite_cmd, { text = true, stdin = input }, function(result)
     vim.schedule(function()
       if result.code ~= 0 then
         vim.notify("AI rewrite mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
