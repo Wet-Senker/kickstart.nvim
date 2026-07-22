@@ -607,9 +607,13 @@ local function _calendar_signal_score(text)
     if t:find(phrase, 1, true) then score = score + 3 end
   end
 
-  -- Tijdpatronen: 3 pts elk
-  if t:find("%d%d?[%.:]%d%d%s*uur") then score = score + 3 end
-  if t:find("om%s+%d%d?[%.:]%d%d")  then score = score + 3 end
+  -- Tijdpatronen. Eén kloktijd telt één keer (+3), of hij nu als "om 7.30",
+  -- "7.30 uur" of "om 7.30 uur" geschreven is — anders telt de volledige vorm
+  -- dubbel (het uur-patroon én het om-patroon voldoen allebei).
+  if t:find("om%s+%d%d?[%.:]%d%d") or t:find("%d%d?[%.:]%d%d%s*uur") then
+    score = score + 3
+  end
+  -- Een tijdvenster (van .. tot) is een sterker evenementsignaal: extra.
   if t:find("van%s+%d%d?[%.:]%d%d%s+tot") then score = score + 3 end
   if t:find("vanaf%s+%d%d?[%.:]%d%d")     then score = score + 2 end
   if t:find("aanvang%s+%d%d?")             then score = score + 2 end
@@ -902,7 +906,10 @@ function M.rewrite_article_buffer()
       -- hierboven) — anders draait elke <leader>ar de kalender-AI onnodig opnieuw.
       local already_has_calendar_section = rewritten_str:find("\n## Kalender", 1, true) ~= nil
         or rewritten_str:match("^## Kalender") ~= nil
-      if not needs_calendar and not already_has_calendar_section then
+      -- calendar_ai_started: de import-detectie (BufReadPost) kan de kalender-AI
+      -- al gestart hebben; dan niet nog eens draaien bij het herschrijven.
+      if not needs_calendar and not already_has_calendar_section
+         and not vim.b[buf].calendar_ai_started then
         local cal_score = _calendar_signal_score(rewritten_body_str)
         if cal_score >= _CALENDAR_THRESHOLD then
           vim.notify(
@@ -1030,6 +1037,14 @@ end
 -- Interne implementatie: werkt op een specifieke buf zodat autocmds en
 -- leaders altijd de juiste buffer raken, ook als de focus elders is.
 function _run_articlemeta_calendar(buf)
+  -- Markeer dat de kalender-AI voor deze buffer is gestart, zodat de
+  -- automatische detectie (import én rewrite) hem niet twee keer draait.
+  -- Handmatig (<leader>ac) roept deze functie rechtstreeks aan en negeert
+  -- de vlag, dus die blijft altijd werken.
+  if buf and vim.api.nvim_buf_is_valid(buf) then
+    vim.b[buf].calendar_ai_started = true
+  end
+
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local input = table.concat(lines, "\n")
 
