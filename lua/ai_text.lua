@@ -1169,12 +1169,18 @@ end
 -- Interne implementatie: werkt op een specifieke buf zodat autocmds en
 -- leaders altijd de juiste buffer raken, ook als de focus elders is.
 function _run_articlemeta_calendar(buf)
+  if buf and vim.api.nvim_buf_is_valid(buf) and vim.b[buf].calendar_ai_running then
+    vim.notify("Kalenderanalyse loopt al voor dit artikel.", vim.log.levels.INFO)
+    return
+  end
+
   -- Markeer dat de kalender-AI voor deze buffer is gestart, zodat de
   -- automatische detectie (import én rewrite) hem niet twee keer draait.
-  -- Handmatig (<leader>ac) roept deze functie rechtstreeks aan en negeert
-  -- de vlag, dus die blijft altijd werken.
+  -- calendar_ai_running voorkomt tegelijk een tweede handmatige start; na
+  -- voltooiing mag <leader>ac bewust opnieuw genereren.
   if buf and vim.api.nvim_buf_is_valid(buf) then
     vim.b[buf].calendar_ai_started = true
+    vim.b[buf].calendar_ai_running = true
   end
 
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -1182,6 +1188,9 @@ function _run_articlemeta_calendar(buf)
 
   ai_system({ articlemeta, "--calendar" }, { text = true, stdin = input }, function(result)
     vim.schedule(function()
+      if buf and vim.api.nvim_buf_is_valid(buf) then
+        vim.b[buf].calendar_ai_running = false
+      end
       if result.code ~= 0 then
         vim.notify("articlemeta mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
         return
@@ -1223,6 +1232,7 @@ end
 local function _calendar_autodetect(buf)
   if vim.b[buf].calendar_autodetect_done then return end
   vim.b[buf].calendar_autodetect_done = true
+  if vim.b[buf].calendar_ai_running then return end
 
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   if #lines == 0 then return end
