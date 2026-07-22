@@ -984,6 +984,7 @@ local function extract_calendar_frontmatter(lines)
   local in_fm = false
   local in_calendar = false
   local dash_count = 0
+  local list_key = nil
 
   for _, line in ipairs(lines) do
     if line == "---" then
@@ -1000,10 +1001,22 @@ local function extract_calendar_frontmatter(lines)
         if not line:match("^  ") then
           in_calendar = false
         else
-          local key, val = line:match("^  ([%w_]+):%s*(.+)")
-          if key and val and val ~= "null" and val ~= "~" then
-            -- strip surrounding quotes that YAML may have added
-            fields[key] = val:gsub("^[\"']", ""):gsub("[\"']$", "")
+          local key, val = line:match("^  ([%w_]+):%s*(.*)$")
+          if key then
+            list_key = nil
+            if key == "recurrence_days" and val == "" then
+              fields[key] = {}
+              list_key = key
+            elseif val ~= "" and val ~= "null" and val ~= "~" then
+              -- strip surrounding quotes that YAML may have added
+              fields[key] = val:gsub("^[\"']", ""):gsub("[\"']$", "")
+            end
+          else
+            local list_val = line:match("^  %- (.+)%s*$")
+            if list_val and list_key and type(fields[list_key]) == "table" then
+              local clean = list_val:gsub("^[\"']", ""):gsub("[\"']$", "")
+              table.insert(fields[list_key], clean)
+            end
           end
         end
       end
@@ -1012,32 +1025,125 @@ local function extract_calendar_frontmatter(lines)
   return fields
 end
 
+local function yaml_scalar(val)
+  if not val or val == "" or val == "null" or val == "~" then return nil end
+  return val:gsub("^[\"']", ""):gsub("[\"']$", "")
+end
+
+-- Meervoudige kalenderdata gebruikt calendar.items. We lezen alleen de
+-- redactierelevante scalars; Pubble-ID's blijven uitsluitend in frontmatter.
+local function extract_calendar_items(lines)
+  local items = {}
+  local in_fm = false
+  local in_calendar = false
+  local in_items = false
+  local dash_count = 0
+  local current = nil
+  local list_key = nil
+
+  for _, line in ipairs(lines) do
+    if line == "---" then
+      dash_count = dash_count + 1
+      if dash_count == 1 then
+        in_fm = true
+      elseif dash_count == 2 then
+        break
+      end
+    elseif in_fm then
+      if line:match("^calendar:") then
+        in_calendar = true
+      elseif in_calendar then
+        if not line:match("^  ") then
+          in_calendar = false
+        elseif line:match("^  items:%s*$") then
+          in_items = true
+        elseif in_items then
+          local item_key = line:match("^  %- item_key:%s*(.+)%s*$")
+          if item_key then
+            current = { item_key = yaml_scalar(item_key) }
+            table.insert(items, current)
+            list_key = nil
+          elseif current then
+            local key, val = line:match("^    ([%w_]+):%s*(.*)$")
+            if key then
+              list_key = nil
+              if key == "recurrence_days" or (val == "" and key == "missing_event_fields") then
+                current[key] = {}
+                list_key = key
+              else
+                local scalar = yaml_scalar(val)
+                if scalar then current[key] = scalar end
+              end
+            else
+              local list_val = line:match("^    %- (.+)%s*$")
+              if list_val and list_key and type(current[list_key]) == "table" then
+                local scalar = yaml_scalar(list_val)
+                if scalar then table.insert(current[list_key], scalar) end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  return items
+end
+
 -- Build lines for the ## Kalender review section from frontmatter fields.
 local function build_calendar_section_lines(lines)
   local f = extract_calendar_frontmatter(lines)
-  if f.calendar_ready ~= "true" then return nil end
+  local items = extract_calendar_items(lines)
+  local is_multiple = f.mode == "multiple" or #items > 0
+  if not is_multiple and f.calendar_ready ~= "true" then return nil end
+  if is_multiple and #items == 0 then return nil end
 
   local section = { "", "---", "", "## Kalender", "" }
-  local function add(label, val)
+  local function add(target, label, val)
     if val and val ~= "" then
-      table.insert(section, label .. ": " .. val)
+      table.insert(target, label .. ": " .. val)
     end
   end
 
-  add("Titel",       f.calendar_title or f.event_title)
-  add("Datum",       f.event_date)
-  add("Einddatum",   f.event_end_date)
-  add("Herhaling",   f.recurrence)
-  add("Herhaal tot", f.recurrence_until)
-  add("Tijd",        f.start_time)
-  add("Eindtijd",    f.end_time)
-  add("Locatie",     f.location_name)
-  add("Stad",        f.city)
+  local function add_item(target, item)
+    add(target, "Titel",       item.calendar_title or item.event_title)
+    add(target, "Datum",       item.event_date)
+    add(target, "Einddatum",   item.event_end_date)
+    add(target, "Herhaling",   item.recurrence)
+    if type(item.recurrence_days) == "table" and #item.recurrence_days > 0 then
+      add(target, "Dagen", table.concat(item.recurrence_days, ", "))
+    end
+    add(target, "Herhaal tot", item.recurrence_until)
+    add(target, "Tijd",        item.start_time)
+    add(target, "Eindtijd",    item.end_time)
+    add(target, "Locatie",     item.location_name)
+    add(target, "Adres",       item.location_address)
+    add(target, "Stad",        item.city)
 
-  if f.calendar_body and f.calendar_body ~= "" then
-    table.insert(section, "")
-    table.insert(section, f.calendar_body)
+    if item.calendar_body and item.calendar_body ~= "" then
+      table.insert(target, "")
+      table.insert(target, item.calendar_body)
+    end
+    if item.calendar_ready ~= "true" and item.missing_event_fields then
+      local missing = item.missing_event_fields
+      if type(missing) == "table" then missing = table.concat(missing, ", ") end
+      table.insert(target, "")
+      table.insert(target, "<!-- Ontbreekt: " .. missing .. " -->")
+    end
   end
+
+  if is_multiple then
+    for index, item in ipairs(items) do
+      local title = item.calendar_title or item.event_title or ("Agenda-item " .. index)
+      table.insert(section, "### " .. index .. ". " .. title)
+      table.insert(section, "<!-- calendar-key: " .. (item.item_key or ("event-" .. index)) .. " -->")
+      table.insert(section, "")
+      add_item(section, item)
+      if index < #items then table.insert(section, "") end
+    end
+    return section
+  end
+
+  add_item(section, f)
 
   -- Section is only useful if we got at least one real field beyond the header
   if #section <= 5 then return nil end
