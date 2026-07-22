@@ -234,6 +234,7 @@ local pubble_send = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-send")
 local pubble_schedule = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-schedule")
 local pubble_event = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-event")
 local texttools_python = vim.fn.expand("~/workspace/texttools/.venv/bin/python")
+local publication_links_module = "texttools.publication_links_cli"
 local ARTICLE_BOUNDARY = "=== ARTIKEL ==="
 
 local function shellescape(value)
@@ -269,6 +270,7 @@ end
 local _control_keys = {
   p=true, r=true, e=true, b=true, c=true,
   prio=true, editie=true,
+  koppel=true, ontkoppel=true, suggestiereden=true,
   calendar=true, cal=true,
   facebook=true, facebook_tekst=true,
   rewrite=true,
@@ -286,6 +288,7 @@ local function _is_control_key(k)
   if k:match("^bijschrift%d+$") or k:match("^foto%d+$") or k:match("^fotograaf%d+$") then return true end
   return false
 end
+M._is_control_key = _is_control_key
 
 -- Splits het zichtbare tagblok van de artikeltekst. Met de nieuwe grens zijn
 -- alle regels erboven beschermd; Python valideert hun betekenis centraal.
@@ -368,6 +371,40 @@ local function strip_leading_control_line(buf, pattern)
       return
     end
   end
+end
+
+-- Verwijder alle genoemde besturingsregels boven de artikelgrens. Dit wordt
+-- gebruikt nadat een koppel-/ontkoppelopdracht expliciet is afgehandeld;
+-- andere metadata en de e:-regel blijven onaangeroerd.
+local function strip_leading_control_keys(buf, keys)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local _, body_start = split_frontmatter_lines(lines)
+  local marker_index = nil
+  for i = body_start, #lines do
+    if vim.trim(lines[i]) == ARTICLE_BOUNDARY then
+      marker_index = i
+      break
+    end
+  end
+  local last = marker_index and (marker_index - 1) or (body_start - 1)
+  if not marker_index then
+    for i = body_start, #lines do
+      if vim.trim(lines[i]) == "" then break end
+      last = i
+    end
+  end
+  local changed = false
+  for i = last, body_start, -1 do
+    local key = vim.trim(lines[i]):match("^([%a][%a%d_]*)%s*:")
+    if key and keys[key:lower()] then
+      table.remove(lines, i)
+      changed = true
+    end
+  end
+  if changed then
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  end
+  return changed
 end
 
 -- DE canonieke splitser voor alle AI-leaders. Splitst bufferregels in vijf
@@ -697,13 +734,65 @@ end
 -- Klein inspecteerbaar testpunt: de importflow gebruikt exact deze scorer.
 M._calendar_signal_score = _calendar_signal_score
 
--- Vul (of vervang) de e:-controleregel op basis van dateline + plaatsenscan.
+-- Bouw de zichtbare editiehulp. De SUGGESTIE-marker blijft bewust op de
+-- e:-regel: door alleen dat woord te verwijderen accepteert de redacteur alle
+-- codes erachter. De aparte redenregel is uitsluitend uitleg.
+local function edition_control_lines(resolved)
+  local seen, chosen, suggested = {}, {}, {}
+  for _, code in ipairs(resolved.editions or {}) do
+    if type(code) == "string" and not seen[code] then
+      seen[code] = true
+      table.insert(chosen, code)
+    end
+  end
+  if type(resolved.suggestions) == "table" then
+    for _, suggestion in ipairs(resolved.suggestions) do
+      for _, code in ipairs(suggestion.editions or {}) do
+        if type(code) == "string" and not seen[code] then
+          seen[code] = true
+          table.insert(suggested, code)
+        end
+      end
+    end
+  end
+  if #chosen == 0 then return {} end
+
+  local e_line = "e: " .. table.concat(chosen, ", ")
+  if #suggested > 0 then
+    e_line = e_line .. ", SUGGESTIE, " .. table.concat(suggested, ", ")
+  end
+  local result = { e_line }
+
+  local reasons_by_edition = {}
+  if type(resolved.suggestion_reasons) == "table" then
+    for _, item in ipairs(resolved.suggestion_reasons) do
+      if type(item.edition) == "string" and type(item.reasons) == "table" then
+        reasons_by_edition[item.edition] = item.reasons
+      end
+    end
+  end
+  local reason_parts = {}
+  for _, code in ipairs(suggested) do
+    local reasons = reasons_by_edition[code]
+    if type(reasons) == "table" and #reasons > 0 then
+      table.insert(reason_parts, code .. " — " .. table.concat(reasons, ", "))
+    end
+  end
+  if #reason_parts > 0 then
+    table.insert(result, "suggestiereden: " .. table.concat(reason_parts, "; "))
+  end
+  return result
+end
+M._edition_control_lines = edition_control_lines
+
+-- Vul (of vervang) de e:-controleregel op basis van dateline, plaatsenscan en
+-- eigen onderwerp-koppelingen.
 -- Draait direct na het herschrijven (<leader>ar) — dan is er een dateline en
 -- een redelijk complete tekst. De regel wordt: `e: <kranten>, SUGGESTIE,
 -- <suggesties>`. pubble-send negeert bij het versturen alles vanaf SUGGESTIE,
 -- dus een suggestie gaat pas mee als de gebruiker die vóór SUGGESTIE zet.
 -- Puur een hulpje: bij een fout stil overslaan, nooit de herschrijving breken.
-local function fill_editions_line(buf, content)
+local function fill_editions_line(buf, content, done)
   local tmp = vim.fn.tempname() .. ".md"
   vim.fn.writefile(vim.split(content, "\n", { plain = true }), tmp)
   start_buffer_job(buf)
@@ -712,29 +801,21 @@ local function fill_editions_line(buf, content)
     { text = true },
     function(res)
     vim.schedule(function()
+      local function complete(ok)
+        finish_buffer_job(buf)
+        if done then done(ok) end
+      end
       vim.fn.delete(tmp)
       local ok, r = pcall(vim.fn.json_decode, res.stdout or "")
       if res.code ~= 0 or not ok or type(r) ~= "table" or type(r.editions) ~= "table" then
+        complete(false)
         return
       end
 
-      -- Gekozen kranten eerst, daarna de suggesties (dedup, niet al gekozen).
-      local seen, chosen, suggested = {}, {}, {}
-      for _, code in ipairs(r.editions) do
-        if not seen[code] then seen[code] = true; table.insert(chosen, code) end
-      end
-      if type(r.suggestions) == "table" then
-        for _, s in ipairs(r.suggestions) do
-          for _, code in ipairs(s.editions or {}) do
-            if not seen[code] then seen[code] = true; table.insert(suggested, code) end
-          end
-        end
-      end
-      if #chosen == 0 then return end
-
-      local e_line = "e: " .. table.concat(chosen, ", ")
-      if #suggested > 0 then
-        e_line = e_line .. ", SUGGESTIE, " .. table.concat(suggested, ", ")
+      local edition_lines = edition_control_lines(r)
+      if #edition_lines == 0 then
+        complete(false)
+        return
       end
 
       -- Geen dateline herkend → e: valt terug op De Brug. Dat is precies de
@@ -751,10 +832,15 @@ local function fill_editions_line(buf, content)
       local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
       local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
 
-      local new_ctrl = { e_line }
+      local new_ctrl = {}
+      for _, line in ipairs(edition_lines) do table.insert(new_ctrl, line) end
       for _, l in ipairs(ctrl) do
         local key = vim.trim(l):match("^([%a][%a%d_]*)%s*:")
-        if not (key and (key:lower() == "e" or key:lower() == "editie")) then
+        if not (key and (
+          key:lower() == "e"
+          or key:lower() == "editie"
+          or key:lower() == "suggestiereden"
+        )) then
           table.insert(new_ctrl, l)
         end
       end
@@ -766,7 +852,7 @@ local function fill_editions_line(buf, content)
       -- Zo staat er onder een 112-/column-artikel voor Steenwijk direct
       -- redactiedekop@… i.p.v. de De Brug-default. De web-omzetting naar
       -- "via de knoppen hieronder" blijft een verzendstap.
-      local primary = chosen[1]
+      local primary = r.editions[1]
       if primary then
         local adapted = vim.system(
           { redactie_adres, "--editie", primary },
@@ -778,8 +864,8 @@ local function fill_editions_line(buf, content)
       end
 
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, out)
+      complete(true)
     end)
-    finish_buffer_job(buf)
     end
   )
 end
@@ -1472,9 +1558,11 @@ function M.pubble_send(target_buf)
   }
   local has_calendar = false
   local has_facebook = false
+  local has_linkedin = false
   for _, line in ipairs(lines) do
     if line:match("^## Kalender") then has_calendar = true end
     if line:match("^## Facebook") then has_facebook = true end
+    if line:match("^## LinkedIn") then has_linkedin = true end
   end
   if skip_calendar then has_calendar = false end
 
@@ -1554,6 +1642,153 @@ function M.pubble_send(target_buf)
   vim.fn.writefile(pubble_lines, temp_file)
 
   local _do_pubble_send
+
+  local function same_edition_codes(left, right)
+    if type(left) ~= "table" or type(right) ~= "table" or #left ~= #right then
+      return false
+    end
+    for i, code in ipairs(left) do
+      if code ~= right[i] then return false end
+    end
+    return true
+  end
+
+  -- Handel redactionele koppelopdrachten één voor één af. Geen enkele mutatie
+  -- gebeurt zonder Ja-keuze; na afhandeling worden alleen de opdrachtregels
+  -- verwijderd en start dezelfde publicatieflow opnieuw met verse regels.
+  local function process_publication_link_actions(actions)
+    if type(actions) ~= "table" or #actions == 0 then return false end
+
+    local index = 1
+    local removed_link = false
+    local function finish_and_restart()
+      strip_leading_control_keys(buf, {
+        koppel = true,
+        ontkoppel = true,
+        suggestiereden = true,
+      })
+      discard_unpublished_temp()
+      if removed_link then
+        local refreshed_content = table.concat(
+          vim.api.nvim_buf_get_lines(buf, 0, -1, false),
+          "\n"
+        )
+        fill_editions_line(buf, refreshed_content, function(ok)
+          if ok then
+            vim.schedule(function() M.pubble_send(buf) end)
+          else
+            vim.notify(
+              "Koppeling is verwijderd, maar de suggestieregel kon niet worden vernieuwd. "
+                .. "Controleer e: en druk opnieuw <leader>aw.",
+              vim.log.levels.WARN
+            )
+          end
+        end)
+      else
+        vim.schedule(function() M.pubble_send(buf) end)
+      end
+    end
+
+    local function run_next()
+      local action = actions[index]
+      if type(action) ~= "table" then
+        index = index + 1
+        if index > #actions then finish_and_restart() else run_next() end
+        return
+      end
+
+      local keyword = tostring(action.keyword or "")
+      local names = type(action.names) == "table" and action.names or {}
+      local target = table.concat(names, " + ")
+
+      if action.action == "set"
+          and same_edition_codes(action.current_editions, action.editions) then
+        vim.notify(
+          "Koppeling ‘" .. keyword .. "’ bestond al voor " .. target .. ".",
+          vim.log.levels.INFO
+        )
+        index = index + 1
+        if index > #actions then finish_and_restart() else run_next() end
+        return
+      end
+      if action.action == "remove" and action.exists ~= true then
+        vim.notify("Geen koppeling gevonden voor ‘" .. keyword .. "’.", vim.log.levels.INFO)
+        index = index + 1
+        if index > #actions then finish_and_restart() else run_next() end
+        return
+      end
+
+      local prompt
+      if action.action == "set" then
+        local current_names = type(action.current_names) == "table" and action.current_names or {}
+        if #current_names > 0 then
+          prompt = "Koppeling wijzigen: ‘" .. keyword .. "’ van "
+            .. table.concat(current_names, " + ") .. " naar " .. target .. "?"
+        else
+          prompt = "Koppeling opslaan: ‘" .. keyword .. "’ → " .. target .. "?"
+        end
+      else
+        prompt = "Koppeling verwijderen: ‘" .. keyword .. "’ → " .. target .. "?"
+      end
+
+      vim.ui.select({ "Ja", "Nee" }, { prompt = prompt }, function(choice)
+        if choice == nil then
+          discard_unpublished_temp()
+          vim.notify("Verzending geannuleerd; koppelopdracht is blijven staan.", vim.log.levels.INFO)
+          return
+        end
+        if choice == "Nee" then
+          index = index + 1
+          if index > #actions then finish_and_restart() else run_next() end
+          return
+        end
+
+        local command = {
+          texttools_python,
+          "-m",
+          publication_links_module,
+          "--json",
+        }
+        if action.action == "set" then
+          vim.list_extend(command, {
+            "set",
+            keyword,
+            "--editions",
+            table.concat(action.editions or {}, ", "),
+            "--replace",
+          })
+        else
+          vim.list_extend(command, { "remove", keyword })
+        end
+
+        vim.system(command, { text = true }, function(result)
+          vim.schedule(function()
+            if result.code ~= 0 then
+              discard_unpublished_temp()
+              local err = vim.trim(result.stderr or result.stdout or "")
+              vim.notify(
+                "Koppeling wijzigen mislukt" .. (err ~= "" and (": " .. err) or "")
+                  .. ". Verzending is afgebroken; de opdracht is blijven staan.",
+                vim.log.levels.ERROR
+              )
+              return
+            end
+            if action.action == "set" then
+              vim.notify("Koppeling opgeslagen: ‘" .. keyword .. "’ → " .. target .. ".")
+            else
+              removed_link = true
+              vim.notify("Koppeling verwijderd: ‘" .. keyword .. "’.")
+            end
+            index = index + 1
+            if index > #actions then finish_and_restart() else run_next() end
+          end)
+        end)
+      end)
+    end
+
+    run_next()
+    return true
+  end
 
   -- Zet het webartikel expliciet als ongepubliceerd concept klaar. De control
   -- line staat boven de vaste artikelgrens, zodat pubble-send hem valideert,
@@ -1679,6 +1914,7 @@ function M.pubble_send(target_buf)
           local msg = "Verzonden naar: " .. table.concat(verzonden, " + ") .. " (krant + website)"
           if has_calendar then msg = msg .. " | kalender" end
           if has_facebook then msg = msg .. " | Facebook" end
+          if has_linkedin then msg = msg .. " | LinkedIn" end
           if event_report then
             local event_count = #(event_report.geplaatst or {})
             local existing_count = #(event_report.overgeslagen or {})
@@ -1953,10 +2189,15 @@ function M.pubble_send(target_buf)
       if resolve_result.code ~= 0 or not rok or type(resolved) ~= "table" or type(resolved.editions) ~= "table" then
         local err = vim.trim(resolve_result.stderr or "")
         discard_unpublished_temp()
-        vim.notify(
-          "Editie bepalen mislukt" .. (err ~= "" and (": " .. err) or "") .. " — verzending afgebroken.",
+        notify_workflow(
+          "Publicatievoorbereiding mislukt" .. (err ~= "" and (": " .. err) or "")
+            .. " — verzending afgebroken.",
           vim.log.levels.ERROR
         )
+        return
+      end
+
+      if process_publication_link_actions(resolved.link_actions) then
         return
       end
 
@@ -2641,74 +2882,153 @@ vim.api.nvim_create_user_command("TeamsRedactie", M.teams_redactie, {
 })
 
 
--- Strip any previous ## Facebook varianten section appended by generate_facebook.
-local function strip_facebook_section(lines)
-  for i = #lines, 1, -1 do
-    if lines[i] == "## Facebook" then
-      local cut = i - 1
-      -- strip blank lines and the preceding --- separator
-      while cut >= 1 and (lines[cut] == "" or lines[cut] == "---") do
-        cut = cut - 1
-      end
-      local result = {}
-      for j = 1, cut do
-        result[j] = lines[j]
-      end
-      return result
+local function tail_section_blocks(sections)
+  local blocks, current = {}, nil
+  local function finish_current()
+    if not current then return end
+    while #current > 1
+      and (vim.trim(current[#current]) == "" or vim.trim(current[#current]) == "---") do
+      table.remove(current)
+    end
+    table.insert(blocks, current)
+    current = nil
+  end
+
+  for _, line in ipairs(sections) do
+    if line:match("^## %S") then
+      finish_current()
+      current = { line }
+    elseif current then
+      table.insert(current, line)
     end
   end
-  return lines
+  finish_current()
+  return blocks
 end
 
-function M.generate_facebook()
+-- Vervang uitsluitend de gevraagde staartsectie. Facebook en LinkedIn kunnen
+-- daardoor gelijktijdig terugkomen: iedere callback leest de actuele buffer
+-- opnieuw, behoudt alle andere blokken en schrijft op de Neovim-mainthread.
+local function upsert_tail_section(lines, title, content)
+  local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
+  local heading = "## " .. title
+  local blocks = tail_section_blocks(sections)
+
+  for index = #blocks, 1, -1 do
+    if vim.trim(blocks[index][1] or "") == heading then
+      table.remove(blocks, index)
+    end
+  end
+
+  local new_block = { heading, "" }
+  local trimmed_content = vim.trim(content)
+  if trimmed_content ~= "" then
+    for _, line in ipairs(vim.split(trimmed_content, "\n", { plain = true })) do
+      table.insert(new_block, line)
+    end
+  end
+
+  local insert_at = #blocks + 1
+  if title == "Facebook" then
+    for index, block in ipairs(blocks) do
+      if vim.trim(block[1] or "") == "## LinkedIn" then
+        insert_at = index
+        break
+      end
+    end
+  elseif title == "LinkedIn" then
+    for index, block in ipairs(blocks) do
+      if vim.trim(block[1] or "") == "## Facebook" then
+        insert_at = index + 1
+        break
+      end
+    end
+  end
+  table.insert(blocks, insert_at, new_block)
+
+  local rebuilt_sections = {}
+  for block_index, block in ipairs(blocks) do
+    if block_index > 1 then table.insert(rebuilt_sections, "") end
+    for _, line in ipairs(block) do table.insert(rebuilt_sections, line) end
+  end
+  return reassemble_article(fm, ctrl, body, rebuilt_sections, has_boundary)
+end
+
+-- Klein headless testpunt voor het samenvoegen van gelijktijdige socialtaken.
+M._upsert_tail_section = upsert_tail_section
+
+local function generate_social_section(opts)
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   -- Alleen de kale artikelbody als AI-input — geen frontmatter, kopcodes of
   -- eerder gegenereerde secties (voorkomt dat bijv. "Fotograaf:" in de post lekt).
   local _, _, body = split_article_parts(lines)
   local article_text = table.concat(body, "\n")
-  local fb_prompt = _112_signal_score(article_text) >= _112_THRESHOLD and "facebook_bericht_112" or "facebook_bericht"
+  local prompt = opts.prompt
+  if opts.prompt_112 and _112_signal_score(article_text) >= _112_THRESHOLD then
+    prompt = opts.prompt_112
+  end
 
   ai_system(
-    { aitext, fb_prompt },
+    { aitext, prompt },
     { text = true, stdin = article_text },
     function(result)
       vim.schedule(function()
         if result.code ~= 0 then
           local err = vim.trim(result.stderr or result.stdout or "")
-          vim.notify("Facebook AI failed: " .. (err ~= "" and err or "unknown error"), vim.log.levels.ERROR)
+          vim.notify(opts.title .. " AI mislukt: " .. (err ~= "" and err or "onbekende fout"), vim.log.levels.ERROR)
           return
         end
 
         local ai_output = vim.trim(result.stdout or "")
         if ai_output == "" then
-          vim.notify("Facebook AI returned no output.", vim.log.levels.WARN)
+          vim.notify(opts.title .. " AI gaf geen tekst terug.", vim.log.levels.WARN)
           return
         end
 
-        -- Lees huidige bufferinhoud zodat tussentijdse bewerkingen bewaard blijven.
+        -- Lees huidige bufferinhoud zodat tussentijdse bewerkingen én een andere
+        -- socialtaak die eerder klaar was bewaard blijven.
         local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-        local base_lines = strip_facebook_section(current_lines)
-        table.insert(base_lines, "")
-        table.insert(base_lines, "---")
-        table.insert(base_lines, "")
-        table.insert(base_lines, "## Facebook")
-        table.insert(base_lines, "")
-        for _, line in ipairs(vim.split(ai_output, "\n", { plain = true })) do
-          table.insert(base_lines, line)
+        local updated = upsert_tail_section(current_lines, opts.title, ai_output)
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, updated)
+        local character_count = vim.fn.strchars(ai_output)
+        if opts.title == "LinkedIn" and character_count > 420 then
+          vim.notify(
+            "LinkedIn-tekst is " .. character_count
+              .. " tekens; Pubble accepteert maximaal 420. Kort de sectie in vóór <leader>aw.",
+            vim.log.levels.WARN
+          )
+        else
+          vim.notify(opts.title .. "-bericht toegevoegd. Pas aan indien nodig, dan <leader>aw.", vim.log.levels.INFO)
         end
-
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, base_lines)
-        vim.notify("Facebook post toegevoegd. Pas aan indien nodig, dan <leader>aw.", vim.log.levels.INFO)
       end)
     end,
-    "AI · Facebook",
+    "AI · " .. opts.title,
     buf
   )
 end
 
+function M.generate_facebook()
+  generate_social_section({
+    title = "Facebook",
+    prompt = "facebook_bericht",
+    prompt_112 = "facebook_bericht_112",
+  })
+end
+
+function M.generate_linkedin()
+  generate_social_section({
+    title = "LinkedIn",
+    prompt = "linkedin_bericht",
+  })
+end
+
 vim.keymap.set("n", "<leader>af", M.generate_facebook, {
   desc = "Facebooktekst genereren en ter controle tonen",
+})
+
+vim.keymap.set("n", "<leader>al", M.generate_linkedin, {
+  desc = "LinkedIn-tekst genereren en ter controle tonen",
 })
 
 
@@ -3191,6 +3511,8 @@ local help_categories = {
       { label = "Alle edities", insert = "editie: all" },
       { label = "Overijssel (B, SW, ST, K)", insert = "editie: overijssel" },
       { label = "Flevoland (D, Z)", insert = "editie: flevoland" },
+      { label = "Naam aan gekozen edities koppelen", insert = "koppel: " },
+      { label = "Bestaande naamkoppeling verwijderen", insert = "ontkoppel: " },
     },
   },
   {
@@ -3225,7 +3547,9 @@ local help_categories = {
       { label = "Rubriek 112", insert = "rubriek: 112" },
       { label = "Kalenderitem laten maken", insert = "calendar: x" },
       { label = "Facebooktekst door AI laten maken", insert = "facebook: x" },
+      { label = "LinkedIn-tekst door AI laten maken", action = function() M.generate_linkedin() end },
       { label = "Eigen Facebooktekst schrijven", action = function() M.edit_facebook_text() end },
+      { label = "Eigen LinkedIn-tekst schrijven", action = function() M.edit_linkedin_text() end },
     },
   },
   {
@@ -3235,6 +3559,7 @@ local help_categories = {
       { label = "Artikel herschrijven (<leader>ar)", action = function() M.rewrite_article_buffer() end },
       { label = "Tekstcheck (<leader>ao)", action = function() M.tekstcheck() end },
       { label = "Tussenkopjes en streamer (<leader>at)", action = function() M.tussenkopjes_streamer() end },
+      { label = "LinkedIn-tekst maken (<leader>al)", action = function() M.generate_linkedin() end },
       { label = "Eigen opdracht via *** (<leader>ap)", action = function() M.ai_prompt_rewrite() end },
       { label = "AI-gesprek via *** (<leader>ag)", action = function() M.ai_chat() end },
       { label = "Teams-meldingen beheren", action = function() M.teams_redactie() end },
@@ -3294,13 +3619,15 @@ function M.insert_streamer_at_cursor()
   vim.cmd("startinsert!")
 end
 
-function M.edit_facebook_text()
+local function edit_social_text(title)
   local buf = vim.api.nvim_get_current_buf()
-  strip_leading_control_line(buf, "^[Ff]acebook%s*:%s*x%s*$")
-  strip_leading_control_line(buf, "^[Ff]acebook_tekst%s*:")
+  if title == "Facebook" then
+    strip_leading_control_line(buf, "^[Ff]acebook%s*:%s*x%s*$")
+    strip_leading_control_line(buf, "^[Ff]acebook_tekst%s*:")
+  end
   local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
   for index, line in ipairs(lines) do
-    if line:match("^## Facebook%s*$") then
+    if vim.trim(line) == "## " .. title then
       local line_after = index + 1
       if lines[line_after] == nil or lines[line_after] ~= "" then
         vim.api.nvim_buf_set_lines(0, index, index, false, { "" })
@@ -3311,13 +3638,23 @@ function M.edit_facebook_text()
     end
   end
 
-  while #lines > 0 and vim.trim(lines[#lines]) == "" do table.remove(lines) end
-  for _, line in ipairs({ "", "---", "", "## Facebook", "" }) do
-    table.insert(lines, line)
+  local updated = upsert_tail_section(lines, title, "")
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, updated)
+  for index, line in ipairs(updated) do
+    if vim.trim(line) == "## " .. title then
+      vim.api.nvim_win_set_cursor(0, { index + 1, 0 })
+      vim.cmd("startinsert!")
+      return
+    end
   end
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
-  vim.api.nvim_win_set_cursor(0, { #lines, 0 })
-  vim.cmd("startinsert!")
+end
+
+function M.edit_facebook_text()
+  edit_social_text("Facebook")
+end
+
+function M.edit_linkedin_text()
+  edit_social_text("LinkedIn")
 end
 
 function M.show_meta_cheatsheet()
