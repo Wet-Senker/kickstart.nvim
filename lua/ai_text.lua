@@ -226,6 +226,7 @@ end, { desc = "Actieve AI-taak in huidige buffer annuleren" })
 
 local aitext = vim.fn.expand("~/workspace/texttools/.venv/bin/aitext")
 local kampen_fix = vim.fn.expand("~/workspace/texttools/.venv/bin/kampen-fix")
+local redactie_adres = vim.fn.expand("~/workspace/texttools/.venv/bin/redactie-adres")
 local aichat = vim.fn.expand("~/workspace/texttools/.venv/bin/aichat")
 local articlemeta = vim.fn.expand("~/workspace/texttools/.venv/bin/articlemeta")
 local pubble_send = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-send")
@@ -728,6 +729,23 @@ local function fill_editions_line(buf, content)
       end
 
       local out = reassemble_article(fm, new_ctrl, body, sections, has_boundary)
+
+      -- Zet meteen het juiste redactie-mailadres voor de primaire editie
+      -- (deterministisch, geen AI): net zo automatisch als de dateline zelf.
+      -- Zo staat er onder een 112-/column-artikel voor Steenwijk direct
+      -- redactiedekop@… i.p.v. de De Brug-default. De web-omzetting naar
+      -- "via de knoppen hieronder" blijft een verzendstap.
+      local primary = chosen[1]
+      if primary then
+        local adapted = vim.system(
+          { redactie_adres, "--editie", primary },
+          { text = true, stdin = table.concat(out, "\n") }
+        ):wait(3000)
+        if adapted.code == 0 and adapted.stdout and adapted.stdout ~= "" then
+          out = vim.split((adapted.stdout:gsub("\n$", "")), "\n", { plain = true })
+        end
+      end
+
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, out)
     end)
     finish_buffer_job(buf)
