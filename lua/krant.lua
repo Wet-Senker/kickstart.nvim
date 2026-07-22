@@ -611,16 +611,20 @@ local function apply(t, vars, target_buf)
     copy_to_staging(M.config.stock_images .. '/' .. t.image)
   end
 
-  -- Rubriek templates always get priority 1 (vaste rubriek = moet mee).
+  -- Rubriek templates krijgen priority 1 (vaste rubriek = moet mee), behalve
+  -- 112-berichten: die krijgen priority 2 (mag mee). De prio zit zowel in de
+  -- werktitel (week - prio titel) als in newspaper.priority; beide komen uit
+  -- deze inline `prio:`-regel die pubble-send verderop toepast.
   -- Columns krijgen daarnaast rubriek: column, zodat pubble-send op de
   -- website de column-slotregel eronder zet ("Wil je reageren op deze
   -- column?") i.p.v. de gewone nieuwsregel. Zie web_closing.py.
-  local control = { 'prio: 1' }
+  local is_112 = t.name == '112 nieuws'
+  local control = { is_112 and 'prio: 2' or 'prio: 1' }
   local replaces_rubriek = false
   if t.column then
     table.insert(control, 'rubriek: column')
     replaces_rubriek = true
-  elseif t.name == '112 nieuws' then
+  elseif is_112 then
     table.insert(control, 'rubriek: 112')
     replaces_rubriek = true
   end
