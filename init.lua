@@ -1164,17 +1164,7 @@ require("ai_text")
 -- still fails, probe the path before a fallback cleanup: a live socket must
 -- never be removed, and a non-socket file is left untouched as well.
 local _nvim_socket = vim.fn.expand("~/.cache/nvim/main.sock")
-local _ok, _result = pcall(vim.fn.serverstart, _nvim_socket)
-if not _ok or _result == "" then
-  local connected, channel = pcall(vim.fn.sockconnect, "pipe", _nvim_socket, { rpc = true })
-  local socket_is_live = connected and type(channel) == "number" and channel > 0
-  if socket_is_live then
-    pcall(vim.fn.chanclose, channel)
-  elseif vim.fn.getftype(_nvim_socket) == "socket" then
-    vim.fn.delete(_nvim_socket)
-    pcall(vim.fn.serverstart, _nvim_socket)
-  end
-end
+require("texttools_socket").ensure(_nvim_socket)
 
 -- vim: ts=2 sts=2 sw=2 et
 require('pubble_archive').setup()

@@ -237,6 +237,40 @@ local texttools_python = vim.fn.expand("~/workspace/texttools/.venv/bin/python")
 local publication_links_module = "texttools.publication_links_cli"
 local ARTICLE_BOUNDARY = "=== ARTIKEL ==="
 
+local function publication_status_from_output(stdout, stderr)
+  local combined = (stdout or "") .. "\n" .. (stderr or "")
+  local raw = combined:match("PUBBLE_RESULT_JSON:%s*(%b{})")
+  if not raw then return nil end
+  local ok, decoded = pcall(vim.json.decode, raw)
+  if not ok or type(decoded) ~= "table" or type(decoded.phases) ~= "table" then
+    return nil
+  end
+  return decoded
+end
+
+local PUBLICATION_PHASE_LABELS = {
+  newspaper = "krant",
+  web = "website",
+  calendar = "agenda",
+  social = "Facebook/LinkedIn",
+  media = "media",
+  teams = "Teams",
+}
+
+local function failed_publication_labels(status)
+  local labels = {}
+  if type(status) ~= "table" or type(status.phases) ~= "table" then return labels end
+  for _, phase in ipairs(status.phases) do
+    if type(phase) == "table" and phase.status == "failed" then
+      table.insert(labels, PUBLICATION_PHASE_LABELS[phase.name] or tostring(phase.name))
+    end
+  end
+  return labels
+end
+
+M._publication_status_from_output = publication_status_from_output
+M._failed_publication_labels = failed_publication_labels
+
 local function shellescape(value)
   return vim.fn.shellescape(value)
 end
@@ -1840,6 +1874,7 @@ function M.pubble_send(target_buf)
       "--no-open",
       "--write-ids",
       "--require-article-boundary",
+      "--result-json",
     }
     if skip_calendar then table.insert(cmd, "--without-calendar") end
     if next(display_dates) ~= nil then
@@ -1848,6 +1883,10 @@ function M.pubble_send(target_buf)
     end
     local function handle_send_result(result, event_checked, event_report)
       vim.schedule(function()
+        local publication_status = publication_status_from_output(
+          result.stdout,
+          result.stderr
+        )
         -- Bij een fout bevat dit bestand mogelijk al nieuwe Pubble-ID's. Laad
         -- die duurzame herstelstate terug in de buffer en hergebruik exact dit
         -- bestand bij de volgende <leader>aw; verwijderen zou duplicaten riskeren.
@@ -1921,7 +1960,13 @@ function M.pubble_send(target_buf)
             msg = msg .. " | " .. event_count .. " vervolgplaatsing(en)"
             if existing_count > 0 then msg = msg .. " (" .. existing_count .. " hervat)" end
           end
-          notify_workflow(msg)
+          local failed_labels = failed_publication_labels(publication_status)
+          if publication_status and publication_status.outcome == "partial" and #failed_labels > 0 then
+            msg = msg .. " | LET OP: " .. table.concat(failed_labels, " + ") .. " mislukt"
+            notify_workflow(msg, vim.log.levels.WARN)
+          else
+            notify_workflow(msg)
+          end
 
           -- Exporteer volledig ingevulde buffer naar gemeentenieuws-map indien ingesteld.
           local gn = vim.b[buf].gn_export
@@ -2091,8 +2136,32 @@ function M.pubble_send(target_buf)
 
         else
           vim.b[buf].publication_in_progress = false
-          local output = vim.trim(result.stderr or result.stdout or "")
-          vim.notify(output ~= "" and output or "Pubble send mislukt", vim.log.levels.ERROR)
+          local failed_labels = failed_publication_labels(publication_status)
+          if publication_status and #failed_labels > 0 then
+            local newspaper_ok = false
+            local web_ok = false
+            for _, phase in ipairs(publication_status.phases) do
+              if phase.name == "newspaper" and phase.status == "succeeded" then
+                newspaper_ok = true
+              elseif phase.name == "web" and phase.status == "succeeded" then
+                web_ok = true
+              end
+            end
+            local prefix = newspaper_ok and web_ok
+                and "Hoofdartikel is geplaatst, maar "
+              or "Pubble-publicatie onvolledig: "
+            vim.notify(
+              prefix
+                .. table.concat(failed_labels, " + ")
+                .. " mislukt. <leader>aw hervat met de opgeslagen IDs.",
+              vim.log.levels.ERROR
+            )
+          else
+            local stderr = vim.trim(result.stderr or "")
+            local stdout = vim.trim(result.stdout or "")
+            local output = stderr ~= "" and stderr or stdout
+            vim.notify(output ~= "" and output or "Pubble send mislukt", vim.log.levels.ERROR)
+          end
         end
       end)
     end
