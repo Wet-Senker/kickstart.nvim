@@ -2464,10 +2464,10 @@ function M.pubble_send(target_buf)
         if resolved.source then
           msg = msg .. "  (" .. resolved.source .. ")"
         end
-        if #msg > vim.o.columns - 1 then
-          msg = msg:sub(1, math.max(1, vim.o.columns - 2)) .. "…"
-        end
-        vim.notify(msg, vim.log.levels.INFO)
+        -- Via notify_workflow (fidget-toast) i.p.v. rauw vim.notify: een
+        -- commandoregel-echo triggert anders de "Press ENTER"-prompt. Fidget
+        -- toont een niet-blokkerende melding, dus de verzending loopt gewoon door.
+        notify_workflow(msg)
       end
 
       if is_112 then
@@ -2487,7 +2487,7 @@ function M.pubble_send(target_buf)
 
       if not has_data then
         local err = vim.trim(sched_result.stderr or "")
-        vim.notify(
+        notify_workflow(
           "Planning ophalen mislukt" .. (err ~= "" and (": " .. err) or "") .. " — kies alsnog een optie.",
           vim.log.levels.WARN
         )
