@@ -305,7 +305,7 @@ local _control_keys = {
   p=true, r=true, e=true, b=true, c=true,
   prio=true, editie=true,
   koppel=true, ontkoppel=true, suggestiereden=true,
-  calendar=true, cal=true,
+  agenda=true, calendar=true, cal=true,
   facebook=true, facebook_tekst=true,
   rewrite=true,
   -- Credit-/bijschriftlabels — gelijk aan photo_credit's vocabulaire in Python.
@@ -323,6 +323,34 @@ local function _is_control_key(k)
   return false
 end
 M._is_control_key = _is_control_key
+
+-- Agenda-schakelaar uit de controleregels lezen (mirror van agenda_mode in
+-- calendar_signal.py). Retourneert "on" | "off" | "auto".
+local _AGENDA_ON = { x=true, ja=true, aan=true, t=true, ["true"]=true, yes=true, y=true }
+local _AGENDA_OFF = { f=true, nee=true, ["false"]=true, geen=true, uit=true, no=true, n=true }
+local function _agenda_mode_from_lines(lines)
+  local mode = "auto"
+  for _, line in ipairs(lines) do
+    local t = vim.trim(line)
+    if t == "" or t == ARTICLE_BOUNDARY or t == "---" then
+      -- leeg/grens: controleblok is uit; niet verder kijken in de body
+      if t == ARTICLE_BOUNDARY or t == "---" then break end
+    else
+      local k, v = t:match("^(%a[%a%d_]*)%s*:%s*(.-)%s*$")
+      if k then
+        k = k:lower()
+        if k == "agenda" or k == "cal" or k == "calendar" then
+          v = (v or ""):lower()
+          if _AGENDA_OFF[v] then mode = "off"
+          elseif _AGENDA_ON[v] then mode = "on"
+          else mode = "auto" end
+        end
+      end
+    end
+  end
+  return mode
+end
+M._agenda_mode_from_lines = _agenda_mode_from_lines
 
 -- Splits het zichtbare tagblok van de artikeltekst. Met de nieuwe grens zijn
 -- alle regels erboven beschermd; Python valideert hun betekenis centraal.
@@ -1015,14 +1043,15 @@ function M.rewrite_article_buffer()
       -- zodat je vóór <leader>aw ziet en kunt bijsturen waar het heen gaat.
       fill_editions_line(buf, rewritten_str)
 
-      -- Detecteer calendar: x en facebook: x in de controleregelblok.
-      local needs_calendar = false
+      -- Agenda-schakelaar (agenda:/cal:/calendar:) + facebook: x lezen.
+      local agenda = _agenda_mode_from_lines(final_ctrl)
+      local needs_calendar = agenda == "on"
+      local agenda_denied = agenda == "off"
       local needs_facebook = false
       for _, line in ipairs(final_ctrl) do
         local k, v = line:match("^(%a[%a%d_]*)%s*:%s*(.-)%s*$")
         if k and v then
           k = k:lower(); v = v:lower()
-          if (k == "calendar" or k == "cal") and v == "x" then needs_calendar = true end
           if k == "facebook" and v == "x" then needs_facebook = true end
         end
       end
@@ -1085,7 +1114,7 @@ function M.rewrite_article_buffer()
         or rewritten_str:match("^## Kalender") ~= nil
       -- calendar_ai_started: de import-detectie (BufReadPost) kan de kalender-AI
       -- al gestart hebben; dan niet nog eens draaien bij het herschrijven.
-      if not needs_calendar and not already_has_calendar_section
+      if not needs_calendar and not agenda_denied and not already_has_calendar_section
          and not vim.b[buf].calendar_ai_started then
         local cal_score = _calendar_signal_score(rewritten_body_str)
         if cal_score >= _CALENDAR_THRESHOLD then
@@ -1366,7 +1395,7 @@ function _run_articlemeta_calendar(buf)
         -- staan en laat pubble-send de kalender-AI bij <leader>aw ten onrechte
         -- opnieuw draaien.
         strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
-        vim.notify("Kalenderdata toegevoegd. Controleer en pas aan, dan <leader>aw.", vim.log.levels.INFO)
+        vim.notify("Kalenderdata toegevoegd. Controleer en pas aan, dan <leader>aw. Niet gewenst? <leader>aC weigert.", vim.log.levels.INFO)
       else
         vim.notify("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
       end
@@ -1376,6 +1405,50 @@ end
 
 function M.articlemeta_calendar_buffer()
   _run_articlemeta_calendar(vim.api.nvim_get_current_buf())
+end
+
+-- Weiger het voorgestelde agenda-item: verwijder de ## Kalender-sectie, wis de
+-- gecachte kalenderdata en zet 'agenda: nee' als controleregel. Die persisteert
+-- via articlemeta → calendar_disabled → de send-backstop, dus ook als je het
+-- vergeet plaatst <leader>aw geen agenda-item. Web en print lopen door.
+function M.reject_calendar(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+
+  local lines = strip_calendar_section(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+  local _, body_start = split_frontmatter_lines(lines)
+
+  -- Verwijder bestaande agenda-/cal-controleregels in het leidende controleblok
+  -- (voorkomt tegenstrijdigheid met een eerdere 'agenda: ja'/'cal: x').
+  local out = {}
+  local in_control_zone = true
+  for i, line in ipairs(lines) do
+    local keep = true
+    if i >= body_start and in_control_zone then
+      local t = vim.trim(line)
+      if t == "" or t == ARTICLE_BOUNDARY then
+        in_control_zone = false
+      else
+        local k = t:match("^(%a[%a%d_]*)%s*:")
+        if k then
+          k = k:lower()
+          if k == "agenda" or k == "cal" or k == "calendar" then keep = false end
+        else
+          in_control_zone = false
+        end
+      end
+    end
+    if keep then table.insert(out, line) end
+  end
+
+  table.insert(out, body_start, "agenda: nee")
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, out)
+  vim.b[buf].cached_calendar_metadata = nil
+  vim.b[buf].calendar_ai_started = true
+  vim.notify(
+    "Agenda-item geweigerd (agenda: nee). Web en print gaan gewoon door.",
+    vim.log.levels.INFO
+  )
 end
 
 -- Kalenderdetectie bij import: vuurt op BufReadPost voor Desktop-bestanden.
@@ -1401,6 +1474,10 @@ local function _calendar_autodetect(buf)
   if text:find("calendar_article_id:") and not text:find("calendar_article_id:%s*null") then
     return
   end
+
+  -- Respecteer een expliciete weigering (agenda: nee) of forcering.
+  local agenda = _agenda_mode_from_lines(lines)
+  if agenda == "off" then return end
 
   local score = _calendar_signal_score(text)
   if score >= _CALENDAR_THRESHOLD then
@@ -1520,6 +1597,10 @@ vim.api.nvim_create_autocmd("BufReadPost", {
 
 vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
   desc = "Kalendergegevens maken en ter controle tonen",
+})
+
+vim.keymap.set("n", "<leader>aC", M.reject_calendar, {
+  desc = "Voorgesteld agenda-item weigeren (agenda: nee)",
 })
 
 -- Lokale upvalue voor de eventvoorbereiding. De verzendflow gebruikt bewust
