@@ -1451,6 +1451,63 @@ function M.reject_calendar(buf)
   )
 end
 
+-- Bereid een zelf getikt artikel voor op verzending ZONDER het te herschrijven:
+-- plaats de === ARTIKEL ===-grens, vul de editie-regel (dateline → e:) + het
+-- redactie-adres, en genereer de metadata (werktitel etc.) via articlemeta.
+-- Daarna is <leader>aw op de gewone manier te draaien. Voor een agenda-item:
+-- gebruik daarnaast <leader>ac.
+function M.prepare_article(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  if (vim.b[buf].pending_jobs or 0) > 0 then
+    vim.notify("Er lopen nog achtergrondtaken; even wachten.", vim.log.levels.INFO)
+    return
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  if vim.trim(table.concat(lines, "\n")) == "" then
+    vim.notify("Buffer is leeg.", vim.log.levels.WARN)
+    return
+  end
+
+  -- 1. Grens plaatsen als die ontbreekt.
+  local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
+  if not has_boundary then
+    vim.api.nvim_buf_set_lines(
+      buf, 0, -1, false, reassemble_article(fm, ctrl, body, sections, true)
+    )
+  end
+
+  -- 2. Editie-regel (dateline → e:) + redactie-adres.
+  local content = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+  fill_editions_line(buf, content, function(ok)
+    if not ok then
+      notify_workflow(
+        "Editie bepalen mislukt — controleer de dateline (PLAATS - …) en de "
+          .. "=== ARTIKEL ===-grens.",
+        vim.log.levels.WARN
+      )
+    end
+
+    -- 3. Metadata (werktitel etc.) via articlemeta — geen rewrite van de tekst.
+    local input = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+    ai_system({ articlemeta }, { text = true, stdin = input }, function(res)
+      vim.schedule(function()
+        if res.code ~= 0 then
+          vim.notify("Metadata ophalen mislukt: " .. (res.stderr or ""), vim.log.levels.ERROR)
+          return
+        end
+        local meta_lines = vim.split(res.stdout, "\n", { plain = true })
+        local new_fm = split_frontmatter_lines(meta_lines)
+        if #new_fm > 0 then vim.b[buf].cached_metadata = new_fm end
+        notify_workflow(
+          "Artikel voorbereid — verzend met <leader>aw. (Agenda nodig? <leader>ac)"
+        )
+      end)
+    end, "AI · Metadata", buf)
+  end)
+end
+
 -- Kalenderdetectie bij import: vuurt op BufReadPost voor Desktop-bestanden.
 -- Eénmalig per buffer (flag voorkomt herhaling bij latere saves).
 local function _calendar_autodetect(buf)
@@ -1601,6 +1658,10 @@ vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
 
 vim.keymap.set("n", "<leader>aC", M.reject_calendar, {
   desc = "Voorgesteld agenda-item weigeren (agenda: nee)",
+})
+
+vim.keymap.set("n", "<leader>av", M.prepare_article, {
+  desc = "Zelf getikt artikel voorbereiden voor verzending (geen rewrite)",
 })
 
 -- Lokale upvalue voor de eventvoorbereiding. De verzendflow gebruikt bewust
@@ -3711,6 +3772,7 @@ local help_categories = {
     prompt = "Actie starten:",
     items = {
       { label = "Artikel herschrijven (<leader>ar)", action = function() M.rewrite_article_buffer() end },
+      { label = "Eigen artikel voorbereiden, geen rewrite (<leader>av)", action = function() M.prepare_article() end },
       { label = "Tekstcheck (<leader>ao)", action = function() M.tekstcheck() end },
       { label = "Tussenkopjes en streamer (<leader>at)", action = function() M.tussenkopjes_streamer() end },
       { label = "LinkedIn-tekst maken (<leader>al)", action = function() M.generate_linkedin() end },
