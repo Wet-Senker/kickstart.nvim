@@ -3695,7 +3695,11 @@ local help_categories = {
     prompt = "Publicatie-extra invoegen:",
     items = {
       { label = "Rubriek 112", insert = "rubriek: 112" },
-      { label = "Kalenderitem laten maken", insert = "calendar: x" },
+      { label = "Agenda: AI beslist (standaard, regel niet nodig)", insert = "agenda: auto" },
+      { label = "Agenda: forceer agenda-item", insert = "agenda: ja" },
+      { label = "Agenda: weigeren (geen agenda-item)", insert = "agenda: nee" },
+      { label = "Agenda: kalenderitem nu maken (<leader>ac)", action = function() M.articlemeta_calendar_buffer() end },
+      { label = "Agenda: voorgesteld item weigeren (<leader>aC)", action = function() M.reject_calendar() end },
       { label = "Facebooktekst door AI laten maken", insert = "facebook: x" },
       { label = "LinkedIn-tekst door AI laten maken", action = function() M.generate_linkedin() end },
       { label = "Eigen Facebooktekst schrijven", action = function() M.edit_facebook_text() end },
