@@ -2,7 +2,9 @@
 -- Draai met:  nvim --headless -l tests/archive_sort.lua
 
 package.loaded["pubble_archive"] = nil
-local M = dofile(vim.fn.expand("~/.config/nvim/lua/pubble_archive.lua"))
+local test_file = debug.getinfo(1, "S").source:sub(2)
+local repo_root = vim.fn.fnamemodify(test_file, ":h:h")
+local M = dofile(repo_root .. "/lua/pubble_archive.lua")
 
 local tmp = vim.fn.tempname()
 vim.fn.mkdir(tmp .. "/2026/07/Historisch", "p")

@@ -197,3 +197,20 @@ ln -s ~/Library/Mobile\ Documents/com~apple~CloudDocs/texttools/Pubble\ Inbox ~/
 Alle workflows gebruiken standaard `~/.texttools/pubble-inbox`. Alleen voor
 een bewust afwijkende inrichting stel je `TEXTTOOLS_INBOX_DIR` in. Het volledige
 stappenplan staat in `INSTALLATIE_NIEUWE_MAC.md` in de texttools-repository.
+
+---
+
+## Tests en CI
+
+De configuratie richt zich op Neovim 0.12.3. De headless regressietests draaien
+zonder persoonlijke configuratie of plugininstallatie:
+
+```bash
+cd ~/.config/nvim
+bash tests/run_headless.sh
+```
+
+GitHub Actions voert dezelfde suite uit bij iedere push naar `master` en bij
+iedere pull request. De tests dekken belangrijke pure logica en contracten;
+interactieve menu's, externe API's en de volledige publicatieflow blijven
+handmatige integratietests.
