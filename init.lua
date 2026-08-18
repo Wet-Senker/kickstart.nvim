@@ -1163,7 +1163,9 @@ require("ai_text")
 -- address; Neovim normally reclaims a crash-stale socket itself. If startup
 -- still fails, probe the path before a fallback cleanup: a live socket must
 -- never be removed, and a non-socket file is left untouched as well.
-local _nvim_socket = vim.fn.expand("~/.cache/nvim/main.sock")
+local _nvim_socket = vim.fn.expand(
+  vim.env.TEXTTOOLS_NVIM_SOCKET or "~/.cache/nvim/main.sock"
+)
 require("texttools_socket").ensure(_nvim_socket)
 
 -- vim: ts=2 sts=2 sw=2 et

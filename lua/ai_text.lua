@@ -225,15 +225,16 @@ vim.api.nvim_create_user_command("AICancel", function()
   end
 end, { desc = "Actieve AI-taak in huidige buffer annuleren" })
 
-local aitext = vim.fn.expand("~/workspace/texttools/.venv/bin/aitext")
-local kampen_fix = vim.fn.expand("~/workspace/texttools/.venv/bin/kampen-fix")
-local redactie_adres = vim.fn.expand("~/workspace/texttools/.venv/bin/redactie-adres")
-local aichat = vim.fn.expand("~/workspace/texttools/.venv/bin/aichat")
-local articlemeta = vim.fn.expand("~/workspace/texttools/.venv/bin/articlemeta")
-local pubble_send = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-send")
-local pubble_schedule = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-schedule")
-local pubble_event = vim.fn.expand("~/workspace/texttools/.venv/bin/pubble-event")
-local texttools_python = vim.fn.expand("~/workspace/texttools/.venv/bin/python")
+local texttools_commands = require("texttools_commands")
+local aitext = texttools_commands.bin("aitext")
+local kampen_fix = texttools_commands.bin("kampen-fix")
+local redactie_adres = texttools_commands.bin("redactie-adres")
+local aichat = texttools_commands.bin("aichat")
+local articlemeta = texttools_commands.bin("articlemeta")
+local pubble_send = texttools_commands.bin("pubble-send")
+local pubble_schedule = texttools_commands.bin("pubble-schedule")
+local pubble_event = texttools_commands.bin("pubble-event")
+local texttools_python = texttools_commands.bin("python")
 local publication_links_module = "texttools.publication_links_cli"
 local ARTICLE_BOUNDARY = "=== ARTIKEL ==="
 

@@ -6,6 +6,7 @@
 --   -- which-key group:  { '<leader>k', group = '[K]rant' },
 
 local M = {}
+local texttools_commands = require('texttools_commands')
 local ARTICLE_BOUNDARY = '=== ARTIKEL ==='
 
 -- ============================================================
@@ -224,7 +225,7 @@ end
 -- verspreidingsgebieden gebruikt. Alleen deze template start het lokale
 -- hulpproces; bij geen bekende stad/plaats blijft de veilige prefix `112:`.
 local function detect_112_prefix(lines)
-  local pubble_places = vim.fn.expand('~/workspace/texttools/.venv/bin/pubble-places')
+  local pubble_places = texttools_commands.bin('pubble-places')
   local result = vim.system(
     { pubble_places, '--json' },
     { text = true, stdin = table.concat(lines, '\n') }

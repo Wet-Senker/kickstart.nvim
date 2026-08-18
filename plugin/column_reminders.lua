@@ -7,8 +7,8 @@
 
 local M = {}
 
-local bin = vim.fn.expand('~/workspace/texttools/.venv/bin/')
-local mail_script = vim.fn.expand('~/workspace/texttools/nvim/raadspraat_mail.applescript')
+local texttools_commands = require('texttools_commands')
+local mail_script = texttools_commands.path('nvim', 'raadspraat_mail.applescript')
 
 local RUBRIEKEN = {
   raadspraat = {
@@ -32,7 +32,7 @@ local function markable(item)
 end
 
 local function run(series, args)
-  local output = vim.fn.system(vim.list_extend({ bin .. series .. '-reminder' }, args))
+  local output = vim.fn.system(vim.list_extend({ texttools_commands.bin(series .. '-reminder') }, args))
   if vim.v.shell_error ~= 0 then
     vim.notify(vim.trim(output), vim.log.levels.ERROR)
     return nil

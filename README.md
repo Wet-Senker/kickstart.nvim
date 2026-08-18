@@ -165,12 +165,18 @@ De 112-disclaimer in het 112-template is de enige bron — `ai_text.lua` leest h
 | `plugin/column_reminders.lua` | Rubriekplanning (`<leader>kp`): reminders en overzichten |
 | `lua/pubble_archive.lua` | Telescope-zoekingangen voor bestandsnaam en archiefinhoud |
 | `lua/texttools_paths.lua` | Gedeeld, configureerbaar pad naar de Pubble Inbox |
+| `lua/texttools_commands.lua` | Gedeelde, via `TEXTTOOLS_ROOT` configureerbare paden naar texttools-CLI's |
+| `lua/texttools_socket.lua` | Veilige vaste serversocket met stale-socketherstel en race-guard |
 
 ---
 
 ## Installatie
 
-Vereist: [texttools](https://github.com/Wet-Senker/texttools) geïnstalleerd in `~/workspace/texttools/.venv/`.
+Vereist: [texttools](https://github.com/Wet-Senker/texttools) geïnstalleerd in
+`~/workspace/texttools/.venv/`. Alleen bij een afwijkende checkout stel je
+`TEXTTOOLS_ROOT` in; alle Lua-modules gebruiken daarna dezelfde root. De vaste
+serversocket is standaard `~/.cache/nvim/main.sock` en kan voor een geïsoleerde
+test of afwijkende inrichting via `TEXTTOOLS_NVIM_SOCKET` worden veranderd.
 
 ```bash
 cd ~/.config/nvim
