@@ -345,6 +345,11 @@ function M.menu()
   end)
 end
 
+vim.api.nvim_create_user_command('RubriekPlanning', M.menu, {
+  desc = 'Planning en reminders voor Raadspraat en Ondernemen in Kampen',
+  force = true,
+})
+
 vim.keymap.set('n', '<leader>kp', M.menu, {
   desc = '[K]rant [P]lanning rubrieken',
 })

@@ -35,9 +35,9 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 | `<leader>aw` | Versturen naar Pubble. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Bij gekozen eventvervolgen toont de eerste druk de teksten; de tweede publiceert alles samen. |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen. |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder. |
-| `<leader>ah` | Hiërarchisch hulpmenu: kies Edities, Publicatieplanning, Foto en vormgeving, Publicatie-extra's, Acties of de volledige cheatsheet. |
+| `<leader>ah` | Hiërarchisch hulpmenu: kies onder meer Edities, Rubrieken, Publicatieplanning, Acties of de volledige cheatsheet. |
 | visueel `<leader>ai` | Herschrijf de selectie direct naar krantenstijl, zonder een eenkeuzemenu. |
-| `<leader>kt` | Rubriektemplate invoegen, inclusief Raadspraat en Ondernemen in Kampen met foto. |
+| `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen in Kampen en Kamper Kiek. |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten voor Raadspraat en Ondernemen in Kampen. |
 | `<leader>aq` | Annuleer alle actieve editor-AI-taken van de huidige buffer. |
 | `:AICancel` | Zelfde expliciete annulering als `<leader>aq`. |
@@ -93,6 +93,13 @@ Bij het openen van een `.md`-bestand op `~/Desktop/`:
 Beide checks lopen ook na `<leader>ar` op de herschreven tekst. 112 vraagt daar
 alleen opnieuw om bevestiging als bij import nog geen keuze is gemaakt.
 
+**Andere rubrieken worden niet automatisch herkend.** Raadspraat, Ondernemen
+in Kampen, Kamper Kiek en alle overige vaste rubrieken zijn een handmatige
+redactionele keuze via `<leader>kt`. `<leader>kp` leest de artikeltekst niet;
+het gebruikt alleen de rotatie- en planningsgegevens van Raadspraat en
+Ondernemen. Namen, partijen en foto's worden pas na de gekozen rubriek uit
+mappen en configuratie ingevuld.
+
 ---
 
 ## 112-berichten
@@ -145,8 +152,11 @@ na het openen opnieuw, zodat de browser NeoVim niet blijvend uit focus haalt.
 ## Rubriek-templates (`<leader>kt`)
 
 Gedefinieerd in `~/.config/nvim/lua/krant.lua`. De gewone templates staan in
-`M.templates`. Raadspraat en Ondernemen in Kampen staan in hetzelfde menu,
-maar gebruiken een dynamische flow voor persoon, foto, bijschrift en template.
+`M.templates`. Raadspraat, Ondernemen in Kampen en Kamper Kiek staan bovenaan
+hetzelfde menu. De eerste twee gebruiken een dynamische flow voor persoon,
+foto, bijschrift en template; Kamper Kiek gebruikt de ene foto uit Pubble
+Inbox. Het menu wordt altijd handmatig geopend: deze rubrieken worden niet uit
+de artikeltekst geclassificeerd.
 Een gewoon template heeft:
 - `name` — weergavenaam in het menu
 - `text` — template-inhoud met `{{titel}}`, `{{body}}` etc.

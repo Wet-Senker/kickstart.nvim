@@ -35,4 +35,18 @@ for _, removed_mapping in ipairs({ "<leader>am", "<leader>ak" }) do
   assert(not documentation:find(removed_mapping, 1, true), removed_mapping .. " zwerft nog rond in de documentatie")
 end
 
+for _, rubric in ipairs({ "Raadspraat", "Ondernemen in Kampen", "Kamper Kiek" }) do
+  assert(documentation:find(rubric, 1, true), rubric .. " ontbreekt in de rubriekdocumentatie")
+end
+assert(
+  documentation:find("niet automatisch herkend", 1, true),
+  "de grens tussen automatische detectie en handmatige rubriekkeuze ontbreekt"
+)
+assert(ai_text:find('label = "Rubrieken"', 1, true), "Rubrieken ontbreekt in <leader>ah")
+assert(ai_text:find('vim.cmd("RubriekPlanning")', 1, true), "rubriekplanning is niet bereikbaar vanuit <leader>ah")
+assert(
+  reminders:find("nvim_create_user_command('RubriekPlanning'", 1, true),
+  "RubriekPlanning-opdracht ontbreekt"
+)
+
 print("documentation mappings: OK")

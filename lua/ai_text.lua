@@ -3709,6 +3709,17 @@ vim.keymap.set("n", "<leader>ag", M.ai_chat, {
 -- <leader>ah — centraal, hiërarchisch hulpmenu. De eerste laag bevat alleen
 -- herkenbare categorieën; de tweede laag bevat de concrete codes of acties.
 -- Houd editie-items synchroon met pubble_publications.py.
+local function show_rubric_recognition_help()
+  vim.notify(
+    table.concat({
+      "Automatisch uit de tekst: alleen kalender en 112.",
+      "Raadspraat, Ondernemen in Kampen, Kamper Kiek en andere vaste rubrieken kies je zelf via <leader>kt.",
+      "<leader>kp gebruikt alleen planning; namen en foto's worden pas na je keuze ingevuld.",
+    }, "\n"),
+    vim.log.levels.INFO
+  )
+end
+
 local help_categories = {
   {
     label = "Edities",
@@ -3750,6 +3761,15 @@ local help_categories = {
       { label = "Fotograaf foto 2 (c2:)", insert = "c2: " },
       { label = "Foto's: nummer ze foto1/foto2 → koppelt aan b1/c1, b2/c2 (Inbox)", insert = "" },
       { label = "Eigen streamer op cursorpositie invoeren", action = function() M.insert_streamer_at_cursor() end },
+    },
+  },
+  {
+    label = "Rubrieken",
+    prompt = "Rubrieken:",
+    items = {
+      { label = "Rubriektemplate handmatig kiezen (<leader>kt)", action = function() require("krant").menu() end },
+      { label = "Planning Raadspraat/Ondernemen (<leader>kp)", action = function() vim.cmd("RubriekPlanning") end },
+      { label = "Wat wordt automatisch herkend?", action = show_rubric_recognition_help },
     },
   },
   {

@@ -45,9 +45,21 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>aw` | Publicatie voorbereiden en naar Pubble versturen |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |
-| `<leader>ah` | Hiërarchisch hulpmenu voor codes, acties en cheatsheet |
-| `<leader>kt` | Rubriektemplates, inclusief Raadspraat en Ondernemen met foto |
+| `<leader>ah` | Hiërarchisch hulpmenu voor codes, rubrieken, acties en cheatsheet |
+| `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen en Kamper Kiek |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten |
+
+---
+
+## Automatisch of handmatig?
+
+- **Automatisch uit de tekst:** alleen kalender- en 112-detectie.
+- **Altijd handmatig via `<leader>kt`:** Raadspraat, Ondernemen in Kampen,
+  Kamper Kiek en alle andere vaste rubrieken.
+- **`<leader>kp`:** leest de artikeltekst niet; toont alleen de planning voor
+  Raadspraat en Ondernemen.
+- Namen, partijen en foto's worden pas na je rubriekkeuze uit mappen of
+  `personen.md` ingevuld.
 
 ---
 
