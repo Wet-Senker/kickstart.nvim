@@ -1079,6 +1079,27 @@ require('obsidian').setup {
 workspaces = {
   { name = "personal", path = vault_path() },
 },
+  -- Zet automatisch een `created:`-tijdstempel bovenaan NIEUWE notities.
+  -- Let op: deze func draait bij elke save (BufWritePre), niet alleen bij
+  -- aanmaken. Daarom voegen we `created` alleen toe als het bestand nog niet
+  -- op schijf staat (= de eerste save van een nieuwe notitie) én het veld er
+  -- nog niet is. Zo worden bestaande notities nooit aangepast bij openen/opslaan.
+  -- De rest is een getrouwe kopie van obsidian's standaard-frontmatter
+  -- (id/aliases/tags + reeds aanwezige velden), zodat er verder niets verandert.
+  note_frontmatter_func = function(note)
+    local out = { id = note.id, aliases = note.aliases, tags = note.tags }
+    if note.metadata ~= nil and not vim.tbl_isempty(note.metadata) then
+      for k, v in pairs(note.metadata) do out[k] = v end
+    end
+    if out.created == nil then
+      local path = note.path and tostring(note.path) or nil
+      local fs = vim.uv or vim.loop
+      if path and fs.fs_stat(path) == nil then
+        out.created = os.date("%Y-%m-%dT%H:%M:%S")
+      end
+    end
+    return out
+  end,
   -- Without this, following a web link (gf/<cr> on a [text](https://...))
   -- just logs a warning instead of opening it. vim.ui.open hands it to the
   -- OS's default opener (the 'open' command on macOS).
