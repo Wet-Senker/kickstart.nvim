@@ -48,5 +48,7 @@ assert(
   reminders:find("nvim_create_user_command('RubriekPlanning'", 1, true),
   "RubriekPlanning-opdracht ontbreekt"
 )
+assert(documentation:find("Er wordt nog geen", 1, true), "uitgesteld exportmoment ontbreekt in de documentatie")
+assert(documentation:find("precies één", 1, true), "enkelvoudige vormgevingsexport ontbreekt in de documentatie")
 
 print("documentation mappings: OK")

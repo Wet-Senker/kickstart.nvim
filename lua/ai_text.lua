@@ -226,6 +226,7 @@ vim.api.nvim_create_user_command("AICancel", function()
 end, { desc = "Actieve AI-taak in huidige buffer annuleren" })
 
 local texttools_commands = require("texttools_commands")
+local layout_export = require("layout_export")
 local aitext = texttools_commands.bin("aitext")
 local kampen_fix = texttools_commands.bin("kampen-fix")
 local redactie_adres = texttools_commands.bin("redactie-adres")
@@ -1693,6 +1694,15 @@ function M.pubble_send(target_buf)
     return
   end
 
+  -- Een gekozen rubriek mag pas naar externe systemen wanneer alle zichtbare
+  -- templatevelden zijn ingevuld. Dit is een lokale preflight, dus vóór iedere
+  -- Pubble-, media- of archiefwrite.
+  local layout_valid, layout_error = layout_export.validate(buf)
+  if not layout_valid then
+    vim.notify(layout_error, vim.log.levels.ERROR)
+    return
+  end
+
   -- Eénmalige keuze uit de agenda-waarschuwing. De buffer zelf blijft intact;
   -- alleen het tijdelijke Pubble-bestand wordt zonder kalenderdata verwerkt.
   local skip_calendar = vim.b[buf].skip_calendar_once == true
@@ -2104,117 +2114,29 @@ function M.pubble_send(target_buf)
             if existing_count > 0 then msg = msg .. " (" .. existing_count .. " hervat)" end
           end
           local failed_labels = failed_publication_labels(publication_status)
+          local message_level
           if publication_status and publication_status.outcome == "partial" and #failed_labels > 0 then
             msg = msg .. " | LET OP: " .. table.concat(failed_labels, " + ") .. " mislukt"
-            notify_workflow(msg, vim.log.levels.WARN)
-          else
-            notify_workflow(msg)
+            message_level = vim.log.levels.WARN
           end
 
-          -- Exporteer volledig ingevulde buffer naar gemeentenieuws-map indien ingesteld.
-          local gn = vim.b[buf].gn_export
-          if gn and gn.dir and gn.txt_name then
-            local export_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-
-            -- Haal caption en credit op uit YAML frontmatter.
-            local fm_caption, fm_credit
-            if export_lines[1] == "---" then
-              local in_media = false
-              for i = 2, #export_lines do
-                if export_lines[i] == "---" then break end
-                if export_lines[i]:match("^media:") then
-                  in_media = true
-                elseif in_media and export_lines[i]:match("^%S") then
-                  in_media = false
-                elseif in_media then
-                  local v = export_lines[i]:match("^%s+caption:%s*\"?(.-)\"?%s*$")
-                  if v and v ~= "null" and v ~= "" then fm_caption = v end
-                  v = export_lines[i]:match("^%s+credit:%s*\"?(.-)\"?%s*$")
-                  if v and v ~= "null" and v ~= "" then fm_credit = v end
-                end
-              end
-            end
-
-            -- Strip YAML frontmatter.
-            if export_lines[1] == "---" then
-              for i = 2, #export_lines do
-                if export_lines[i] == "---" then
-                  local stripped = {}
-                  for j = i + 1, #export_lines do table.insert(stripped, export_lines[j]) end
-                  export_lines = stripped
-                  break
-                end
-              end
-            end
-
-            -- Met de nieuwe structuur is alles boven de marker workflowdata.
-            -- Exporteer alleen het artikel. Oude buffers zonder marker blijven
-            -- via de historische regel-voor-regelopschoning werken.
-            for i, line in ipairs(export_lines) do
-              if vim.trim(line) == ARTICLE_BOUNDARY then
-                local article_only = {}
-                for j = i + 1, #export_lines do table.insert(article_only, export_lines[j]) end
-                export_lines = article_only
-                break
-              end
-            end
-
-            -- Extraheer Streamer en Eindredactie; verwijder ook *** + streamer-bodyregel.
-            local streamer_text
-            local body = {}
-            local skip_next_streamer = false
-            for _, line in ipairs(export_lines) do
-              local trimmed = vim.trim(line)
-              local s = trimmed:match("^[Ss]treamer:%s*(.+)$")
-              if s then
-                streamer_text = s
-                -- niet toevoegen aan body
-              elseif trimmed:match("^Eindredactie:%s*") then
-                -- weggooien
-              elseif trimmed == "***" then
-                -- *** is de streamer-afscheiding; de volgende niet-lege regel is de streamertekst
-                skip_next_streamer = true
-              elseif skip_next_streamer then
-                if trimmed ~= "" then
-                  skip_next_streamer = false
-                  -- deze regel IS de streamertekst in de body; weggooien (staat al bovenaan)
-                else
-                  -- lege regel na ***: ook weggooien
-                end
-              elseif trimmed:match("^>%s") or trimmed == ">" then
-                -- >-streamer: tekst naar de header, regel uit de body.
-                local q = trimmed:match("^>%s*(.+)$")
-                if q and not streamer_text then streamer_text = q end
-              else
-                table.insert(body, line)
-              end
-            end
-
-            -- Bouw header: Streamer bovenaan, dan bijschrift/credit.
-            local header = {}
-            if streamer_text then
-              table.insert(header, "Streamer: " .. streamer_text)
-            end
-            if fm_caption then
-              table.insert(header, "Bijschrift: " .. fm_caption)
-            end
-            if fm_credit then
-              local credit_name = fm_credit:gsub("^[Ff]oto:%s*", "")
-              table.insert(header, "Fotograaf: " .. credit_name)
-            end
-
-            -- Verwijder lege regels aan begin en einde van body.
-            while #body > 0 and vim.trim(body[1]) == "" do table.remove(body, 1) end
-            while #body > 0 and vim.trim(body[#body]) == "" do table.remove(body) end
-
-            local final = {}
-            for _, l in ipairs(header) do table.insert(final, l) end
-            if #header > 0 then table.insert(final, "") end
-            for _, l in ipairs(body) do table.insert(final, l) end
-
-            vim.fn.writefile(final, gn.dir .. '/' .. gn.txt_name)
-            vim.b[buf].gn_export = nil
+          -- Schrijf voor iedere rubriek precies één actuele vormgevingstekst.
+          -- Bij een fout blijft het plan staan en hervat <leader>aw via het
+          -- Pubble-tempbestand zonder dubbele artikelen.
+          local export_path, export_error = layout_export.finalize(buf)
+          if export_error then
+            vim.b[buf].publication_in_progress = false
+            vim.b[buf].failed_send_file = temp_file
+            vim.notify(
+              "Artikel is gepubliceerd, maar de vormgevingsexport mislukte: "
+                .. export_error
+                .. ". <leader>aw probeert alleen de ontbrekende stappen opnieuw.",
+              vim.log.levels.ERROR
+            )
+            return
           end
+          if export_path then msg = msg .. " | vormgeving" end
+          notify_workflow(msg, message_level)
 
           -- Verplaats pas na hoofd- én vervolgpublicatie het volledige
           -- statusbestand naar het operationele publicatiearchief.

@@ -157,7 +157,28 @@ hetzelfde menu. De eerste twee gebruiken een dynamische flow voor persoon,
 foto, bijschrift en template; Kamper Kiek gebruikt de ene foto uit Pubble
 Inbox. Het menu wordt altijd handmatig geopend: deze rubrieken worden niet uit
 de artikeltekst geclassificeerd.
+
+Alle vormgevingsrubrieken gebruiken dezelfde tweestapsflow:
+
+1. `<leader>kt` vult het template in, kopieert de gekozen foto naar Pubble
+   Inbox en de juiste weekmap, en registreert het exportdoel. Er wordt nog geen
+   `.txt`-bestand gemaakt.
+2. Na controle publiceert `<leader>aw` de actuele buffer en schrijft bij succes
+   precies één definitieve vormgevingstekst. Raadspraat en Kamper Kiek gaan
+   alleen naar `gemeentenieuws`, Ondernemen naar `ondernemen_in_kampen` en
+   stockrubrieken naar `lezersnieuws`.
+
+Voor Raadspraat, Ondernemen en stockrubrieken moet Pubble Inbox vooraf leeg
+zijn; Kamper Kiek verwacht daar juist exact één Kiek-foto. Zo kan nooit stil een
+oude of tweede foto worden gekoppeld.
+
+De bestaande eerste tekstregel vult zowel `{{titel}}` als het historische
+`{{title}}`. Andere zichtbare `{{velden}}` blokkeren `<leader>aw` totdat ze zijn
+ingevuld. Een mislukte publicatie of export bewaart het plan voor een veilige
+nieuwe poging.
+
 Een gewoon template heeft:
+
 - `name` — weergavenaam in het menu
 - `text` — template-inhoud met `{{titel}}`, `{{body}}` etc.
 - `no_export` — bij `true`: geen lezersnieuws-export, wel `prio: 1` bovenaan
@@ -172,6 +193,7 @@ De 112-disclaimer in het 112-template is de enige bron — `ai_text.lua` leest h
 |---|---|
 | `lua/ai_text.lua` | Alle leaders, AI-aanroepen, 112/kalender-detectie, pubble-send |
 | `lua/krant.lua` | Rubriek-templates (`<leader>kt`), `apply_template_by_name()` |
+| `lua/layout_export.lua` | uniform exportplan, placeholdercontrole en definitieve vormgevingstekst |
 | `plugin/column_reminders.lua` | Rubriekplanning (`<leader>kp`): reminders en overzichten |
 | `lua/pubble_archive.lua` | Telescope-zoekingangen voor bestandsnaam en archiefinhoud |
 | `lua/texttools_paths.lua` | Gedeeld, configureerbaar pad naar de Pubble Inbox |

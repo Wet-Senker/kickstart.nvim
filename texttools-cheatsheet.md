@@ -61,6 +61,16 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 - Namen, partijen en foto's worden pas na je rubriekkeuze uit mappen of
   `personen.md` ingevuld.
 
+Vaste volgorde voor rubrieken:
+
+1. Rond kop en tekst af.
+2. Maak Pubble Inbox leeg; zet voor Kamper Kiek juist exact één Kiek-foto klaar.
+3. Kies met `<leader>kt` de rubriek; template en foto's worden voorbereid, maar
+   er wordt nog geen vormgevingstekst geschreven.
+4. Controleer het resultaat en vul alle zichtbare `{{velden}}` in.
+5. `<leader>aw` publiceert en schrijft daarna precies één actuele `.txt` naar
+   de juiste weekmap. Bij een fout blijft het exportplan staan voor de retry.
+
 ---
 
 ## Controlecodes (bovenaan artikel typen, vóór de kop)

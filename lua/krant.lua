@@ -7,6 +7,7 @@
 
 local M = {}
 local texttools_commands = require('texttools_commands')
+local layout_export = require('layout_export')
 local ARTICLE_BOUNDARY = '=== ARTIKEL ==='
 
 -- ============================================================
@@ -15,6 +16,8 @@ local ARTICLE_BOUNDARY = '=== ARTIKEL ==='
 M.config = {
   -- Fixed images for specific rubrieken (Hondenhoek, Open Hof, ...).
   stock_images = vim.fn.expand('~/krant-fotos/stock'),
+  photo_root = vim.fn.expand('~/krant-fotos'),
+  desktop = vim.fn.expand('~/Desktop'),
 }
 
 -- ============================================================
@@ -44,6 +47,9 @@ M.templates = {
   },
    {
     name = "Kiek op de wiek (Sander de Rouwe)",
+    -- De speciale Kiek-flow registreert gemeentenieuws; nooit de generieke
+    -- lezersnieuwsexport uit apply().
+    no_export = true,
     text = {
       "De Kamper 'kiek op de wîêk' van burgemeester Sander de Rouwe",
       "",
@@ -163,6 +169,29 @@ local function scan_dir(path, filter_type)
   return entries
 end
 
+local function is_image(filename)
+  return filename:match('%.[jJ][pP][eE]?[gG]$') or filename:match('%.[pP][nN][gG]$')
+end
+
+local function image_files(path)
+  local images = {}
+  for _, filename in ipairs(scan_dir(path, 'file')) do
+    if is_image(filename) then table.insert(images, filename) end
+  end
+  return images
+end
+
+local function require_empty_inbox(inbox)
+  local images = image_files(inbox)
+  if #images == 0 then return true end
+  vim.notify(
+    'Pubble Inbox bevat al foto\'s: ' .. table.concat(images, ', ')
+      .. '\nVerwijder deze eerst om verwarring te voorkomen.',
+    vim.log.levels.WARN
+  )
+  return false
+end
+
 -- Strip YAML frontmatter (--- … ---) uit een tabel van regels.
 local function strip_frontmatter(lines)
   if lines[1] ~= '---' then return lines end
@@ -214,13 +243,6 @@ local function append_visible_article(out, header, article)
   for _, line in ipairs(article) do table.insert(out, line) end
 end
 
--- Exports naar vormgeving bevatten alleen journalistieke tekst. YAML,
--- controlecodes en de interne artikelgrens horen uitsluitend bij de workflow.
-local function visible_article_only(lines)
-  local _, article = split_visible_article(lines)
-  return article
-end
-
 -- Bepaal de 112-kop via dezelfde centrale plaatsentabel die pubble-send voor
 -- verspreidingsgebieden gebruikt. Alleen deze template start het lokale
 -- hulpproces; bij geen bekende stad/plaats blijft de veilige prefix `112:`.
@@ -248,6 +270,75 @@ local function publication_week()
   return os.date('%V', ref_time)
 end
 
+local function template_values(content, vars)
+  local values = vim.deepcopy(vars or {})
+  local title_index
+  for index, line in ipairs(content or {}) do
+    if vim.trim(line) ~= '' then
+      title_index = index
+      break
+    end
+  end
+
+  if title_index then
+    local title = vim.trim(content[title_index])
+    if not values.titel then values.titel = title end
+    if not values.title then values.title = title end
+  end
+
+  if values.body == nil then
+    local body = {}
+    local started = false
+    for index = (title_index or 0) + 1, #(content or {}) do
+      if started or vim.trim(content[index]) ~= '' then
+        started = true
+        table.insert(body, content[index])
+      end
+    end
+    values.body = table.concat(body, '\n')
+  end
+  return values
+end
+
+local function render_template(template, content, vars)
+  local values = template_values(content, vars)
+  local result = {}
+  for _, line in ipairs(template) do
+    if line:match('^%s*{{body}}%s*$') then
+      if values.body ~= '' then
+        for _, body_line in ipairs(vim.split(values.body, '\n', { plain = true })) do
+          table.insert(result, body_line)
+        end
+      end
+    else
+      local substituted = (line:gsub('{{(.-)}}', function(key)
+        key = vim.trim(key)
+        return values[key] or ('{{' .. key .. '}}')
+      end))
+      table.insert(result, substituted)
+    end
+  end
+  return result
+end
+
+local function prepare_layout_export(buf, options)
+  local plan, error_message = layout_export.prepare(buf, options)
+  if not plan then
+    vim.notify(error_message, vim.log.levels.ERROR)
+    return nil
+  end
+  return plan
+end
+
+local function copy_to_inbox(source, destination)
+  local ok, error_message = vim.uv.fs_copyfile(source, destination)
+  if not ok then
+    vim.notify('Foto kopiëren naar Pubble Inbox mislukt: ' .. (error_message or source), vim.log.levels.ERROR)
+    return false
+  end
+  return true
+end
+
 -- Bijschrift-vorm van de partijnaam: raadsfracties heten "de <partij>-fractie",
 -- maar eenmansfracties/groepen zijn geen fractie en houden hun eigen naam.
 local NIET_FRACTIE = {
@@ -262,7 +353,7 @@ local function partij_in_bijschrift(party)
 end
 
 function M.raadspraat_menu()
-  local base = vim.fn.expand('~/krant-fotos/raadspraat')
+  local base = M.config.photo_root .. '/raadspraat'
   local parties = scan_dir(base, 'directory')
   if #parties == 0 then
     vim.notify('Geen partijmappen gevonden in ' .. base, vim.log.levels.WARN)
@@ -273,13 +364,7 @@ function M.raadspraat_menu()
     if not party then return end
 
     local party_dir = base .. '/' .. party
-    local all_files = scan_dir(party_dir, 'file')
-    local photos = {}
-    for _, f in ipairs(all_files) do
-      if f:match('%.[jJ][pP][eE]?[gG]$') or f:match('%.[pP][nN][gG]$') then
-        table.insert(photos, f)
-      end
-    end
+    local photos = image_files(party_dir)
 
     if #photos == 0 then
       vim.notify("Geen foto's gevonden voor " .. party, vim.log.levels.WARN)
@@ -291,6 +376,8 @@ function M.raadspraat_menu()
 
       local naam = vim.fn.fnamemodify(photo_file, ':r')
       local photo_src = party_dir .. '/' .. photo_file
+      local inbox = require('texttools_paths').inbox()
+      if not require_empty_inbox(inbox) then return end
 
       local bijschrift = 'Deze editie van Raadspraat is geschreven door ' .. naam .. ' van ' .. partij_in_bijschrift(party) .. '.'
       local working_title = 'z - 1 Raadspraat ' .. party .. ' ' .. naam
@@ -322,48 +409,42 @@ function M.raadspraat_menu()
           .. 'of in de volgende krant.',
       }
 
-      local before, after, in_after = {}, {}, false
-      for _, l in ipairs(template) do
-        if l:match('^%s*{{body}}%s*$') then
-          in_after = true
-        elseif not in_after then
-          table.insert(before, l)
-        else
-          table.insert(after, l)
-        end
-      end
-
       local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
       local existing_header, article_lines = split_visible_article(buf_lines)
       local new_lines = {}
       for _, l in ipairs(fm_lines) do table.insert(new_lines, l) end
-      local article = {}
-      for _, l in ipairs(before) do table.insert(article, l) end
-      for _, l in ipairs(article_lines) do table.insert(article, l) end
-      for _, l in ipairs(after) do table.insert(article, l) end
+      local article = render_template(template, article_lines, {
+        -- Raadspraat houdt de aangeleverde kop bewust in de artikelbody onder
+        -- de vaste partijregel.
+        body = table.concat(article_lines, '\n'),
+      })
       append_visible_article(new_lines, existing_header, article)
 
       vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
 
       local week_prefix = publication_week()
 
-      -- Save article text and photo to gemeentenieuws folder for layout/vormgeving.
-      local gn_dir = vim.fn.expand('~/Desktop/' .. week_prefix .. '_gemeentenieuws')
-      vim.fn.mkdir(gn_dir, 'p')
+      -- Foto's worden nu voorbereid; de actuele tekst wordt pas na een
+      -- succesvolle <leader>aw door layout_export geschreven.
+      local gn_dir = M.config.desktop .. '/' .. week_prefix .. '_gemeentenieuws'
       local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
 
-      vim.fn.writefile(visible_article_only(new_lines), gn_dir .. '/1.raadspraatFOTO.txt')
-      vim.uv.fs_copyfile(photo_src, gn_dir .. '/1.raadspraatFOTO.' .. photo_ext)
-
       -- Copy photo to Pubble Inbox dropzone so <leader>aw picks it up automatically.
-      local inbox = require('texttools_paths').inbox()
-      vim.uv.fs_copyfile(photo_src, inbox .. '/' .. photo_file)
+      if not copy_to_inbox(photo_src, inbox .. '/' .. photo_file) then return end
+      if not prepare_layout_export(vim.api.nvim_get_current_buf(), {
+        dir = gn_dir,
+        txt_name = '1.raadspraatFOTO.txt',
+        img_name = '1.raadspraatFOTO.' .. photo_ext,
+        photo_src = photo_src,
+        label = 'Raadspraat',
+      }) then return end
 
       vim.notify(
         'Raadspraat: ' .. naam .. ' (' .. party .. ')\n'
         .. '→ ' .. week_prefix .. '_gemeentenieuws/1.raadspraatFOTO.txt\n'
         .. '→ ' .. week_prefix .. '_gemeentenieuws/1.raadspraatFOTO.' .. photo_ext .. '\n'
-        .. '→ Pubble Inbox/' .. photo_file,
+        .. '→ Pubble Inbox/' .. photo_file .. '\n'
+        .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
         vim.log.levels.INFO
       )
     end)
@@ -428,14 +509,8 @@ local function parse_personen_md(path)
 end
 
 function M.ondernemen_menu()
-  local base = vim.fn.expand('~/krant-fotos/ondernemen_in_kampen')
-  local all_files = scan_dir(base, 'file')
-  local photos = {}
-  for _, f in ipairs(all_files) do
-    if f:match('%.[jJ][pP][eE]?[gG]$') or f:match('%.[pP][nN][gG]$') then
-      table.insert(photos, f)
-    end
-  end
+  local base = M.config.photo_root .. '/ondernemen_in_kampen'
+  local photos = image_files(base)
   if #photos == 0 then
     vim.notify('Geen foto\'s gevonden in ' .. base, vim.log.levels.WARN)
     return
@@ -477,11 +552,10 @@ function M.ondernemen_menu()
     table.insert(fm_lines, '')
 
     -- Template
-    local before = {
+    local template = {
       'Column Ondernemen in Kampen: {{titel}}',
       '',
-    }
-    local after = {
+      '{{body}}',
       '',
       'Wilt u reageren op deze column van ' .. naam .. '? Stuur dan een reactie naar '
         .. 'redactie.debrug@brugmedia.nl met als onderwerp Reactie Ondernemen in Kampen '
@@ -491,59 +565,36 @@ function M.ondernemen_menu()
 
     -- Waarschuw als er al foto's in de inbox staan (voorkomt verwarring met oude foto's).
     local inbox = require('texttools_paths').inbox()
-    local inbox_files = scan_dir(inbox, 'file')
-    local inbox_images = {}
-    for _, f in ipairs(inbox_files) do
-      if f:match('%.[jJ][pP][eE]?[gG]$') or f:match('%.[pP][nN][gG]$') then
-        table.insert(inbox_images, f)
-      end
-    end
-    if #inbox_images > 0 then
-      vim.notify(
-        'Pubble Inbox bevat al foto\'s: ' .. table.concat(inbox_images, ', ')
-          .. '\nVerwijder deze eerst om verwarring te voorkomen.',
-        vim.log.levels.WARN
-      )
-      return
-    end
+    if not require_empty_inbox(inbox) then return end
 
     local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
     local existing_header, article_lines = split_visible_article(buf_lines)
     local new_lines = {}
     for _, l in ipairs(fm_lines) do table.insert(new_lines, l) end
-    local article = {}
-    for _, l in ipairs(before) do table.insert(article, l) end
-    for _, l in ipairs(article_lines) do table.insert(article, l) end
-    for _, l in ipairs(after) do table.insert(article, l) end
+    local article = render_template(template, article_lines)
     append_visible_article(new_lines, existing_header, article)
     vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
 
     -- Kopieer foto naar Pubble Inbox.
-    local ok = vim.uv.fs_copyfile(photo_src, inbox .. '/' .. photo_file)
-    if not ok then
-      vim.notify('Foto kopiëren naar Pubble Inbox mislukt: ' .. photo_src, vim.log.levels.ERROR)
-      return
-    end
+    if not copy_to_inbox(photo_src, inbox .. '/' .. photo_file) then return end
 
     -- Sla exportinfo op in buffervariabele; het txt-bestand wordt geschreven bij <leader>aw
     -- zodat de volledig ingevulde buffer (inclusief columntekst) wordt geëxporteerd.
     local week_prefix = publication_week()
-    local gn_dir = vim.fn.expand('~/Desktop/' .. week_prefix .. '_ondernemen_in_kampen')
-    vim.fn.mkdir(gn_dir, 'p')
-    vim.uv.fs_copyfile(photo_src, gn_dir .. '/1.ondernemen_in_kampenFOTO.' .. photo_ext)
-
-    local buf = vim.api.nvim_get_current_buf()
-    vim.b[buf].gn_export = {
-      dir      = gn_dir,
+    local gn_dir = M.config.desktop .. '/' .. week_prefix .. '_ondernemen_in_kampen'
+    if not prepare_layout_export(vim.api.nvim_get_current_buf(), {
+      dir = gn_dir,
       txt_name = '1.ondernemen_in_kampenFOTO.txt',
       img_name = '1.ondernemen_in_kampenFOTO.' .. photo_ext,
-    }
+      photo_src = photo_src,
+      label = 'Ondernemen in Kampen',
+    }) then return end
 
     vim.notify(
       'Ondernemen in Kampen: ' .. naam .. '\n'
       .. '→ Pubble Inbox/' .. photo_file .. '\n'
       .. '→ ' .. week_prefix .. '_ondernemen_in_kampen/1.ondernemen_in_kampenFOTO.' .. photo_ext .. '\n'
-      .. 'Tekst wordt bij <leader>aw weggeschreven naar ondernemen in kampen.',
+      .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
       vim.log.levels.INFO
     )
   end)
@@ -553,60 +604,17 @@ local function apply(t, vars, target_buf)
   vars = vars or {}
   target_buf = target_buf or 0
 
-  -- Als de buffer content heeft, extraheer dan titel (eerste niet-lege regel)
-  -- en body (de rest) en gebruik die voor substitutie in het template.
   local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
   local existing_fm = visible_frontmatter(buf_lines)
   local existing_header, content = split_visible_article(buf_lines)
-  local buf_is_empty = vim.trim(table.concat(content, '\n')) == ''
 
   if t.name == '112 nieuws' and not vars.prefix then
     vars.prefix = detect_112_prefix(content)
   end
 
-  if not buf_is_empty then
-    -- Eerste niet-lege regel = titel
-    local title_idx = nil
-    for i, l in ipairs(content) do
-      if vim.trim(l) ~= '' then title_idx = i; break end
-    end
-    if title_idx and not vars.titel then
-      vars.titel = vim.trim(content[title_idx])
-    end
-    -- Rest na de titel (lege regels direct erna overslaan) = body
-    if not vars.body then
-      local body_lines = {}
-      local past_blank = false
-      for i = (title_idx or 0) + 1, #content do
-        if not past_blank and vim.trim(content[i]) == '' then
-          -- lege regels tussen titel en body overslaan
-        else
-          past_blank = true
-          table.insert(body_lines, content[i])
-        end
-      end
-      vars.body = table.concat(body_lines, '\n')
-    end
-  end
-
-  -- Substitueer {{key}} → waarde; meerdere regels voor {{body}}.
-  local result = {}
-  for _, l in ipairs(t.text) do
-    if l:match('^%s*{{body}}%s*$') then
-      if vars.body then
-        -- Breidt een multi-line body uit over meerdere regels.
-        for _, bl in ipairs(vim.split(vars.body, '\n', { plain = true })) do
-          table.insert(result, bl)
-        end
-      end
-    else
-      local substituted = (l:gsub('{{(.-)}}', function(key)
-        key = vim.trim(key)
-        return vars[key] or ('{{' .. key .. '}}')
-      end))
-      table.insert(result, substituted)
-    end
-  end
+  -- Alle templates gebruiken dezelfde titel/body-substitutie. Zowel
+  -- {{titel}} als het historische {{title}} krijgen de bestaande kop.
+  local result = render_template(t.text, content, vars)
 
   if t.image then
     copy_to_staging(M.config.stock_images .. '/' .. t.image)
@@ -647,12 +655,12 @@ local function apply(t, vars, target_buf)
   if not t.no_export then
     local slug = t.name:lower():gsub('[^%a%d]+', '_'):gsub('^_+', ''):gsub('_+$', '')
     local week_prefix = publication_week()
-    local ln_dir = vim.fn.expand('~/Desktop/' .. week_prefix .. '_lezersnieuws')
-    vim.fn.mkdir(ln_dir, 'p')
-    vim.b[target_buf].gn_export = {
-      dir      = ln_dir,
+    local ln_dir = M.config.desktop .. '/' .. week_prefix .. '_lezersnieuws'
+    prepare_layout_export(target_buf, {
+      dir = ln_dir,
       txt_name = '1.' .. slug .. '.txt',
-    }
+      label = t.name,
+    })
   end
 
   vim.notify('Inserted: ' .. t.name)
@@ -673,13 +681,7 @@ end
 
 function M.kamperkiek_flow(template)
   local inbox = require('texttools_paths').inbox()
-  local all = scan_dir(inbox, 'file')
-  local images = {}
-  for _, f in ipairs(all) do
-    if f:match('%.[jJ][pP][eE]?[gG]$') or f:match('%.[pP][nN][gG]$') then
-      table.insert(images, f)
-    end
-  end
+  local images = image_files(inbox)
 
   if #images == 0 then
     vim.notify('Geen foto gevonden in Pubble Inbox. Zet de foto er eerst in.', vim.log.levels.ERROR)
@@ -697,19 +699,23 @@ function M.kamperkiek_flow(template)
   -- Pas de template toe op de buffer.
   apply(template)
 
-  -- Schrijf naar gemeentenieuws map.
+  -- Bereid één gemeentenieuwsexport voor; de tekst volgt pas na een
+  -- succesvolle <leader>aw en komt daardoor altijd uit de actuele buffer.
   local week_prefix = publication_week()
-  local gn_dir = vim.fn.expand('~/Desktop/' .. week_prefix .. '_gemeentenieuws')
-  vim.fn.mkdir(gn_dir, 'p')
-
-  local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-  vim.fn.writefile(visible_article_only(buf_lines), gn_dir .. '/2.kamperkiekFOTO.txt')
-  vim.uv.fs_copyfile(photo_src, gn_dir .. '/2.kamperkiek.' .. photo_ext)
+  local gn_dir = M.config.desktop .. '/' .. week_prefix .. '_gemeentenieuws'
+  if not prepare_layout_export(vim.api.nvim_get_current_buf(), {
+    dir = gn_dir,
+    txt_name = '2.kamperkiekFOTO.txt',
+    img_name = '2.kamperkiek.' .. photo_ext,
+    photo_src = photo_src,
+    label = 'Kamper Kiek op de Wiek',
+  }) then return end
 
   vim.notify(
     'Kamper Kiek op de Wiek\n'
     .. '→ ' .. week_prefix .. '_gemeentenieuws/2.kamperkiekFOTO.txt\n'
-    .. '→ ' .. week_prefix .. '_gemeentenieuws/2.kamperkiek.' .. photo_ext,
+    .. '→ ' .. week_prefix .. '_gemeentenieuws/2.kamperkiek.' .. photo_ext .. '\n'
+    .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
     vim.log.levels.INFO
   )
 end
@@ -769,21 +775,7 @@ function M.stock_rubriek_flow(config)
   local inbox = require('texttools_paths').inbox()
 
   -- Waarschuw als er al foto's in de inbox staan.
-  local inbox_files = scan_dir(inbox, 'file')
-  local inbox_images = {}
-  for _, f in ipairs(inbox_files) do
-    if f:match('%.[jJ][pP][eE]?[gG]$') or f:match('%.[pP][nN][gG]$') then
-      table.insert(inbox_images, f)
-    end
-  end
-  if #inbox_images > 0 then
-    vim.notify(
-      'Pubble Inbox bevat al foto\'s: ' .. table.concat(inbox_images, ', ')
-        .. '\nVerwijder deze eerst om verwarring te voorkomen.',
-      vim.log.levels.WARN
-    )
-    return
-  end
+  if not require_empty_inbox(inbox) then return end
 
   -- Minimale frontmatter stub voor working_title en priority.
   local fm_lines = {
@@ -795,52 +787,34 @@ function M.stock_rubriek_flow(config)
     '',
   }
 
-  -- Verwerk {{body}} seam in template.
-  local before, after, in_after = {}, {}, false
-  for _, l in ipairs(config.template) do
-    if l:match('^%s*{{body}}%s*$') then
-      in_after = true
-    elseif not in_after then
-      table.insert(before, l)
-    else
-      table.insert(after, l)
-    end
-  end
-
   local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
   local existing_header, article_lines = split_visible_article(buf_lines)
   local new_lines = {}
   for _, l in ipairs(fm_lines)  do table.insert(new_lines, l) end
-  local article = {}
-  for _, l in ipairs(before) do table.insert(article, l) end
-  for _, l in ipairs(article_lines) do table.insert(article, l) end
-  for _, l in ipairs(after) do table.insert(article, l) end
+  local article = render_template(config.template, article_lines)
   append_visible_article(new_lines, existing_header, article)
   vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
 
   -- Kopieer stockfoto naar Pubble Inbox.
-  vim.uv.fs_copyfile(stock_src, inbox .. '/' .. config.stock_image)
+  if not copy_to_inbox(stock_src, inbox .. '/' .. config.stock_image) then return end
 
-  -- Maak lezersnieuws map aan en kopieer foto.
+  -- Bereid één lezersnieuwsexport voor; de actuele tekst volgt bij <leader>aw.
   local week_prefix = publication_week()
-  local ln_dir = vim.fn.expand('~/Desktop/' .. week_prefix .. '_lezersnieuws')
-  vim.fn.mkdir(ln_dir, 'p')
+  local ln_dir = M.config.desktop .. '/' .. week_prefix .. '_lezersnieuws'
   local img_name = config.txt_name:gsub('%.txt$', '.jpg')
-  vim.uv.fs_copyfile(stock_src, ln_dir .. '/' .. img_name)
-
-  -- Stel gn_export in; txt-bestand wordt geschreven bij <leader>aw.
-  local buf = vim.api.nvim_get_current_buf()
-  vim.b[buf].gn_export = {
-    dir      = ln_dir,
+  if not prepare_layout_export(vim.api.nvim_get_current_buf(), {
+    dir = ln_dir,
     txt_name = config.txt_name,
     img_name = img_name,
-  }
+    photo_src = stock_src,
+    label = config.name,
+  }) then return end
 
   vim.notify(
     config.name .. '\n'
     .. '→ Pubble Inbox/' .. config.stock_image .. '\n'
     .. '→ ' .. week_prefix .. '_lezersnieuws/' .. img_name .. '\n'
-    .. 'Tekst wordt bij <leader>aw weggeschreven naar lezersnieuws.',
+    .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
     vim.log.levels.INFO
   )
 end
