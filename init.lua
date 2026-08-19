@@ -1079,25 +1079,38 @@ require('obsidian').setup {
 workspaces = {
   { name = "personal", path = vault_path() },
 },
-  -- Zet automatisch een `created:`-tijdstempel bovenaan NIEUWE notities.
-  -- Let op: deze func draait bij elke save (BufWritePre), niet alleen bij
-  -- aanmaken. Daarom voegen we `created` alleen toe als het bestand nog niet
-  -- op schijf staat (= de eerste save van een nieuwe notitie) én het veld er
-  -- nog niet is. Zo worden bestaande notities nooit aangepast bij openen/opslaan.
-  -- De rest is een getrouwe kopie van obsidian's standaard-frontmatter
-  -- (id/aliases/tags + reeds aanwezige velden), zodat er verder niets verandert.
+  -- Frontmatter-beheer: deze func draait bij elke save (BufWritePre).
+  -- BESTAANDE notities worden volledig met rust gelaten — de frontmatter
+  -- wordt onveranderd teruggegeven (id/aliases/tags zoals ze zijn), zodat er
+  -- bij het bewerken van een oude notitie niets aan de frontmatter verandert.
+  -- Alleen bij een NIEUWE notitie (bestand nog niet op schijf) schrijven we
+  -- een minimale, opgeschoonde frontmatter: alleen `created`, plus echte
+  -- aliassen/tags. Overbodig weggelaten: de `id` (kopie van de bestandsnaam),
+  -- de automatische titel-alias, en lege `tags: []`.
   note_frontmatter_func = function(note)
-    -- Begin met reeds aanwezige frontmatter-velden (obsidian parseert
+    local path = note.path and tostring(note.path) or nil
+    local fs = vim.uv or vim.loop
+    local is_new = path ~= nil and fs.fs_stat(path) == nil
+
+    -- Reeds aanwezige frontmatter-velden altijd behouden (obsidian parseert
     -- id/aliases/tags apart, dus die zitten NIET in metadata).
     local out = {}
     if note.metadata ~= nil and not vim.tbl_isempty(note.metadata) then
       for k, v in pairs(note.metadata) do out[k] = v end
     end
 
-    -- Aliases: laat de automatisch toegevoegde titel-alias weg (die is gelijk
-    -- aan de bestandsnaam en dus zinloos). Alleen echte, afwijkende aliassen
-    -- behouden; is er niets, dan geen `aliases`-veld.
-    local stem = note.path and vim.fn.fnamemodify(tostring(note.path), ":t:r") or nil
+    if not is_new then
+      -- Bestaande notitie: laat alles zoals obsidian het standaard zou
+      -- schrijven — geen velden verwijderen, geen `created` toevoegen.
+      out.id = note.id
+      out.aliases = note.aliases
+      out.tags = note.tags
+      return out
+    end
+
+    -- Nieuwe notitie: minimalistische frontmatter.
+    -- Titel-alias weglaten (gelijk aan de bestandsnaam); echte aliassen houden.
+    local stem = path and vim.fn.fnamemodify(path, ":t:r") or nil
     local real_aliases = {}
     for _, alias in ipairs(note.aliases or {}) do
       if alias ~= note.id and alias ~= stem then
@@ -1105,21 +1118,10 @@ workspaces = {
       end
     end
     if #real_aliases > 0 then out.aliases = real_aliases end
-
-    -- Tags: alleen tonen als er echt tags zijn — geen lege `tags: []`.
+    -- Lege `tags: []` weglaten; echte tags houden.
     if note.tags and #note.tags > 0 then out.tags = note.tags end
-
-    -- `id` bewust weggelaten: was een kopie van de bestandsnaam en dus overbodig.
-    -- Obsidian vindt notities ook op bestandsnaam/titel/alias.
-
-    -- created: alleen bij een nieuwe notitie (bestand nog niet op schijf).
-    if out.created == nil then
-      local path = note.path and tostring(note.path) or nil
-      local fs = vim.uv or vim.loop
-      if path and fs.fs_stat(path) == nil then
-        out.created = os.date("%Y-%m-%dT%H:%M:%S")
-      end
-    end
+    -- `id` bewust weggelaten (kopie van de bestandsnaam).
+    out.created = os.date("%Y-%m-%dT%H:%M:%S")
     return out
   end,
   -- Without this, following a web link (gf/<cr> on a [text](https://...))
