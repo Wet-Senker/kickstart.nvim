@@ -1087,10 +1087,32 @@ workspaces = {
   -- De rest is een getrouwe kopie van obsidian's standaard-frontmatter
   -- (id/aliases/tags + reeds aanwezige velden), zodat er verder niets verandert.
   note_frontmatter_func = function(note)
-    local out = { id = note.id, aliases = note.aliases, tags = note.tags }
+    -- Begin met reeds aanwezige frontmatter-velden (obsidian parseert
+    -- id/aliases/tags apart, dus die zitten NIET in metadata).
+    local out = {}
     if note.metadata ~= nil and not vim.tbl_isempty(note.metadata) then
       for k, v in pairs(note.metadata) do out[k] = v end
     end
+
+    -- Aliases: laat de automatisch toegevoegde titel-alias weg (die is gelijk
+    -- aan de bestandsnaam en dus zinloos). Alleen echte, afwijkende aliassen
+    -- behouden; is er niets, dan geen `aliases`-veld.
+    local stem = note.path and vim.fn.fnamemodify(tostring(note.path), ":t:r") or nil
+    local real_aliases = {}
+    for _, alias in ipairs(note.aliases or {}) do
+      if alias ~= note.id and alias ~= stem then
+        table.insert(real_aliases, alias)
+      end
+    end
+    if #real_aliases > 0 then out.aliases = real_aliases end
+
+    -- Tags: alleen tonen als er echt tags zijn — geen lege `tags: []`.
+    if note.tags and #note.tags > 0 then out.tags = note.tags end
+
+    -- `id` bewust weggelaten: was een kopie van de bestandsnaam en dus overbodig.
+    -- Obsidian vindt notities ook op bestandsnaam/titel/alias.
+
+    -- created: alleen bij een nieuwe notitie (bestand nog niet op schijf).
     if out.created == nil then
       local path = note.path and tostring(note.path) or nil
       local fs = vim.uv or vim.loop
