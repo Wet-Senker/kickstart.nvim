@@ -1176,7 +1176,11 @@ vim.api.nvim_create_user_command('Z', function(opts)
     return
   end
   vim.cmd.cd(path)
-  vim.notify('cwd -> ' .. path, vim.log.levels.INFO)
+  require('texttools_notify').workflow(
+    'cwd -> ' .. path,
+    vim.log.levels.INFO,
+    { annote = 'Neovim' }
+  )
 end, { nargs = 1, desc = 'cd via zoxide (:Z <query>)' })
 
 

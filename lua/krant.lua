@@ -8,6 +8,7 @@
 local M = {}
 local texttools_commands = require('texttools_commands')
 local layout_export = require('layout_export')
+local notifications = require('texttools_notify')
 local ARTICLE_BOUNDARY = '=== ARTIKEL ==='
 
 -- ============================================================
@@ -439,13 +440,14 @@ function M.raadspraat_menu()
         label = 'Raadspraat',
       }) then return end
 
-      vim.notify(
+      notifications.workflow(
         'Raadspraat: ' .. naam .. ' (' .. party .. ')\n'
         .. '→ ' .. week_prefix .. '_gemeentenieuws/1.raadspraatFOTO.txt\n'
         .. '→ ' .. week_prefix .. '_gemeentenieuws/1.raadspraatFOTO.' .. photo_ext .. '\n'
         .. '→ Pubble Inbox/' .. photo_file .. '\n'
         .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
-        vim.log.levels.INFO
+        vim.log.levels.INFO,
+        { annote = 'Rubriek', ttl = 12 }
       )
     end)
   end)
@@ -461,7 +463,11 @@ local function copy_to_staging(src)
   end
   local dst = dir .. '/' .. vim.fn.fnamemodify(src, ':t')
   if vim.uv.fs_copyfile(src, dst) then
-    vim.notify('Image copied: ' .. vim.fn.fnamemodify(dst, ':t'))
+    notifications.workflow(
+      'Afbeelding gekopieerd: ' .. vim.fn.fnamemodify(dst, ':t'),
+      nil,
+      { annote = 'Rubriek' }
+    )
   else
     vim.notify('Could not copy image: ' .. src, vim.log.levels.ERROR)
   end
@@ -590,12 +596,13 @@ function M.ondernemen_menu()
       label = 'Ondernemen in Kampen',
     }) then return end
 
-    vim.notify(
+    notifications.workflow(
       'Ondernemen in Kampen: ' .. naam .. '\n'
       .. '→ Pubble Inbox/' .. photo_file .. '\n'
       .. '→ ' .. week_prefix .. '_ondernemen_in_kampen/1.ondernemen_in_kampenFOTO.' .. photo_ext .. '\n'
       .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
-      vim.log.levels.INFO
+      vim.log.levels.INFO,
+      { annote = 'Rubriek', ttl = 12 }
     )
   end)
 end
@@ -663,7 +670,7 @@ local function apply(t, vars, target_buf)
     })
   end
 
-  vim.notify('Inserted: ' .. t.name)
+  notifications.workflow('Template ingevoegd: ' .. t.name, nil, { annote = 'Rubriek' })
 end
 
 -- Pas een template bij naam toe op een specifieke buffer, met optionele
@@ -711,12 +718,13 @@ function M.kamperkiek_flow(template)
     label = 'Kamper Kiek op de Wiek',
   }) then return end
 
-  vim.notify(
+  notifications.workflow(
     'Kamper Kiek op de Wiek\n'
     .. '→ ' .. week_prefix .. '_gemeentenieuws/2.kamperkiekFOTO.txt\n'
     .. '→ ' .. week_prefix .. '_gemeentenieuws/2.kamperkiek.' .. photo_ext .. '\n'
     .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
-    vim.log.levels.INFO
+    vim.log.levels.INFO,
+    { annote = 'Rubriek', ttl = 12 }
   )
 end
 
@@ -810,12 +818,13 @@ function M.stock_rubriek_flow(config)
     label = config.name,
   }) then return end
 
-  vim.notify(
+  notifications.workflow(
     config.name .. '\n'
     .. '→ Pubble Inbox/' .. config.stock_image .. '\n'
     .. '→ ' .. week_prefix .. '_lezersnieuws/' .. img_name .. '\n'
     .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
-    vim.log.levels.INFO
+    vim.log.levels.INFO,
+    { annote = 'Rubriek', ttl = 12 }
   )
 end
 

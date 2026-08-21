@@ -1,4 +1,5 @@
 local M = {}
+local notifications = require("texttools_notify")
 
 -- Alleen editor-AI-processen zijn met <leader>aq annuleerbaar. Pubble-writes,
 -- uploads en archivering staan bewust niet in deze lijst: die kunnen extern al
@@ -10,17 +11,8 @@ local AI_CANCELLED = "__AI_CANCELLED__"
 -- Normale workflowbevestigingen horen de redactieflow niet te onderbreken.
 -- Fidget toont ze tijdelijk in een zwevend venster; vim.notify kan bij lange
 -- regels terugvallen op de commandoregel en daardoor om Enter vragen.
-local function notify_workflow(message, level)
-  level = level or vim.log.levels.INFO
-  local ok, notification = pcall(require, "fidget.notification")
-  if ok then
-    notification.notify(message, level, {
-      annote = "Pubble",
-      ttl = 6,
-    })
-  else
-    vim.notify(message, level)
-  end
+local function notify_workflow(message, level, options)
+  notifications.workflow(message, level, options)
 end
 
 local OPEN_URL_IN_BACKGROUND_SCRIPT = [=[
@@ -133,7 +125,7 @@ function M.cancel_ai(buf)
     if send_was_waiting then
       message = message .. " De wachtende verzending is ook geannuleerd."
     end
-    vim.notify(message, vim.log.levels.INFO)
+    notify_workflow(message, vim.log.levels.INFO)
   end)
   return true
 end
@@ -213,7 +205,7 @@ end
 -- Vim-bediening en kan daardoor nooit per ongeluk een AI-taak stoppen.
 vim.keymap.set("n", "<leader>aq", function()
   if not M.cancel_ai(vim.api.nvim_get_current_buf()) then
-    vim.notify("Geen actieve AI-taak in deze buffer.", vim.log.levels.INFO)
+    notify_workflow("Geen actieve AI-taak in deze buffer.", vim.log.levels.INFO)
   end
 end, {
   desc = "Actieve AI-taak in huidige buffer annuleren",
@@ -221,7 +213,7 @@ end, {
 
 vim.api.nvim_create_user_command("AICancel", function()
   if not M.cancel_ai(vim.api.nvim_get_current_buf()) then
-    vim.notify("Geen actieve AI-taak in deze buffer.", vim.log.levels.INFO)
+    notify_workflow("Geen actieve AI-taak in deze buffer.", vim.log.levels.INFO)
   end
 end, { desc = "Actieve AI-taak in huidige buffer annuleren" })
 
@@ -1120,7 +1112,7 @@ function M.rewrite_article_buffer()
          and not vim.b[buf].calendar_ai_started then
         local cal_score = _calendar_signal_score(rewritten_body_str)
         if cal_score >= _CALENDAR_THRESHOLD then
-          vim.notify(
+          notify_workflow(
             string.format("Kalenderdetectie (score %d) — kalendermetadata wordt opgehaald.", cal_score),
             vim.log.levels.INFO
           )
@@ -1352,7 +1344,7 @@ end
 -- leaders altijd de juiste buffer raken, ook als de focus elders is.
 function _run_articlemeta_calendar(buf)
   if buf and vim.api.nvim_buf_is_valid(buf) and vim.b[buf].calendar_ai_running then
-    vim.notify("Kalenderanalyse loopt al voor dit artikel.", vim.log.levels.INFO)
+    notify_workflow("Kalenderanalyse loopt al voor dit artikel.", vim.log.levels.INFO)
     return
   end
 
@@ -1397,9 +1389,14 @@ function _run_articlemeta_calendar(buf)
         -- staan en laat pubble-send de kalender-AI bij <leader>aw ten onrechte
         -- opnieuw draaien.
         strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
-        vim.notify("Kalenderdata toegevoegd. Controleer en pas aan, dan <leader>aw. Niet gewenst? <leader>aC weigert.", vim.log.levels.INFO)
+        notify_workflow(
+          "Kalenderdata toegevoegd. Controleer en pas aan, dan <leader>aw. "
+            .. "Niet gewenst? <leader>aC weigert.",
+          vim.log.levels.INFO,
+          { ttl = 10 }
+        )
       else
-        vim.notify("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
+        notify_workflow("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
       end
     end)
   end, "AI · Kalender", buf)
@@ -1447,7 +1444,7 @@ function M.reject_calendar(buf)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, out)
   vim.b[buf].cached_calendar_metadata = nil
   vim.b[buf].calendar_ai_started = true
-  vim.notify(
+  notify_workflow(
     "Agenda-item geweigerd (agenda: nee). Web en print gaan gewoon door.",
     vim.log.levels.INFO
   )
@@ -1462,7 +1459,7 @@ function M.prepare_article(buf)
   buf = buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
   if (vim.b[buf].pending_jobs or 0) > 0 then
-    vim.notify("Er lopen nog achtergrondtaken; even wachten.", vim.log.levels.INFO)
+    notify_workflow("Er lopen nog achtergrondtaken; even wachten.", vim.log.levels.INFO)
     return
   end
 
@@ -1540,7 +1537,7 @@ local function _calendar_autodetect(buf)
 
   local score = _calendar_signal_score(text)
   if score >= _CALENDAR_THRESHOLD then
-    vim.notify(
+    notify_workflow(
       string.format("Kalenderdetectie (score %d) — kalendermetadata wordt opgehaald.", score),
       vim.log.levels.INFO
     )
@@ -1619,7 +1616,7 @@ _offer_112_template = function(buf, score, context)
     vim.b[buf]._112_prompt_pending = false
     if choice == "Nee" then
       vim.b[buf]._112_rejected = true
-      vim.notify("112-detectie afgewezen voor dit artikel.", vim.log.levels.INFO)
+      notify_workflow("112-detectie afgewezen voor dit artikel.", vim.log.levels.INFO)
       return
     end
     if choice ~= "Ja" then return end
@@ -1676,7 +1673,7 @@ function M.pubble_send(target_buf)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
   if vim.b[buf].publication_in_progress then
-    vim.notify("Deze publicatierun is al bezig.", vim.log.levels.INFO)
+    notify_workflow("Deze publicatierun is al bezig.", vim.log.levels.INFO)
     return
   end
 
@@ -1689,7 +1686,10 @@ function M.pubble_send(target_buf)
   if (vim.b[buf].pending_jobs or 0) > 0 then
     if not vim.b[buf].send_requested then
       vim.b[buf].send_requested = true
-      vim.notify("Verzenden start automatisch zodra de achtergrondtaken klaar zijn.", vim.log.levels.INFO)
+      notify_workflow(
+        "Verzenden start automatisch zodra de achtergrondtaken klaar zijn.",
+        vim.log.levels.INFO
+      )
     end
     return
   end
@@ -1890,7 +1890,7 @@ function M.pubble_send(target_buf)
 
       if action.action == "set"
           and same_edition_codes(action.current_editions, action.editions) then
-        vim.notify(
+        notify_workflow(
           "Koppeling ‘" .. keyword .. "’ bestond al voor " .. target .. ".",
           vim.log.levels.INFO
         )
@@ -1899,7 +1899,10 @@ function M.pubble_send(target_buf)
         return
       end
       if action.action == "remove" and action.exists ~= true then
-        vim.notify("Geen koppeling gevonden voor ‘" .. keyword .. "’.", vim.log.levels.INFO)
+        notify_workflow(
+          "Geen koppeling gevonden voor ‘" .. keyword .. "’.",
+          vim.log.levels.INFO
+        )
         index = index + 1
         if index > #actions then finish_and_restart() else run_next() end
         return
@@ -1921,7 +1924,10 @@ function M.pubble_send(target_buf)
       vim.ui.select({ "Ja", "Nee" }, { prompt = prompt }, function(choice)
         if choice == nil then
           discard_unpublished_temp()
-          vim.notify("Verzending geannuleerd; koppelopdracht is blijven staan.", vim.log.levels.INFO)
+          notify_workflow(
+            "Verzending geannuleerd; koppelopdracht is blijven staan.",
+            vim.log.levels.INFO
+          )
           return
         end
         if choice == "Nee" then
@@ -1961,10 +1967,10 @@ function M.pubble_send(target_buf)
               return
             end
             if action.action == "set" then
-              vim.notify("Koppeling opgeslagen: ‘" .. keyword .. "’ → " .. target .. ".")
+              notify_workflow("Koppeling opgeslagen: ‘" .. keyword .. "’ → " .. target .. ".")
             else
               removed_link = true
-              vim.notify("Koppeling verwijderd: ‘" .. keyword .. "’.")
+              notify_workflow("Koppeling verwijderd: ‘" .. keyword .. "’.")
             end
             index = index + 1
             if index > #actions then finish_and_restart() else run_next() end
@@ -2261,7 +2267,10 @@ function M.pubble_send(target_buf)
           vim.b[buf].publication_in_progress = false
           discard_unpublished_temp()
           if err == AI_CANCELLED then
-            vim.notify("Genereren van evenementvervolgteksten geannuleerd.", vim.log.levels.INFO)
+            notify_workflow(
+              "Genereren van evenementvervolgteksten geannuleerd.",
+              vim.log.levels.INFO
+            )
           else
             vim.notify(err or "Evenementvoorbereiding mislukt", vim.log.levels.ERROR)
           end
@@ -2358,7 +2367,7 @@ function M.pubble_send(target_buf)
               vim.log.levels.INFO
             )
           else
-            vim.notify("Verzending geannuleerd.", vim.log.levels.INFO)
+            notify_workflow("Verzending geannuleerd.", vim.log.levels.INFO)
           end
         end)
         return
@@ -2521,7 +2530,7 @@ function M.pubble_send(target_buf)
           }, function(choice, choice_idx)
             if choice == nil then
               discard_unpublished_temp()
-              vim.notify("Verzending geannuleerd.", vim.log.levels.INFO)
+              notify_workflow("Verzending geannuleerd.", vim.log.levels.INFO)
               return
             end
             local value = choice_idx and item_values[choice_idx] or "direct"
@@ -2554,7 +2563,7 @@ function M.pubble_send(target_buf)
         if not suggested then
           all_recommended = false
           if latest_date then
-            vim.notify(
+            notify_workflow(
               string.format(
                 "Geen aanbevolen datum voor %s uiterlijk %s; kies handmatig.",
                 code,
@@ -2595,7 +2604,7 @@ function M.pubble_send(target_buf)
       }, function(choice)
         if choice == nil then
           discard_unpublished_temp()
-          vim.notify("Verzending geannuleerd.", vim.log.levels.INFO)
+          notify_workflow("Verzending geannuleerd.", vim.log.levels.INFO)
         elseif choice == accept_label then
           _do_pubble_send(recommended)
         elseif choice == adjust_label then
@@ -2931,7 +2940,10 @@ function M.teams_redactie()
     if choice.kind == "toggle" then
       config.enabled = not aan
       teams_write_config(config)
-      vim.notify("Teams-meldingen " .. (config.enabled and "AAN" or "UIT"), vim.log.levels.INFO)
+      notify_workflow(
+        "Teams-meldingen " .. (config.enabled and "AAN" or "UIT"),
+        vim.log.levels.INFO
+      )
       return
     end
 
@@ -2970,7 +2982,10 @@ function M.teams_redactie()
       e.email = email or vim.NIL
       teams_write_config(config)
       local nieuw = (e.email == vim.NIL) and "geen melding" or tostring(e.email or "geen melding")
-      vim.notify(string.format("%s → %s", e.krant or choice.code, nieuw), vim.log.levels.INFO)
+      notify_workflow(
+        string.format("%s → %s", e.krant or choice.code, nieuw),
+        vim.log.levels.INFO
+      )
     end
 
     vim.ui.select(recipient_items, {
@@ -3133,7 +3148,11 @@ local function generate_social_section(opts)
             vim.log.levels.WARN
           )
         else
-          vim.notify(opts.title .. "-bericht toegevoegd. Pas aan indien nodig, dan <leader>aw.", vim.log.levels.INFO)
+          notify_workflow(
+            opts.title .. "-bericht toegevoegd. Pas aan indien nodig, dan <leader>aw.",
+            vim.log.levels.INFO,
+            { ttl = 10 }
+          )
         end
       end)
     end,
@@ -3336,7 +3355,10 @@ function M.tussenkopjes_streamer()
 
     local new_body = insert_headings(body, koppen, paras)
     if #koppen == 0 then
-      vim.notify("Geen tussenkopjes toegevoegd (artikel te kort of AI gaf niets terug).", vim.log.levels.INFO)
+      notify_workflow(
+        "Geen tussenkopjes toegevoegd (artikel te kort of AI gaf niets terug).",
+        vim.log.levels.INFO
+      )
     end
 
     if results.streamer and results.streamer ~= "" then
@@ -3344,7 +3366,10 @@ function M.tussenkopjes_streamer()
       if with_streamer then
         new_body = with_streamer
       else
-        vim.notify("Artikel te kort voor een mid-tekst streamer — overgeslagen.", vim.log.levels.WARN)
+        notify_workflow(
+          "Artikel te kort voor een mid-tekst streamer — overgeslagen.",
+          vim.log.levels.WARN
+        )
       end
     end
     vim.api.nvim_buf_set_lines(
@@ -3352,7 +3377,10 @@ function M.tussenkopjes_streamer()
       reassemble_article(fm, ctrl, new_body, sections, has_boundary)
     )
     if has_streamer then
-      vim.notify("Tussenkopjes toegevoegd; eigen > streamer blijft staan.", vim.log.levels.INFO)
+      notify_workflow(
+        "Tussenkopjes toegevoegd; eigen > streamer blijft staan.",
+        vim.log.levels.INFO
+      )
     end
   end
 
@@ -3386,7 +3414,10 @@ function M.tussenkopjes_streamer()
               if vim.trim(l) ~= "" then results.streamer = vim.trim(l); break end
             end
           else
-            vim.notify("Streamer genereren mislukt — alleen tussenkopjes toegepast.", vim.log.levels.WARN)
+            notify_workflow(
+              "Streamer genereren mislukt — alleen tussenkopjes toegepast.",
+              vim.log.levels.WARN
+            )
           end
           pending = pending - 1
           finish()
@@ -3531,7 +3562,7 @@ function M.ai_prompt_rewrite()
           buf, 0, -1, false,
           reassemble_article(fm, ctrl, new_body, sections, has_boundary)
         )
-        vim.notify("Done. Use u to undo.", vim.log.levels.INFO)
+        notify_workflow("Klaar. Gebruik u om ongedaan te maken.", vim.log.levels.INFO)
       end)
     end,
     "AI · Herschrijven",
@@ -3614,7 +3645,11 @@ function M.ai_chat()
         if vim.api.nvim_get_current_buf() == buf then
           vim.api.nvim_win_set_cursor(0, { last, 0 })
         end
-        vim.notify("Answer added. Type *** + next question, then <leader>ag.", vim.log.levels.INFO)
+        notify_workflow(
+          "Antwoord toegevoegd. Typ *** met de volgende vraag en druk dan <leader>ag.",
+          vim.log.levels.INFO,
+          { ttl = 10 }
+        )
       end)
     end,
     "AI · Gesprek",
@@ -3632,13 +3667,14 @@ vim.keymap.set("n", "<leader>ag", M.ai_chat, {
 -- herkenbare categorieën; de tweede laag bevat de concrete codes of acties.
 -- Houd editie-items synchroon met pubble_publications.py.
 local function show_rubric_recognition_help()
-  vim.notify(
+  notify_workflow(
     table.concat({
       "Automatisch uit de tekst: alleen kalender en 112.",
       "Raadspraat, Ondernemen in Kampen, Kamper Kiek en andere vaste rubrieken kies je zelf via <leader>kt.",
       "<leader>kp gebruikt alleen planning; namen en foto's worden pas na je keuze ingevuld.",
     }, "\n"),
-    vim.log.levels.INFO
+    vim.log.levels.INFO,
+    { ttl = 12 }
   )
 end
 

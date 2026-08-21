@@ -8,6 +8,7 @@
 local M = {}
 
 local texttools_commands = require('texttools_commands')
+local notifications = require('texttools_notify')
 local mail_script = texttools_commands.path('nvim', 'raadspraat_mail.applescript')
 
 local RUBRIEKEN = {
@@ -48,7 +49,11 @@ local function mark(item, sent)
   if not markable(item) then return end
   local result = run(item.series, { sent and 'sent' or 'unsent', item.id })
   if not result then return end
-  vim.notify(sent and 'Reminder gemarkeerd als verstuurd.' or 'Verzendmarkering verwijderd.')
+  notifications.workflow(
+    sent and 'Reminder gemarkeerd als verstuurd.' or 'Verzendmarkering verwijderd.',
+    nil,
+    { annote = 'Planning' }
+  )
   reload_menu(item.series)
 end
 
@@ -99,7 +104,11 @@ local function open_in_mail(item, buf)
   end
 
   if markable(item) then confirm_sent_on_return(item) end
-  vim.notify('Concept voor ' .. item.label .. ' geopend in Apple Mail.')
+  notifications.workflow(
+    'Concept voor ' .. item.label .. ' geopend in Apple Mail.',
+    nil,
+    { annote = 'Planning' }
+  )
 end
 
 local function copy_mail(item, buf)
@@ -117,7 +126,11 @@ local function copy_mail(item, buf)
     '',
   }, '\n'))
   local soort = markable(item) and ('Reminder voor ' .. item.label) or 'Planningsmail'
-  vim.notify(soort .. ' staat volledig op het klembord. De verzendstatus is niet gewijzigd.')
+  notifications.workflow(
+    soort .. ' staat volledig op het klembord. De verzendstatus is niet gewijzigd.',
+    nil,
+    { annote = 'Planning', ttl = 10 }
+  )
 end
 
 -- ? in de mailbuffer — zelfde vorm als de texttools-cheatsheet.
@@ -196,7 +209,7 @@ local function open_preview(item)
   if markable(item) then
     hint = '<leader>aw = Apple Mail  •  c = volledige mail kopiëren  •  s = status corrigeren  •  ? = hulp  •  q = sluiten'
   end
-  vim.notify(hint)
+  notifications.workflow(hint, nil, { annote = 'Planning', ttl = 12 })
 end
 
 local function fetch_rotation(series)
