@@ -63,6 +63,11 @@ data in de body niet. Alles blijft zichtbaar ter controle. Druk daarna
 draait automatisch vóór de print-only verzending. Dit maakt uitsluitend het
 printconcept `!agendapagina`; `ONTBREEKT` blokkeert verzending. Losse controle
 en blokpreview blijven alleen als technische `:AgendaPagina…`-opdrachten beschikbaar.
+Sterk gelijkende items op dezelfde dag verschijnen vóór verzending als
+mogelijke doublures; kies na controle `Toch verzenden` of veilig `Annuleren`.
+Na de gecontroleerde Pubble-opslag verschijnt de directe krantartikellink in
+de melding en bovenin de agendapagina. Een bestaand artikel-ID zonder die link
+wordt door `<leader>aw` veilig hersteld in plaats van opnieuw aangemaakt.
 
 ---
 

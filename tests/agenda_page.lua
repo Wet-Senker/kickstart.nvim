@@ -18,9 +18,21 @@ assert(send_cmd[7] == 'SW')
 local valid = module._decode_validation '{"valid":true,"errors":[],"edition":"B","days":2,"items":4}'
 assert(valid.valid == true)
 assert(valid.edition == 'B')
-local valid_without_id = module._decode_validation '{"valid":true,"errors":[],"newspaper_article_id":null,"article_join_id":null}'
+local valid_without_id = module._decode_validation '{"valid":true,"errors":[],"newspaper_article_id":null,"article_join_id":null,"pubble_url":null}'
 assert(valid_without_id.newspaper_article_id == nil, 'JSON-null werd aangezien voor een bestaand printconcept')
 assert(valid_without_id.article_join_id == nil, 'JSON-null werd aangezien voor een bestaande article join')
+assert(valid_without_id.pubble_url == nil, 'JSON-null werd aangezien voor een gereed Pubbleconcept')
+local ready = module._decode_validation '{"valid":true,"newspaper_article_id":106200,"pubble_url":"https://brugmedia.pubble.dev/articles/newspaper/106200"}'
+assert(ready.pubble_url:match '/articles/newspaper/106200$')
+assert(
+  module._duplicate_candidate_line {
+    first_date = 'dinsdag 25 augustus',
+    first_title = 'Orgelconcert',
+    second_title = 'Orgelconcert Buitenkerk',
+    reason = 'titels lijken sterk op elkaar',
+    score = 91,
+  } == 'dinsdag 25 augustus: Orgelconcert ↔ Orgelconcert Buitenkerk (titels lijken sterk op elkaar, 91%)'
+)
 assert(module._decode_validation 'geen json' == nil)
 
 local buf = vim.api.nvim_create_buf(true, false)
@@ -77,6 +89,64 @@ assert(selection_count == 1, 'agenda-send vroeg meer dan eenmaal om een keuze')
 vim.ui.select = original_select
 vim.system = original_system
 vim.fn.delete(send_path)
+
+-- Sterke doublurekandidaten vragen een tweede, bewuste bevestiging en geven
+-- die keuze expliciet door aan de CLI.
+local duplicate_selection_count = 0
+local duplicate_sent = false
+vim.ui.select = function(items, options, callback)
+  duplicate_selection_count = duplicate_selection_count + 1
+  if options.prompt == 'Agendapagina versturen naar welke krant?' then
+    callback(items[1])
+    return
+  end
+  assert(options.prompt == 'Zijn deze overeenkomsten gecontroleerd?')
+  assert(items[1].label == 'Annuleren' and items[2].label == 'Toch verzenden')
+  callback(items[2])
+end
+vim.system = function(system_cmd, _, callback)
+  if system_cmd[4] == 'validate' then
+    callback {
+      code = 0,
+      stdout = vim.json.encode {
+        valid = true,
+        errors = {},
+        edition = 'B',
+        days = 1,
+        items = 2,
+        duplicate_candidates = {
+          {
+            first_date = 'dinsdag 25 augustus',
+            first_title = 'Orgelconcert',
+            second_title = 'Orgelconcert Buitenkerk',
+            reason = 'titel en tekst lijken sterk op elkaar',
+            score = 90,
+          },
+        },
+      },
+    }
+  elseif system_cmd[4] == 'send' then
+    assert(system_cmd[8] == '--allow-duplicates')
+    duplicate_sent = true
+    callback {
+      code = 0,
+      stdout = 'AGENDA_PAGE_RESULT_JSON:{"newspaper_article_id":106201,"article_url":"https://brugmedia.pubble.dev/articles/newspaper/106201"}',
+    }
+  else
+    error('onverwacht agenda-commando: ' .. table.concat(system_cmd, ' '))
+  end
+  return { is_closing = function() return false end }
+end
+local duplicate_path = vim.fn.tempname() .. '.md'
+vim.fn.writefile({ '=== AGENDAPAGINA ===' }, duplicate_path)
+local duplicate_buf = vim.fn.bufadd(duplicate_path)
+vim.fn.bufload(duplicate_buf)
+module.send(duplicate_buf)
+assert(vim.wait(1000, function() return duplicate_sent end), 'bevestigde doublure-send werd niet bereikt')
+assert(duplicate_selection_count == 2, 'doublurecontrole vroeg niet exact één extra bevestiging')
+vim.ui.select = original_select
+vim.system = original_system
+vim.fn.delete(duplicate_path)
 
 -- Het bestaande <leader>aw-pad moet een voorbereide agendapagina vóór de
 -- gewone artikelpreflight naar de gespecialiseerde print-only send routeren.

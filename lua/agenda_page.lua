@@ -61,7 +61,20 @@ local function decode_validation(stdout)
   -- Pubbleconcept en stopt de send vóór de API-call.
   if decoded.newspaper_article_id == vim.NIL then decoded.newspaper_article_id = nil end
   if decoded.article_join_id == vim.NIL then decoded.article_join_id = nil end
+  if decoded.pubble_url == vim.NIL then decoded.pubble_url = nil end
+  if decoded.duplicate_candidates == vim.NIL then decoded.duplicate_candidates = {} end
   return decoded
+end
+
+local function duplicate_candidate_line(candidate)
+  return string.format(
+    '%s: %s ↔ %s (%s, %d%%)',
+    candidate.first_date or '?',
+    candidate.first_title or '?',
+    candidate.second_title or '?',
+    candidate.reason or 'sterke overeenkomst',
+    candidate.score or 0
+  )
 end
 
 local function show_validation(decoded)
@@ -218,31 +231,61 @@ function M.send(buf)
           return
         end
       end
-      if decoded.newspaper_article_id then
+      if decoded.pubble_url then
         active_send[buf] = nil
-        workflow('Dit printconcept bestaat al in Pubble: ' .. tostring(decoded.newspaper_article_id), vim.log.levels.INFO)
+        workflow('Agendapagina staat klaar voor plaatsing.\n' .. decoded.pubble_url, vim.log.levels.INFO, { ttl = 15 })
         return
       end
 
-      local handle = progress 'Agenda · Naar Pubble'
-      vim.system(command('send', path, '--edition', edition.code), { text = true }, function(result)
-        handle:finish()
-        active_send[buf] = nil
-        vim.schedule(function()
-          if result.code ~= 0 then
-            vim.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or 'Verzenden van de agendapagina is mislukt.', vim.log.levels.ERROR)
-            return
-          end
-          local raw = (result.stdout or ''):match 'AGENDA_PAGE_RESULT_JSON:(%b{})'
-          local ok, status = pcall(vim.json.decode, raw or '')
-          if not ok or type(status) ~= 'table' then
-            vim.notify('Pubble gaf geen leesbare verzendstatus terug.', vim.log.levels.ERROR)
-            return
-          end
-          reload_after_send(buf)
-          workflow('Printconcept !agendapagina aangemaakt: ' .. tostring(status.newspaper_article_id), vim.log.levels.INFO, { ttl = 9 })
+      local function run_send(allow_duplicates)
+        local send_command = command('send', path, '--edition', edition.code)
+        if allow_duplicates then table.insert(send_command, '--allow-duplicates') end
+        local handle = progress 'Agenda · Naar Pubble'
+        vim.system(send_command, { text = true }, function(result)
+          handle:finish()
+          active_send[buf] = nil
+          vim.schedule(function()
+            if result.code ~= 0 then
+              vim.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or 'Verzenden van de agendapagina is mislukt.', vim.log.levels.ERROR)
+              return
+            end
+            local raw = (result.stdout or ''):match 'AGENDA_PAGE_RESULT_JSON:(%b{})'
+            local ok, status = pcall(vim.json.decode, raw or '')
+            if not ok or type(status) ~= 'table' then
+              vim.notify('Pubble gaf geen leesbare verzendstatus terug.', vim.log.levels.ERROR)
+              return
+            end
+            reload_after_send(buf)
+            local article_url = status.article_url
+              or ('https://brugmedia.pubble.dev/articles/newspaper/' .. tostring(status.newspaper_article_id))
+            workflow('Agendapagina staat klaar voor plaatsing.\n' .. article_url, vim.log.levels.INFO, { ttl = 15 })
+          end)
         end)
-      end)
+      end
+
+      local duplicates = decoded.duplicate_candidates or {}
+      if #duplicates > 0 then
+        local lines = {}
+        for _, candidate in ipairs(duplicates) do
+          table.insert(lines, '• ' .. duplicate_candidate_line(candidate))
+        end
+        vim.notify('Mogelijke doublures gevonden:\n' .. table.concat(lines, '\n'), vim.log.levels.WARN)
+        vim.ui.select({
+          { label = 'Annuleren', allow = false },
+          { label = 'Toch verzenden', allow = true },
+        }, {
+          prompt = 'Zijn deze overeenkomsten gecontroleerd?',
+          format_item = function(item) return item.label end,
+        }, function(choice)
+          if not choice or not choice.allow then
+            active_send[buf] = nil
+            return
+          end
+          run_send(true)
+        end)
+        return
+      end
+      run_send(false)
     end, edition.code)
   end)
 end
@@ -276,5 +319,6 @@ end
 M._command = command
 M._decode_validation = decode_validation
 M._replace_buffer = replace_buffer
+M._duplicate_candidate_line = duplicate_candidate_line
 
 return M
