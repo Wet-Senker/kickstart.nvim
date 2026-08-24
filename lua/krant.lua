@@ -10,6 +10,8 @@ local texttools_commands = require('texttools_commands')
 local layout_export = require('layout_export')
 local notifications = require('texttools_notify')
 local ARTICLE_BOUNDARY = '=== ARTIKEL ==='
+local KAMPER_KIEK_TITLE = 'De Kamper Kiek op de wîêk'
+local KAMPER_KIEK_INTRO = 'In De Brug kijkt burgemeester Sander de Rouwe wekelijks in fotovorm terug op de afgelopen week.'
 
 -- ============================================================
 -- CONFIG — set this path once.
@@ -46,15 +48,16 @@ M.templates = {
   '{{body}}',
   },
   },
-   {
+  {
     name = "Kiek op de wiek (Sander de Rouwe)",
+    working_title = 'z - 1 Kamper Kiek',
     -- De speciale Kiek-flow registreert gemeentenieuws; nooit de generieke
     -- lezersnieuwsexport uit apply().
     no_export = true,
     text = {
-      "De Kamper 'kiek op de wîêk' van burgemeester Sander de Rouwe",
+      KAMPER_KIEK_TITLE,
       "",
-      "In De Brug kijkt burgemeester Sander de Rouwe wekelijks in fotovorm terug op de afgelopen week.",
+      KAMPER_KIEK_INTRO,
       "",
       "{{body}}",
     },
@@ -214,6 +217,65 @@ local function visible_frontmatter(lines)
     if i > 1 and line == '---' then return result end
   end
   return {}
+end
+
+-- Voeg vaste krantmetadata toe zonder eventuele al aanwezige AI-/Pubblevelden
+-- uit de frontmatter te verwijderen. Op dit moment gebruikt Kamper Kiek dit
+-- voor dezelfde z-werktitelconventie als de andere vaste rubrieken.
+local function upsert_newspaper_frontmatter(frontmatter, working_title, priority)
+  if not working_title then return frontmatter end
+  if #frontmatter == 0 then
+    return {
+      '---',
+      'newspaper:',
+      '  working_title: "' .. working_title .. '"',
+      '  priority: ' .. tostring(priority or 1),
+      '---',
+    }
+  end
+
+  local result = vim.deepcopy(frontmatter)
+  local newspaper_index
+  local section_end = #result
+  for index = 2, #result - 1 do
+    if result[index]:match('^newspaper:%s*$') then
+      newspaper_index = index
+      break
+    end
+  end
+
+  if not newspaper_index then
+    table.insert(result, #result, 'newspaper:')
+    table.insert(result, #result, '  working_title: "' .. working_title .. '"')
+    table.insert(result, #result, '  priority: ' .. tostring(priority or 1))
+    return result
+  end
+
+  for index = newspaper_index + 1, #result - 1 do
+    if result[index]:match('^%S') then
+      section_end = index
+      break
+    end
+  end
+
+  local found_title = false
+  local found_priority = false
+  for index = newspaper_index + 1, section_end - 1 do
+    if result[index]:match('^%s+working_title:%s*') then
+      result[index] = '  working_title: "' .. working_title .. '"'
+      found_title = true
+    elseif result[index]:match('^%s+priority:%s*') then
+      result[index] = '  priority: ' .. tostring(priority or 1)
+      found_priority = true
+    end
+  end
+  if not found_priority then
+    table.insert(result, section_end, '  priority: ' .. tostring(priority or 1))
+  end
+  if not found_title then
+    table.insert(result, newspaper_index + 1, '  working_title: "' .. working_title .. '"')
+  end
+  return result
 end
 
 -- Splits een zichtbare pv-buffer in beschermd tagblok en artikeltekst. Oude
@@ -615,6 +677,8 @@ local function apply(t, vars, target_buf)
   local existing_fm = visible_frontmatter(buf_lines)
   local existing_header, content = split_visible_article(buf_lines)
 
+  existing_fm = upsert_newspaper_frontmatter(existing_fm, t.working_title, 1)
+
   if t.name == '112 nieuws' and not vars.prefix then
     vars.prefix = detect_112_prefix(content)
   end
@@ -685,38 +749,97 @@ function M.apply_template_by_name(name, vars, buf)
   return false
 end
 
+local function normalize_kamper_kiek(content)
+  local text = vim.trim(table.concat(content or {}, '\n'))
+  local title_pattern = '^[Dd]e%s+[Kk]amper%s+[Kk]iek%s+op%s+de%s+wîêk'
 
-function M.kamperkiek_flow(template)
+  -- De burgemeester levert de Kiek doorgaans als één doorlopende regel aan:
+  -- "De Kamper kiek op de wîêk: 1). ... 2). ...". De vaste rubriekkop staat
+  -- al in het template en mag daarom niet nogmaals in de artikelbody komen.
+  local removed
+  text, removed = text:gsub(title_pattern .. '%s*:%s*', '', 1)
+  if removed == 0 then
+    -- Maakt opnieuw toepassen veilig voor een tekst die al in de goede vorm
+    -- staat: vaste kop en intro worden niet dubbel gestapeld.
+    text = text:gsub(title_pattern .. '%s*\n%s*', '', 1)
+    if text:sub(1, #KAMPER_KIEK_INTRO) == KAMPER_KIEK_INTRO then
+      text = vim.trim(text:sub(#KAMPER_KIEK_INTRO + 1))
+    end
+  end
+
+  -- Alleen de kenmerkende aangeleverde nummering activeren. Daardoor blijven
+  -- datums en andere getallen in een al netjes opgemaakt artikel ongemoeid.
+  local legacy_numbering = text:find('%f[%d]1%)') and text:find('%f[%d]2%)')
+  if legacy_numbering then
+    text = text:gsub('%s+', ' ')
+    text = text:gsub('(%d+)%)%.?%s*', '\n%1. ')
+  end
+
+  text = vim.trim(text)
+  local lines = vim.split(text, '\n', { plain = true })
+  for index, line in ipairs(lines) do
+    lines[index] = vim.trim(line)
+  end
+  return lines
+end
+M._normalize_kamper_kiek = normalize_kamper_kiek
+
+local function normalize_hondenhoek(content)
+  local lines = vim.deepcopy(content or {})
+  while #lines > 0 and vim.trim(lines[1]) == '' do table.remove(lines, 1) end
+  while #lines > 0 and vim.trim(lines[#lines]) == '' do table.remove(lines) end
+
+  -- De vaste template bevat de rubriekkop al. Alleen een losse, exacte
+  -- aangeleverde kop verwijderen; titel, body en auteursregel blijven verder
+  -- byte-for-byte staan.
+  if #lines > 0 then
+    local first = vim.trim(lines[1]):lower()
+    if first == 'hondenhoek' or first == 'hondenhoek:' then
+      table.remove(lines, 1)
+      while #lines > 0 and vim.trim(lines[1]) == '' do table.remove(lines, 1) end
+    end
+  end
+  return lines
+end
+M._normalize_hondenhoek = normalize_hondenhoek
+
+function M.kamperkiek_flow(template, target_buf)
+  target_buf = target_buf or vim.api.nvim_get_current_buf()
   local inbox = require('texttools_paths').inbox()
   local images = image_files(inbox)
 
   if #images == 0 then
     vim.notify('Geen foto gevonden in Pubble Inbox. Zet de foto er eerst in.', vim.log.levels.ERROR)
-    return
+    return false, 'photo_missing'
   end
   if #images > 1 then
     vim.notify('Meerdere foto\'s gevonden in Pubble Inbox. Verwijder alle foto\'s behalve de Kiek-foto.', vim.log.levels.ERROR)
-    return
+    return false, 'multiple_photos'
   end
 
   local photo_file = images[1]
   local photo_src = inbox .. '/' .. photo_file
   local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
 
-  -- Pas de template toe op de buffer.
-  apply(template)
+  -- De Kiek is een echte wrap-template: behoud de volledige aangeleverde
+  -- tekst (dus ook de eerste regel), normaliseer de inline nummering en zet
+  -- vervolgens de vaste rubriekkop en intro erboven.
+  local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
+  local _, article_lines = split_visible_article(buf_lines)
+  local normalized = normalize_kamper_kiek(article_lines)
+  apply(template, { body = table.concat(normalized, '\n') }, target_buf)
 
   -- Bereid één gemeentenieuwsexport voor; de tekst volgt pas na een
   -- succesvolle <leader>aw en komt daardoor altijd uit de actuele buffer.
   local week_prefix = publication_week()
   local gn_dir = M.config.desktop .. '/' .. week_prefix .. '_gemeentenieuws'
-  if not prepare_layout_export(vim.api.nvim_get_current_buf(), {
+  if not prepare_layout_export(target_buf, {
     dir = gn_dir,
     txt_name = '2.kamperkiekFOTO.txt',
     img_name = '2.kamperkiek.' .. photo_ext,
     photo_src = photo_src,
     label = 'Kamper Kiek op de Wiek',
-  }) then return end
+  }) then return false, 'layout_export_failed' end
 
   notifications.workflow(
     'Kamper Kiek op de Wiek\n'
@@ -726,15 +849,40 @@ function M.kamperkiek_flow(template)
     vim.log.levels.INFO,
     { annote = 'Rubriek', ttl = 12 }
   )
+  return true
+end
+
+local stock_rubrieken
+
+function M.apply_detected_rubric(id, buf)
+  if id == 'kamper_kiek' then
+    for _, template in ipairs(M.templates) do
+      if template.name == 'Kiek op de wiek (Sander de Rouwe)' then
+        return M.kamperkiek_flow(template, buf)
+      end
+    end
+    return false, 'template_missing'
+  end
+  if id == 'hondenhoek' then
+    for _, config in ipairs(stock_rubrieken or {}) do
+      if config.name == 'Hondenhoek' then
+        return M.stock_rubriek_flow(config, buf)
+      end
+    end
+    return false, 'template_missing'
+  end
+  return false, 'unknown_rubric'
 end
 
 -- Vaste rubrieken met stockfoto → lezersnieuws export.
-local stock_rubrieken = {
+stock_rubrieken = {
   {
     name        = 'Hondenhoek',
     stock_image = 'hondenhoek.jpg',
     txt_name    = '1.hondenhoekFOTO.txt',
     working_title = 'z - 1 Hondenhoek',
+    normalize = normalize_hondenhoek,
+    preserve_full_body = true,
     template    = {
       'Hondenhoek',
       '',
@@ -778,12 +926,17 @@ for _, r in ipairs(stock_rubrieken) do
   stock_rubriek_names[r.name] = true
 end
 
-function M.stock_rubriek_flow(config)
+function M.stock_rubriek_flow(config, target_buf)
+  target_buf = target_buf or vim.api.nvim_get_current_buf()
   local stock_src = M.config.stock_images .. '/' .. config.stock_image
   local inbox = require('texttools_paths').inbox()
 
   -- Waarschuw als er al foto's in de inbox staan.
-  if not require_empty_inbox(inbox) then return end
+  if not require_empty_inbox(inbox) then return false, 'inbox_not_empty' end
+  if vim.fn.filereadable(stock_src) ~= 1 then
+    vim.notify('Stockfoto niet gevonden: ' .. stock_src, vim.log.levels.ERROR)
+    return false, 'stock_image_missing'
+  end
 
   -- Minimale frontmatter stub voor working_title en priority.
   local fm_lines = {
@@ -795,28 +948,36 @@ function M.stock_rubriek_flow(config)
     '',
   }
 
-  local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
   local existing_header, article_lines = split_visible_article(buf_lines)
+  if config.normalize then article_lines = config.normalize(article_lines) end
   local new_lines = {}
   for _, l in ipairs(fm_lines)  do table.insert(new_lines, l) end
-  local article = render_template(config.template, article_lines)
+  local template_vars = nil
+  if config.preserve_full_body then
+    template_vars = { body = table.concat(article_lines, '\n') }
+  end
+  local article = render_template(config.template, article_lines, template_vars)
   append_visible_article(new_lines, existing_header, article)
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
 
-  -- Kopieer stockfoto naar Pubble Inbox.
-  if not copy_to_inbox(stock_src, inbox .. '/' .. config.stock_image) then return end
+  -- Eerst de stockfoto valideren/kopiëren; bij een fout blijft het artikel
+  -- volledig ongemoeid, wat bij automatische herkenning essentieel is.
+  if not copy_to_inbox(stock_src, inbox .. '/' .. config.stock_image) then
+    return false, 'photo_copy_failed'
+  end
+  vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, new_lines)
 
   -- Bereid één lezersnieuwsexport voor; de actuele tekst volgt bij <leader>aw.
   local week_prefix = publication_week()
   local ln_dir = M.config.desktop .. '/' .. week_prefix .. '_lezersnieuws'
   local img_name = config.txt_name:gsub('%.txt$', '.jpg')
-  if not prepare_layout_export(vim.api.nvim_get_current_buf(), {
+  if not prepare_layout_export(target_buf, {
     dir = ln_dir,
     txt_name = config.txt_name,
     img_name = img_name,
     photo_src = stock_src,
     label = config.name,
-  }) then return end
+  }) then return false, 'layout_export_failed' end
 
   notifications.workflow(
     config.name .. '\n'
@@ -826,6 +987,7 @@ function M.stock_rubriek_flow(config)
     vim.log.levels.INFO,
     { annote = 'Rubriek', ttl = 12 }
   )
+  return true
 end
 
 function M.menu()

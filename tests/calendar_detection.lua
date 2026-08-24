@@ -1,4 +1,5 @@
 local ai_text = require("ai_text")
+local recognition = require("article_recognition")
 
 local threshold = 8
 
@@ -43,6 +44,22 @@ assert(
 assert(
   ai_text._calendar_signal_score(wekelijkse_lessen) >= threshold,
   "herhalende lessen voor deelnemers werden niet als kalenderkandidaat herkend"
+)
+
+local veel_data = [[
+maandag 24 augustus
+dinsdag 25 augustus
+woensdag 26 augustus
+donderdag 27 augustus
+Nogmaals op dinsdag 25 augustus.
+]]
+assert(
+  recognition.calendar_date_count(veel_data) == 4,
+  "afzonderlijke datums werden niet correct geteld of een herhaling telde dubbel"
+)
+assert(
+  recognition.calendar_date_count("2026-08-24, 25/08/2026 en 26-08-2026") == 3,
+  "numerieke datums werden niet correct geteld"
 )
 
 print("calendar detection: OK")

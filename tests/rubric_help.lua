@@ -22,7 +22,9 @@ vim.notify = original_notify
 vim.ui.select = original_select
 
 assert(select_calls == 2, 'rubriekhulp opende niet beide menulagen')
-assert(notice and notice:find('alleen kalender en 112', 1, true), 'uitleg over automatische herkenning ontbreekt')
+assert(notice and notice:find('kalender, 112, Kamper Kiek en Hondenhoek', 1, true), 'uitleg over automatische herkenning ontbreekt')
+assert(notice:find('Bert Nieuwenhuis + hond/honden', 1, true), 'Hondenhoekautodetectie ontbreekt in de uitleg')
+assert(notice:find('automatisch toegepast', 1, true), 'zekere rubriekautodetectie ontbreekt in de uitleg')
 assert(notice:find('via <leader>kt', 1, true), 'handmatige templatekeuze ontbreekt in de uitleg')
 assert(notice:find('<leader>kp gebruikt alleen planning', 1, true), 'planningsgrens ontbreekt in de uitleg')
 

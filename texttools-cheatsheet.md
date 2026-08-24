@@ -48,14 +48,20 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>ah` | Hiërarchisch hulpmenu voor codes, rubrieken, acties en cheatsheet |
 | `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen en Kamper Kiek |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten |
+| `<leader>ka` | Papieren agendapagina voorbereiden/controleren/print-only versturen |
 
 ---
 
 ## Automatisch of handmatig?
 
-- **Automatisch uit de tekst:** alleen kalender- en 112-detectie.
-- **Altijd handmatig via `<leader>kt`:** Raadspraat, Ondernemen in Kampen,
-  Kamper Kiek en alle andere vaste rubrieken.
+- **Automatisch uit de tekst:** kalenderdetectie, een ondubbelzinnige Kamper
+  Kiek met vaste naam plus nummering 1–3, en Hondenhoek bij Bert Nieuwenhuis +
+  hond/honden (of `Hondenhoek` + een tweede signaal). Kamper Kiek vereist exact
+  één foto; voor Hondenhoek moet Pubble Inbox leeg zijn.
+- **Altijd met bevestiging:** 112-detectie. Een onzekere rubriek of conflict
+  opent een keuzemenu.
+- **Niet automatisch uit de tekst herkend:** Raadspraat, Ondernemen in Kampen
+  en alle andere vaste rubrieken; kies die via `<leader>kt`.
 - **`<leader>kp`:** leest de artikeltekst niet; toont alleen de planning voor
   Raadspraat en Ondernemen.
 - Namen, partijen en foto's worden pas na je rubriekkeuze uit mappen of
@@ -65,11 +71,17 @@ Vaste volgorde voor rubrieken:
 
 1. Rond kop en tekst af.
 2. Maak Pubble Inbox leeg; zet voor Kamper Kiek juist exact één Kiek-foto klaar.
-3. Kies met `<leader>kt` de rubriek; template en foto's worden voorbereid, maar
-   er wordt nog geen vormgevingstekst geschreven.
+3. Kies met `<leader>kt` de rubriek; een zekere Kamper Kiek of Hondenhoek kan
+   deze stap al automatisch hebben uitgevoerd. Template en foto's worden
+   voorbereid, maar er wordt nog geen vormgevingstekst geschreven.
 4. Controleer het resultaat en vul alle zichtbare `{{velden}}` in.
 5. `<leader>aw` publiceert en schrijft daarna precies één actuele `.txt` naar
    de juiste weekmap. Bij een fout blijft het exportplan staan voor de retry.
+
+Papieren agendapagina: plak alle dagen en activiteiten, kies `<leader>ka` →
+**Voorbereiden**, controleer de zichtbare velden en verstuur via hetzelfde
+menu. `>>>titel<<<` is premium en slaat AI over; `hele dag` mag; de body is
+maximaal 500 tekens. Dit maakt alleen het printconcept `!agendapagina`.
 
 ---
 

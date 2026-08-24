@@ -1,5 +1,6 @@
 local M = {}
 local notifications = require("texttools_notify")
+local article_recognition = require("article_recognition")
 
 -- Alleen editor-AI-processen zijn met <leader>aq annuleerbaar. Pubble-writes,
 -- uploads en archivering staan bewust niet in deze lijst: die kunnen extern al
@@ -617,7 +618,7 @@ M._add_media_controls = add_media_controls
 local _run_articlemeta_calendar  -- forward declaration
 local _112_signal_score          -- forward declaration
 local _offer_112_template        -- forward declaration
-local _112_THRESHOLD = 6
+local _112_THRESHOLD = article_recognition.EMERGENCY_THRESHOLD
 
 local _112_DISCLAIMER = (function()
   for _, t in ipairs(require("krant").templates) do
@@ -673,122 +674,59 @@ local function _parse_112_template(lines)
 end
 
 -- ---------------------------------------------------------------------------
--- Deterministische kalenderdetectie
--- Scoort artikeltekst op combinaties van datum, tijd, deelname en activiteit.
--- Sterk signaal = meerdere categorieën tegelijk; één categorie triggert nooit.
--- ---------------------------------------------------------------------------
-local _CALENDAR_THRESHOLD = 8
+-- Deterministische kalenderdetectie. De centrale herkenningsmodule bezit de
+-- scorelogica; ai_text voert alleen de eventuele metadata-actie uit.
+local _CALENDAR_THRESHOLD = article_recognition.CALENDAR_THRESHOLD
 
 local function _calendar_signal_score(text)
-  local t = text:lower()
-  local score = 0
-
-  -- Sterke frasen: 3 pts elk (onbeperkt, maar elk patroon max 1x)
-  for _, phrase in ipairs({
-    "op het programma", "staat op het programma",
-    "vindt plaats", "wordt gehouden", "begint om", "start om", "eindigt om",
-    "de deuren gaan open", "de zaal gaat open",
-    "inloop vanaf", "verzamelen om", "vertrek om",
-    "aansluitend is er", "na afloop",
-    "opgeven kan", "reserveren via",
-    "kaarten via", "kaarten verkrijgbaar", "tickets zijn verkrijgbaar",
-    "de entree bedraagt", "toegang bedraagt", "deelname kost",
-    "beperkt aantal plaatsen", "vol is vol",
-    "voor alle leeftijden", "jong en oud",
-    "vrije inloop", "zonder aanmelding",
-    "kijk voor meer informatie",
-    "iedereen kan deelnemen", "iedereen kan binnenlopen",
-    "onder begeleiding van",
-  }) do
-    if t:find(phrase, 1, true) then score = score + 3 end
-  end
-
-  -- Tijdpatronen. Eén kloktijd telt één keer (+3), of hij nu als "om 7.30",
-  -- "7.30 uur" of "om 7.30 uur" geschreven is — anders telt de volledige vorm
-  -- dubbel (het uur-patroon én het om-patroon voldoen allebei).
-  if t:find("om%s+%d%d?[%.:]%d%d") or t:find("%d%d?[%.:]%d%d%s*uur") then
-    score = score + 3
-  end
-  -- Een tijdvenster (van .. tot) is een sterker evenementsignaal: extra.
-  if t:find("van%s+%d%d?[%.:]%d%d%s+tot") then score = score + 3 end
-  if t:find("vanaf%s+%d%d?[%.:]%d%d")     then score = score + 2 end
-  if t:find("aanvang%s+%d%d?")             then score = score + 2 end
-
-  -- Weekdag + datumgetal: 2 pts (max 1x)
-  for _, dag in ipairs({
-    "maandag","dinsdag","woensdag","donderdag","vrijdag","zaterdag","zondag",
-  }) do
-    if t:find(dag .. "%s+%d") then score = score + 2; break end
-  end
-
-  -- Herhalende patronen: 2 pts
-  if t:find("elke%s+%a") or t:find("iedere%s+%a")
-  or t:find("wekelijks%s+op") or t:find("maandelijks%s+op") then
-    score = score + 2
-  end
-
-  -- Datumpatronen: 2 pts elk (max 1x per patroon)
-  if t:find("van%s+%d%d?%s+%a+%s+tot%s+en%s+met") then score = score + 2 end
-  if t:find("%d%d?%s+%a+%s+%d%d%d%d")             then score = score + 2 end
-
-  -- Een expliciete meerdaagse reeks is pas een sterk kalendersignaal in
-  -- combinatie met een herkenbaar evenementstype. Zo telt een kunstweekend
-  -- wel mee, maar bijvoorbeeld een meerdaagse wegafsluiting niet.
-  local has_complex_date_range =
-    t:find("van%s+%a+%s+%d%d?%s+%a+%s+tot%s+en%s+met%s+%a+%s+%d%d?") ~= nil
-    or t:find("van%s+%d%d?%s+%a+%s+tot%s+en%s+met%s+%d%d?") ~= nil
-    or t:find("van%s+%d%d?%s+tot%s+en%s+met%s+%d%d?%s+%a+") ~= nil
-
-  -- Deelname-/toegangswoorden: 1 pt elk, max 4
-  local access = 0
-  for _, word in ipairs({
-    "aanmelden", "inschrijven", "reserveren", "kaartjes", "tickets",
-    "gratis", "entree", "kosten", "deelname", "opgeven",
-    "voorverkoop", "aanmelding", "inschrijving", "reservering",
-  }) do
-    if t:find(word) and access < 4 then access = access + 1 end
-  end
-  score = score + access
-
-  -- Activiteitstypen: 1 pt per 2 treffers, max 3
-  local act = 0
-  for _, word in ipairs({
-    "concert","lezing","workshop","tentoonstelling","expositie",
-    "bijeenkomst","evenement","festival","excursie","wandeling",
-    "cursus","training","presentatie","optreden","uitvoering",
-    "voorstelling","theater","markt","toernooi","samenzang",
-    "kerkdienst","filmavond","informatieavond","proeverij",
-    "benefiet","jubileum","herdenking","clinic","rondleiding",
-    "speurtocht","fietstocht","rondvaart","repetitie","open dag",
-    "kunstweekend",
-  }) do
-    if t:find(word) then act = act + 1 end
-  end
-  if has_complex_date_range and act > 0 then score = score + 3 end
-  score = score + math.min(3, math.floor(act / 2))
-
-  -- Datum- en tijdtaal komt ook voor bij wegafsluitingen, vergadernotulen en
-  -- andere nieuwsfeiten. Zonder aanwijzing dat publiek of deelnemers welkom
-  -- zijn, mag zo'n tekst de AI-drempel daarom nooit bereiken.
-  local explicitly_not_public = t:find("niet toegankelijk voor publiek", 1, true)
-    or t:find("besloten bijeenkomst", 1, true)
-    or t:find("besloten vergadering", 1, true)
-  local has_audience_signal = not explicitly_not_public and (
-    t:find("bezoeker") ~= nil
-    or t:find("deelnemer") ~= nil
-    or t:find("belangstellend") ~= nil
-    or t:find("publiek") ~= nil
-    or t:find("iedereen kan", 1, true) ~= nil
-  )
-  if act == 0 and access == 0 and not has_audience_signal then
-    score = math.min(score, _CALENDAR_THRESHOLD - 1)
-  end
-
-  return score
+  return article_recognition.calendar_signal_score(text)
 end
 
--- Klein inspecteerbaar testpunt: de importflow gebruikt exact deze scorer.
 M._calendar_signal_score = _calendar_signal_score
+
+-- Een automatische BufReadPost-vraag mag niet via de fzf-lua
+-- vim.ui.select-provider lopen: die kan tijdens een verse embedded TUI-sessie
+-- de eventloop bezet houden. De ingebouwde confirm-dialoog is hiervoor klein,
+-- synchroon en betrouwbaar. Dit testpunt is injecteerbaar in headless tests.
+M._calendar_date_confirm = function(date_count)
+  return vim.fn.confirm(
+    string.format(
+      "Tekst bevat %d verschillende datums. Is dit één agenda-item voor de website?",
+      date_count
+    ),
+    "&Ja — online agenda-item maken\n&Nee — geen online agenda-item",
+    2
+  )
+end
+
+M._112_confirm = function(prompt)
+  return vim.fn.confirm(prompt, "&Ja\n&Nee", 2)
+end
+
+M._rubric_confirm = function(decision)
+  local buttons = {}
+  for index, candidate in ipairs(decision.candidates or {}) do
+    table.insert(
+      buttons,
+      string.format("&%d %s (score %d)", index, candidate.label, candidate.confidence)
+    )
+  end
+  table.insert(buttons, "&Geen rubriektemplate toepassen")
+  local choice = vim.fn.confirm(
+    "Herkenning controleren:",
+    table.concat(buttons, "\n"),
+    #buttons
+  )
+  return (decision.candidates or {})[choice]
+end
+
+-- Compatibiliteitswrapper voor bestaande rewrite-, Facebook- en
+-- voorbereidingsflows. Ook deze paden gebruiken daardoor exact de centrale
+-- deterministische 112-score.
+_112_signal_score = function(text)
+  return article_recognition.emergency_signal_score(text)
+end
+M._112_signal_score = _112_signal_score
 
 -- Bouw de zichtbare editiehulp. De SUGGESTIE-marker blijft bewust op de
 -- e:-regel: door alleen dat woord te verwijderen accepteert de redacteur alle
@@ -1109,7 +1047,8 @@ function M.rewrite_article_buffer()
       -- calendar_ai_started: de import-detectie (BufReadPost) kan de kalender-AI
       -- al gestart hebben; dan niet nog eens draaien bij het herschrijven.
       if not needs_calendar and not agenda_denied and not already_has_calendar_section
-         and not vim.b[buf].calendar_ai_started then
+         and not vim.b[buf].calendar_ai_started
+         and not vim.b[buf].calendar_autodetect_suppressed then
         local cal_score = _calendar_signal_score(rewritten_body_str)
         if cal_score >= _CALENDAR_THRESHOLD then
           notify_workflow(
@@ -1507,36 +1446,54 @@ function M.prepare_article(buf)
   end)
 end
 
--- Kalenderdetectie bij import: vuurt op BufReadPost voor Desktop-bestanden.
--- Eénmalig per buffer (flag voorkomt herhaling bij latere saves).
-local function _calendar_autodetect(buf)
+-- Eén centrale importherkenning leest de buffer eenmaal en verdeelt daarna
+-- alleen de acties. De scoremodule zelf doet geen I/O, subprocess of AI.
+local function _calendar_autodetect(buf, lines, text, evaluation, after_prompt)
   if vim.b[buf].calendar_autodetect_done then return end
   vim.b[buf].calendar_autodetect_done = true
   if vim.b[buf].calendar_ai_running then return end
 
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  lines = lines or vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   if #lines == 0 then return end
-  local text = table.concat(lines, "\n")
+  text = text or table.concat(lines, "\n")
 
-  -- Sla over als er al een ## Kalender-blok in de buffer staat: de
-  -- kalenderdata bestaat dan al (bijv. een reeds gemaakt artikel dat opnieuw
-  -- verstuurd wordt). Opnieuw de AI draaien zou dat blok overschrijven.
-  -- Handmatig hergenereren kan altijd nog via <leader>ac.
-  if text:find("\n## Kalender", 1, true) or text:match("^## Kalender") then
-    return
-  end
+  -- Een reeds voorbereide papieren agendapagina is per definitie geen
+  -- website-agenda-item. Dit beschermt ook opnieuw geopende concepten.
+  if text:find("=== AGENDAPAGINA ===", 1, true) then return end
+  if text:find("\n## Kalender", 1, true) or text:match("^## Kalender") then return end
+  if text:find("calendar_article_id:") and not text:find("calendar_article_id:%s*null") then return end
+  local agenda_mode = _agenda_mode_from_lines(lines)
+  if agenda_mode == "off" then return end
 
-  -- Sla over als calendar_article_id al een echte waarde heeft (al verwerkt).
-  if text:find("calendar_article_id:") and not text:find("calendar_article_id:%s*null") then
-    return
-  end
-
-  -- Respecteer een expliciete weigering (agenda: nee) of forcering.
-  local agenda = _agenda_mode_from_lines(lines)
-  if agenda == "off" then return end
-
-  local score = _calendar_signal_score(text)
+  local detected = evaluation and evaluation.by_id and evaluation.by_id.calendar
+  local score = detected and detected.points or _calendar_signal_score(text)
   if score >= _CALENDAR_THRESHOLD then
+    local date_count = article_recognition.calendar_date_count(text)
+    if agenda_mode == "auto" and date_count > 3 then
+      vim.b[buf].calendar_autodetect_prompt_pending = true
+      local choice = M._calendar_date_confirm(date_count)
+      if not vim.api.nvim_buf_is_valid(buf) then return true end
+      vim.b[buf].calendar_autodetect_prompt_pending = false
+      if choice == 1 then
+        notify_workflow(
+          string.format("Kalenderdetectie bevestigd (score %d).", score),
+          vim.log.levels.INFO
+        )
+        _run_articlemeta_calendar(buf)
+      elseif choice == 2 then
+        M.reject_calendar(buf)
+      else
+        -- Escape sluit alleen automatische detectie voor deze buffer uit.
+        -- Handmatig <leader>ac blijft beschikbaar.
+        vim.b[buf].calendar_autodetect_suppressed = true
+        notify_workflow(
+          "Kalenderdetectie overgeslagen. Handmatig starten kan met <leader>ac.",
+          vim.log.levels.INFO
+        )
+      end
+      if after_prompt then after_prompt() end
+      return true
+    end
     notify_workflow(
       string.format("Kalenderdetectie (score %d) — kalendermetadata wordt opgehaald.", score),
       vim.log.levels.INFO
@@ -1545,61 +1502,8 @@ local function _calendar_autodetect(buf)
   end
 end
 
-vim.api.nvim_create_autocmd("BufReadPost", {
-  pattern = vim.fn.expand("~/Desktop") .. "/*.md",
-  callback = function(ev)
-    vim.schedule(function() _calendar_autodetect(ev.buf) end)
-  end,
-})
-
--- ---------------------------------------------------------------------------
--- Deterministische 112-detectie
--- Scoort artikeltekst op signaalwoorden die typisch zijn voor 112-berichten.
--- ---------------------------------------------------------------------------
-function _112_signal_score(text)
-  local t = text:lower()
-  local score = 0
-  -- Hulpdiensten: 3 pt elk
-  for _, phrase in ipairs({
-    "politie", "brandweer", "ambulance", "traumahelikopter",
-    "112", "reanimatie", "gereanimeerd",
-    "spoedeisende", "spoedhulp",
-    "hulpdiensten ter plaatse", "hulpverleners",
-  }) do
-    if t:find(phrase, 1, true) then score = score + 3 end
-  end
-  -- Incidenttypes: 2 pt elk
-  for _, phrase in ipairs({
-    "brand", "brandstichting", "explosie", "gaslek", "ongeluk", "aanrijding",
-    "botsing", "kop-staart", "frontale botsing", "ravage", "zwaargewond",
-    "lichtgewond", "slachtoffer", "omgekomen", "gewonden", "levensgevaar",
-    "kritieke toestand", "ziekenhuis overgebracht", "overgebracht naar",
-    "ingerekend", "aangehouden", "verdachte", "vuurwerk", "schietpartij",
-    "steekpartij", "mishandeling", "beroving", "overval",
-    "vermiste", "vermist", "waterongeval", "verdrinking",
-    "medische noodsituatie", "reanimatie", "hartaanval",
-    "bewusteloos", "bewusteloze",
-  }) do
-    if t:find(phrase, 1, true) then score = score + 2 end
-  end
-  -- Locatieprecisie: 1 pt
-  if t:find("ter hoogte van") or t:find("op de hoek van") or t:find("nabij de") then
-    score = score + 1
-  end
-  -- Tijdsprecisie: 1 pt
-  if t:find("%d%d?[%.:]%d%d%s*uur") or t:find("om%s+%d%d?[%.:]%d%d") then
-    score = score + 1
-  end
-  -- Bron: 1 pt
-  if t:find("politie kampen") or t:find("IJsselland") or t:find("veiligheidsregio") then
-    score = score + 1
-  end
-  return score
-end
-
--- Eén gedeelde bevestigingsroute voor import en post-rewrite-detectie.
--- `Nee` is een expliciete bufferbeslissing en mag later in dezelfde workflow
--- niet door een tweede detector worden genegeerd.
+-- Een afwijzing is een expliciete bufferbeslissing en mag later in dezelfde
+-- workflow niet door een tweede detector worden genegeerd.
 _offer_112_template = function(buf, score, context)
   if not vim.api.nvim_buf_is_valid(buf) then return end
   if vim.b[buf]._112_rejected or vim.b[buf]._112_prompt_pending then return end
@@ -1609,48 +1513,135 @@ _offer_112_template = function(buf, score, context)
   if text:find("^112:") or text:find("^112%s+[^:]+:") then return end
 
   vim.b[buf]._112_prompt_pending = true
+  local confidence = article_recognition.evaluate(text).by_id["112"].confidence
   local suffix = context and (" — " .. context) or ""
-  vim.ui.select({ "Ja", "Nee" }, {
-    prompt = string.format("112-bericht behandelen? (score %d)%s", score, suffix),
-  }, function(choice)
-    vim.b[buf]._112_prompt_pending = false
-    if choice == "Nee" then
-      vim.b[buf]._112_rejected = true
-      notify_workflow("112-detectie afgewezen voor dit artikel.", vim.log.levels.INFO)
-      return
-    end
-    if choice ~= "Ja" then return end
+  local choice = M._112_confirm(
+    string.format("112-bericht behandelen? (score %d)%s", score, suffix)
+  )
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  vim.b[buf]._112_prompt_pending = false
+  if choice == 2 then
+    vim.b[buf]._112_rejected = true
+    notify_workflow("112-detectie afgewezen voor dit artikel.", vim.log.levels.INFO)
+    return
+  end
+  if choice == 1 then
     vim.b[buf]._112_rejected = false
-    require("krant").apply_template_by_name("112 nieuws", {}, buf)
-  end)
+    if require("krant").apply_template_by_name("112 nieuws", {}, buf) then
+      vim.b[buf].recognized_rubric = "112"
+      vim.b[buf].recognized_rubric_score = confidence
+    end
+  end
 end
 
-local function _112_autodetect(buf)
-  if vim.b[buf]._112_autodetect_done then return end
+local function apply_recognized_rubric(buf, candidate)
+  if candidate.id == "112" then
+    vim.b[buf]._112_rejected = false
+    local ok = require("krant").apply_template_by_name("112 nieuws", {}, buf)
+    if ok then
+      vim.b[buf].recognized_rubric = candidate.id
+      vim.b[buf].recognized_rubric_score = candidate.confidence
+    end
+    return ok
+  end
+  local ok, reason = require("krant").apply_detected_rubric(candidate.id, buf)
+  if ok then
+    vim.b[buf].recognized_rubric = candidate.id
+    vim.b[buf].recognized_rubric_score = candidate.confidence
+    vim.b[buf].rubric_recognition_pending = nil
+  else
+    vim.b[buf].rubric_recognition_pending = candidate.id .. ":" .. tostring(reason)
+  end
+  return ok
+end
+
+local function offer_rubric_candidates(buf, decision)
+  if #decision.candidates == 1 and decision.candidate.id == "112" then
+    _offer_112_template(buf, decision.candidate.points, "bij import")
+    return
+  end
+  if vim.b[buf].rubric_recognition_prompt_pending then return end
+
+  vim.b[buf].rubric_recognition_prompt_pending = true
+  local choice = M._rubric_confirm(decision)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  vim.b[buf].rubric_recognition_prompt_pending = false
+  if not choice then
+    for _, candidate in ipairs(decision.candidates) do
+      if candidate.id == "112" then vim.b[buf]._112_rejected = true end
+    end
+    notify_workflow("Automatische rubriekherkenning niet toegepast.", vim.log.levels.INFO)
+    return
+  end
+  apply_recognized_rubric(buf, choice)
+end
+
+local function rubric_autodetect(buf, text, evaluation)
+  if vim.b[buf].rubric_recognition_done then return end
+  vim.b[buf].rubric_recognition_done = true
   vim.b[buf]._112_autodetect_done = true
+  if text:find("rubriek:%s*[%w_-]+") then return end
+
+  local decision = article_recognition.rubric_decision(evaluation)
+  if decision.action == "auto" then
+    apply_recognized_rubric(buf, decision.candidate)
+  elseif decision.action == "confirm" then
+    offer_rubric_candidates(buf, decision)
+  end
+end
+
+local function article_autodetect(buf)
+  if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].article_recognition_done then return end
+  vim.b[buf].article_recognition_done = true
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   if #lines == 0 then return end
   local text = table.concat(lines, "\n")
-  -- Sla over als al als 112 gemarkeerd of al in templatevorm.
-  if text:find("rubriek:%s*112") then return end
-  if text:find("^112:") or text:find("^112%s+[^:]+:") then return end
-  local score = _112_signal_score(text)
-  if score < _112_THRESHOLD then return end
-  _offer_112_template(buf, score, "bij import")
+  local evaluation = article_recognition.evaluate(text)
+  local calendar_prompted = _calendar_autodetect(buf, lines, text, evaluation, function()
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    local current_text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+    rubric_autodetect(buf, current_text, article_recognition.evaluate(current_text))
+  end)
+	-- Automatische bevestigingen mogen elkaar niet overlappen. Eventuele
+	-- rubriekherkenning volgt daarom pas na de datumbevestiging.
+  if not calendar_prompted then rubric_autodetect(buf, text, evaluation) end
 end
 
--- Alleen als inspecteerbare testpunten exporteren; productie gebruikt de
--- lokale functies en blijft daardoor ongevoelig voor een oude moduletabel.
-M._112_autodetect = _112_autodetect
+-- Inspecteerbare testpunten; productie gebruikt dezelfde lokale functies.
 M._offer_112_template = _offer_112_template
+M._article_autodetect = article_autodetect
+M._calendar_autodetect = _calendar_autodetect
+
+-- Een vers gestart Neovim 0.12-proces laadt de eerste buffer in de embedded
+-- server voordat de TUI-client is gekoppeld. Een interactieve bevestiging in
+-- dat korte venster kan de server laten vastlopen. Wacht daarom op UIEnter; bij een al
+-- zichtbare Neovim-sessie (zoals een pv --remote) volstaat een korte defer.
+local function schedule_article_autodetect(buf)
+  local function run()
+    vim.defer_fn(function()
+      if vim.api.nvim_buf_is_valid(buf) then article_autodetect(buf) end
+    end, 50)
+  end
+
+  if #vim.api.nvim_list_uis() > 0 then
+    run()
+    return "scheduled"
+  end
+
+  vim.api.nvim_create_autocmd("UIEnter", {
+    once = true,
+    desc = "Texttools importherkenning na TUI-koppeling",
+    callback = run,
+  })
+  return "waiting_for_ui"
+end
+
+M._schedule_article_autodetect = schedule_article_autodetect
 
 vim.api.nvim_create_autocmd("BufReadPost", {
   pattern = vim.fn.expand("~/Desktop") .. "/*.md",
-  callback = function(ev)
-    vim.schedule(function() _112_autodetect(ev.buf) end)
-  end,
+  callback = function(ev) schedule_article_autodetect(ev.buf) end,
 })
-
 vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
   desc = "Kalendergegevens maken en ter controle tonen",
 })
@@ -3669,8 +3660,10 @@ vim.keymap.set("n", "<leader>ag", M.ai_chat, {
 local function show_rubric_recognition_help()
   notify_workflow(
     table.concat({
-      "Automatisch uit de tekst: alleen kalender en 112.",
-      "Raadspraat, Ondernemen in Kampen, Kamper Kiek en andere vaste rubrieken kies je zelf via <leader>kt.",
+      "Deterministische herkenning: kalender, 112, Kamper Kiek en Hondenhoek.",
+      "Kamper Kiek: vaste naam + nummering 1-3. Hondenhoek: Bert Nieuwenhuis + hond/honden (of Hondenhoek + tweede signaal).",
+      "Alleen zekere Kamper Kiek/Hondenhoek wordt automatisch toegepast; 112 vraagt altijd bevestiging.",
+      "Raadspraat, Ondernemen in Kampen en andere vaste rubrieken kies je zelf via <leader>kt.",
       "<leader>kp gebruikt alleen planning; namen en foto's worden pas na je keuze ingevuld.",
     }, "\n"),
     vim.log.levels.INFO,
@@ -3727,6 +3720,7 @@ local help_categories = {
     items = {
       { label = "Rubriektemplate handmatig kiezen (<leader>kt)", action = function() require("krant").menu() end },
       { label = "Planning Raadspraat/Ondernemen (<leader>kp)", action = function() vim.cmd("RubriekPlanning") end },
+      { label = "Papieren agendapagina (<leader>ka)", action = function() require("agenda_page").menu() end },
       { label = "Wat wordt automatisch herkend?", action = show_rubric_recognition_help },
     },
   },

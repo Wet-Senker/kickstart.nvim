@@ -19,6 +19,7 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 <leader>at    Tussenkopjes + optionele streamer
 <leader>af    Facebook-post genereren → ## Facebook sectie
 <leader>aw    Versturen naar Pubble — wacht op geregistreerde achtergrondtaken
+<leader>ka    Papieren agendapagina voorbereiden/controleren/print-only versturen
 ```
 
 ---
@@ -39,12 +40,20 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 | visueel `<leader>ai` | Herschrijf de selectie direct naar krantenstijl, zonder een eenkeuzemenu. |
 | `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen in Kampen en Kamper Kiek. |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten voor Raadspraat en Ondernemen in Kampen. |
+| `<leader>ka` | Papieren agendapagina: voorbereiding in de buffer, controle, blokpreview en print-only verzending. |
 | `<leader>aq` | Annuleer alle actieve editor-AI-taken van de huidige buffer. |
 | `:AICancel` | Zelfde expliciete annulering als `<leader>aq`. |
 
 In hiërarchische keuzemenu's staan acties eerst en staat `← Terug naar …`
 altijd onderaan. Escape sluit de volledige workflow. Korte persoon- en
 fotokeuzes gebruiken alleen Escape om de wizard te annuleren.
+
+Voor een complete papieren agendapagina plak je alle dagen en activiteiten en
+gebruik je `<leader>ka` → **Voorbereiden**. Gewone items worden geredigeerd;
+`>>>titel<<<` en de bijbehorende premiumbody slaan AI over. Controleer de
+zichtbare datum, titel, tijd, locatie en body (maximaal 500 tekens; `hele dag`
+mag) en verzend daarna via hetzelfde menu. Dit maakt uitsluitend het
+printconcept `!agendapagina`; `ONTBREEKT` blokkeert verzending.
 
 ---
 
@@ -86,16 +95,40 @@ artikelbody staan.
 
 Bij het openen van een `.md`-bestand op `~/Desktop/`:
 
+Eén centrale, lokale herkenningsmodule leest de tekst eenmaal. De module doet
+alleen snelle patrooncontroles: geen AI, netwerk, bestanden of subprocessen.
+Iedere detector levert een score en concrete aanwijzingen op; de workflow
+bepaalt daarna of er automatisch iets mag gebeuren of eerst bevestiging nodig
+is.
+
 **112-detectie** — scoort tekst op signaalwoorden (politie, brandweer, ambulance, incident, etc.). Bij score ≥ 6 verschijnt een bevestigingsvraag. Bij "Ja": 112-template toegepast, `rubriek: 112` en `prio: 1` bovenaan gezet. Bij "Nee" blijft die keuze voor de huidige buffer staan en mag detectie na `<leader>ar` het template niet alsnog toepassen. De kop gebruikt via `pubble-places` de eerste bekende plaats uit de centrale verspreidingsgebiedentabel; zonder treffer wordt het `112:`.
 
 **Kalenderdetectie** — scoort tekst op datum/tijd/deelname-signalen. Bij score ≥ 8: `articlemeta --calendar` gestart en `## Kalender` sectie toegevoegd (geen bevestiging nodig).
 
-Beide checks lopen ook na `<leader>ar` op de herschreven tekst. 112 vraagt daar
+**Kamper-Kiekdetectie** — de letterlijke rubrieknaam levert 70 punten op en de
+opeenvolgende nummers 1, 2 en 3 ieder 10. Alleen de ondubbelzinnige score 100
+past de Kamper-Kiekflow automatisch toe. Die flow verwacht exact één foto in
+Pubble Inbox. Ontbreekt die of staan er meerdere, dan blijft het artikel
+ongewijzigd en meldt Neovim welke handeling nog nodig is. Een gedeeltelijke
+match wordt via een keuzemenu voorgelegd; een gewone genummerde lijst zonder
+`Kamper Kiek` scoort nul.
+
+**Hondenhoekdetectie** — `Bert Nieuwenhuis` en een zelfstandig woord
+`hond`/`honden` leveren samen score 100 op. `Hondenhoek` is eveneens een sterk
+signaal en bereikt met de auteur of het hondenwoord score 100. Eén sterk
+signaal zonder tweede aanwijzing opent alleen een bevestigingsmenu. Bij score
+100 wordt de vaste Hondenhoek-template met stockfoto automatisch toegepast;
+Pubble Inbox moet daarvoor leeg zijn. Een losse aangeleverde regel
+`Hondenhoek:` wordt verwijderd, maar body en auteursregel blijven ongewijzigd.
+
+Kalender en 112 worden ook na `<leader>ar` op de herschreven tekst beoordeeld. 112 vraagt daar
 alleen opnieuw om bevestiging als bij import nog geen keuze is gemaakt.
 
-**Andere rubrieken worden niet automatisch herkend.** Raadspraat, Ondernemen
-in Kampen, Kamper Kiek en alle overige vaste rubrieken zijn een handmatige
-redactionele keuze via `<leader>kt`. `<leader>kp` leest de artikeltekst niet;
+**Andere vaste rubrieken worden niet automatisch herkend.** Raadspraat,
+Ondernemen in Kampen en alle hierboven niet genoemde vaste rubrieken zijn een handmatige
+redactionele keuze via `<leader>kt`. Wanneer toekomstige detectors minder dan
+volledige zekerheid geven of elkaar tegenspreken, volgt eveneens een
+keuzemenu; er wordt dan nooit stil een template toegepast. `<leader>kp` leest de artikeltekst niet;
 het gebruikt alleen de rotatie- en planningsgegevens van Raadspraat en
 Ondernemen. Namen, partijen en foto's worden pas na de gekozen rubriek uit
 mappen en configuratie ingevuld.
@@ -155,12 +188,15 @@ Gedefinieerd in `~/.config/nvim/lua/krant.lua`. De gewone templates staan in
 `M.templates`. Raadspraat, Ondernemen in Kampen en Kamper Kiek staan bovenaan
 hetzelfde menu. De eerste twee gebruiken een dynamische flow voor persoon,
 foto, bijschrift en template; Kamper Kiek gebruikt de ene foto uit Pubble
-Inbox. Het menu wordt altijd handmatig geopend: deze rubrieken worden niet uit
-de artikeltekst geclassificeerd.
+Inbox. Raadspraat en Ondernemen worden niet automatisch geclassificeerd.
+Kamper Kiek kan behalve via dit handmatige menu ook automatisch worden
+toegepast wanneer de importherkenning de vaste naam plus nummering 1–3 vindt.
+Hondenhoek kan automatisch worden toegepast bij twee sterke tekstsignalen en
+gebruikt dan dezelfde stockrubriekflow als de handmatige keuze.
 
 Alle vormgevingsrubrieken gebruiken dezelfde tweestapsflow:
 
-1. `<leader>kt` vult het template in, kopieert de gekozen foto naar Pubble
+1. Automatische zekere herkenning of `<leader>kt` vult het template in, kopieert de gekozen foto naar Pubble
    Inbox en de juiste weekmap, en registreert het exportdoel. Er wordt nog geen
    `.txt`-bestand gemaakt.
 2. Na controle publiceert `<leader>aw` de actuele buffer en schrijft bij succes
@@ -171,6 +207,18 @@ Alle vormgevingsrubrieken gebruiken dezelfde tweestapsflow:
 Voor Raadspraat, Ondernemen en stockrubrieken moet Pubble Inbox vooraf leeg
 zijn; Kamper Kiek verwacht daar juist exact één Kiek-foto. Zo kan nooit stil een
 oude of tweede foto worden gekoppeld.
+
+Kamper Kiek mag rechtstreeks in de gebruikelijke aangeleverde vorm worden
+geplakt: `De Kamper kiek op de wîêk: 1). ... 2). ...`. De speciale flow
+verwijdert die aangeleverde rubriekkop, zet de vaste kop en intro erboven en
+normaliseert ieder genummerd onderdeel naar een eigen regel (`1.`, `2.`,
+enzovoort). De tekst van de onderdelen zelf blijft ongewijzigd.
+
+Hondenhoek wordt doorgaans als lopende tekst met `Bert Nieuwenhuis.` onderaan
+aangeleverd. De template behoudt de volledige eerste alinea en auteursregel.
+Alleen een losse dubbele kop `Hondenhoek:` verdwijnt. De vaste
+`hondenhoek.jpg` wordt uit de stockfotomap naar Pubble Inbox en de weekmap
+gekopieerd.
 
 De bestaande eerste tekstregel vult zowel `{{titel}}` als het historische
 `{{title}}`. Andere zichtbare `{{velden}}` blokkeren `<leader>aw` totdat ze zijn
@@ -191,9 +239,12 @@ De 112-disclaimer in het 112-template is de enige bron — `ai_text.lua` leest h
 
 | Bestand | Inhoud |
 |---|---|
-| `lua/ai_text.lua` | Alle leaders, AI-aanroepen, 112/kalender-detectie, pubble-send |
+| `lua/article_recognition.lua` | Deterministische scores, bewijsregels en beslisbeleid voor importherkenning |
+| `lua/ai_text.lua` | Alle leaders, herkenningsacties, AI-aanroepen en pubble-send |
 | `lua/krant.lua` | Rubriek-templates (`<leader>kt`), `apply_template_by_name()` |
 | `lua/layout_export.lua` | uniform exportplan, placeholdercontrole en definitieve vormgevingstekst |
+| `lua/agenda_page.lua` | papieren agendapagina voorbereiden, controleren, previewen en versturen (`<leader>ka`) |
+| `plugin/agenda_page.lua` | laadt de afzonderlijke agendapagina-UI |
 | `plugin/column_reminders.lua` | Rubriekplanning (`<leader>kp`): reminders en overzichten |
 | `lua/pubble_archive.lua` | Telescope-zoekingangen voor bestandsnaam en archiefinhoud |
 | `lua/texttools_paths.lua` | Gedeeld, configureerbaar pad naar de Pubble Inbox |

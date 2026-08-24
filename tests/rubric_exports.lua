@@ -59,7 +59,18 @@ assert(table.concat(vim.fn.readfile(raad_path), '\n'):find('Correctie na <leader
 -- Kamper Kiek: uitsluitend gemeentenieuws, nooit de generieke lezersnieuwsmap.
 clear_inbox()
 vim.fn.writefile({ 'foto' }, inbox .. '/weekfoto.jpg')
-local kiek_buf = article('Oorspronkelijke fotokop', 'Tekst bij de weekfoto.')
+local kiek_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_set_current_buf(kiek_buf)
+vim.api.nvim_buf_set_lines(kiek_buf, 0, -1, false, {
+  '=== ARTIKEL ===',
+  '',
+  'De Kamper kiek op de wîêk: 1). Ik zit “op het pluche”. '
+    .. 'De brandweer staat 24/7 voor ons klaar. '
+    .. '2). Het Oranjefeest is spetterend en speciaal. '
+    .. '3). Jong en oud geniet van het Oogstfeest. '
+    .. '4). Een bloemetje voor de Vijverhof en haar 60 bewoners. '
+    .. '5). Het Stedelijk Museum is nu al schitterend.',
+})
 local kiek_template
 for _, template in ipairs(krant.templates) do
   if template.name == 'Kiek op de wiek (Sander de Rouwe)' then kiek_template = template end
@@ -71,6 +82,43 @@ assert(kiek_plan.dir:match('_gemeentenieuws$'), 'Kamper Kiek gaat niet naar geme
 assert(kiek_plan.txt_name == '2.kamperkiekFOTO.txt', 'verkeerde Kiek-tekstnaam')
 assert(vim.fn.filereadable(kiek_plan.dir .. '/' .. kiek_plan.txt_name) == 0, 'Kiektekst is te vroeg geschreven')
 assert(vim.fn.glob(desktop .. '/*_lezersnieuws') == '', 'Kamper Kiek maakte toch lezersnieuws aan')
+local kiek_text = table.concat(vim.api.nvim_buf_get_lines(kiek_buf, 0, -1, false), '\n')
+assert(
+  kiek_text:find('newspaper:\n  working_title: "z - 1 Kamper Kiek"', 1, true),
+  'Kamper Kiek kreeg niet de vaste z-werktitel'
+)
+assert(kiek_text:find('prio: 1', 1, true), 'Kamper Kiek verloor de bestaande prioriteitscode')
+assert(kiek_text:find('=== ARTIKEL ===', 1, true), 'Kamper Kiek verloor de artikelgrens')
+assert(kiek_text:find('De Kamper Kiek op de wîêk', 1, true), 'vaste Kamper-Kiekkop ontbreekt')
+assert(
+  kiek_text:find('In De Brug kijkt burgemeester Sander de Rouwe wekelijks in fotovorm terug', 1, true),
+  'vaste Kamper-Kiekintro ontbreekt'
+)
+assert(not kiek_text:find('De Kamper kiek op de wîêk:', 1, true), 'aangeleverde rubriekkop bleef dubbel staan')
+assert(
+  kiek_text:find('1. Ik zit “op het pluche”. De brandweer staat 24/7 voor ons klaar.', 1, true),
+  'eerste Kiekonderdeel is inhoudelijk gewijzigd'
+)
+assert(
+  kiek_text:find('\n1. Ik zit “op het pluche”.', 1, true)
+    and kiek_text:find('\n2. Het Oranjefeest', 1, true)
+    and kiek_text:find('\n3. Jong en oud geniet', 1, true)
+    and kiek_text:find('\n4. Een bloemetje voor de Vijverhof', 1, true)
+    and kiek_text:find('\n5. Het Stedelijk Museum', 1, true),
+  'Kieknummering staat niet op eigen regels:\n' .. kiek_text
+)
+local nette_kiek = krant._normalize_kamper_kiek({
+  'De Kamper Kiek op de wîêk',
+  '',
+  'In De Brug kijkt burgemeester Sander de Rouwe wekelijks in fotovorm terug op de afgelopen week.',
+  '',
+  '1. Eerste onderdeel staat al goed.',
+  '2. Tweede onderdeel staat ook goed.',
+})
+assert(
+  table.concat(nette_kiek, '\n') == '1. Eerste onderdeel staat al goed.\n2. Tweede onderdeel staat ook goed.',
+  'al nette Kamper-Kieknummering werd onnodig veranderd'
+)
 
 -- Ondernemen: titel wordt ingevuld en de oorspronkelijke kop wordt niet dubbel.
 clear_inbox()

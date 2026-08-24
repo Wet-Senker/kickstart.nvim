@@ -71,6 +71,10 @@ local function mail_from_buffer(buf)
   return { recipient = recipient, subject = subject, body = body }
 end
 
+M._sent_confirm = function(label)
+  return vim.fn.confirm('Reminder voor ' .. label .. ' verstuurd?', '&Ja\n&Nee', 2)
+end
+
 local function confirm_sent_on_return(item)
   local group = vim.api.nvim_create_augroup('ColumnMailReturn', { clear = true })
   vim.api.nvim_create_autocmd('FocusGained', {
@@ -78,15 +82,13 @@ local function confirm_sent_on_return(item)
     once = true,
     callback = function()
       vim.defer_fn(function()
-        vim.ui.select({ 'Ja', 'Nee' }, {
-          prompt = 'Reminder voor ' .. item.label .. ' verstuurd?',
-        }, function(choice)
-          if choice == 'Ja' then mark(item, true) end
-        end)
+        if M._sent_confirm(item.label) == 1 then mark(item, true) end
       end, 150)
     end,
   })
 end
+
+M._confirm_sent_on_return = confirm_sent_on_return
 
 local function open_in_mail(item, buf)
   local message, error_message = mail_from_buffer(buf)
