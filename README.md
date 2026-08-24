@@ -18,8 +18,8 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 <leader>ao    Tekstcheck: spelling/grammatica + ## Suggesties
 <leader>at    Tussenkopjes + optionele streamer
 <leader>af    Facebook-post genereren → ## Facebook sectie
-<leader>aw    Versturen naar Pubble — wacht op geregistreerde achtergrondtaken
-<leader>ka    Papieren agendapagina voorbereiden/controleren/print-only versturen
+<leader>aw    Versturen — bij agendapagina: krant kiezen, controleren en print-only versturen
+<leader>ka    Ruwe papieren agendapagina voorbereiden voor tekstcontrole
 ```
 
 ---
@@ -40,7 +40,7 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 | visueel `<leader>ai` | Herschrijf de selectie direct naar krantenstijl, zonder een eenkeuzemenu. |
 | `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen in Kampen en Kamper Kiek. |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten voor Raadspraat en Ondernemen in Kampen. |
-| `<leader>ka` | Papieren agendapagina: voorbereiding in de buffer, controle, blokpreview en print-only verzending. |
+| `<leader>ka` | Ruwe papieren agendapagina structureren en gewone items redigeren; daarna zelf de tekst controleren. |
 | `<leader>aq` | Annuleer alle actieve editor-AI-taken van de huidige buffer. |
 | `:AICancel` | Zelfde expliciete annulering als `<leader>aq`. |
 
@@ -49,11 +49,20 @@ altijd onderaan. Escape sluit de volledige workflow. Korte persoon- en
 fotokeuzes gebruiken alleen Escape om de wizard te annuleren.
 
 Voor een complete papieren agendapagina plak je alle dagen en activiteiten en
-gebruik je `<leader>ka` → **Voorbereiden**. Gewone items worden geredigeerd;
-`>>>titel<<<` en de bijbehorende premiumbody slaan AI over. Controleer de
-zichtbare datum, titel, tijd, locatie en body (maximaal 500 tekens; `hele dag`
-mag) en verzend daarna via hetzelfde menu. Dit maakt uitsluitend het
-printconcept `!agendapagina`; `ONTBREEKT` blokkeert verzending.
+gebruik je eenmaal `<leader>ka`. Gewone items worden per activiteit geredigeerd;
+`>>>titel<<<` en de bijbehorende premiumbody worden nooit herschreven. Alleen
+ontbrekende datum, tijd of locatie mag AI als metadata uitlezen. Controleer de
+zichtbare datum, titel, tijd, locatie en body (`hele dag` mag). Voor de
+printbody geldt geen technische lengtegrens; gewone tekst wordt wel compact
+geredigeerd. Gewone koppen worden zoveel mogelijk 3–4 woorden en zijn maximaal 5
+woorden. Een betrouwbaar herkend los slotblok wordt automatisch als complete
+activiteit opgebouwd en onder zijn primaire datum gezet. Een volledig gewoon
+item met een ondubbelzinnige andere primaire datum verhuist ook; secundaire
+data in de body niet. Alles blijft zichtbaar ter controle. Druk daarna
+`<leader>aw`. Kies dan de krant; de technische controle
+draait automatisch vóór de print-only verzending. Dit maakt uitsluitend het
+printconcept `!agendapagina`; `ONTBREEKT` blokkeert verzending. Losse controle
+en blokpreview blijven alleen als technische `:AgendaPagina…`-opdrachten beschikbaar.
 
 ---
 

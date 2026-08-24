@@ -54,7 +54,8 @@ assert(
 )
 assert(ai_text:find('label = "Rubrieken"', 1, true), "Rubrieken ontbreekt in <leader>ah")
 assert(ai_text:find('vim.cmd("RubriekPlanning")', 1, true), "rubriekplanning is niet bereikbaar vanuit <leader>ah")
-assert(ai_text:find('require("agenda_page").menu()', 1, true), "agendapagina is niet bereikbaar vanuit <leader>ah")
+assert(ai_text:find('require("agenda_page").prepare()', 1, true), "agendapagina is niet bereikbaar vanuit <leader>ah")
+assert(ai_text:find('agenda_page.is_prepared(buf)', 1, true), "<leader>aw routeert voorbereide agendapagina niet apart")
 assert(
   reminders:find("nvim_create_user_command('RubriekPlanning'", 1, true),
   "RubriekPlanning-opdracht ontbreekt"
@@ -62,5 +63,7 @@ assert(
 assert(documentation:find("Er wordt nog geen", 1, true), "uitgesteld exportmoment ontbreekt in de documentatie")
 assert(documentation:find("precies één", 1, true), "enkelvoudige vormgevingsexport ontbreekt in de documentatie")
 assert(documentation:find("!agendapagina", 1, true), "papieren agendapagina ontbreekt in de documentatie")
+assert(documentation:find("3–4", 1, true), "korte agendakoppen ontbreken in de documentatie")
+assert(documentation:find("los slotblok", 1, true), "herstel van losse agendatekst ontbreekt in de documentatie")
 
 print("documentation mappings: OK")

@@ -48,7 +48,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>ah` | Hiërarchisch hulpmenu voor codes, rubrieken, acties en cheatsheet |
 | `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen en Kamper Kiek |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten |
-| `<leader>ka` | Papieren agendapagina voorbereiden/controleren/print-only versturen |
+| `<leader>ka` | Ruwe papieren agendapagina voorbereiden voor eigen tekstcontrole |
 
 ---
 
@@ -78,10 +78,16 @@ Vaste volgorde voor rubrieken:
 5. `<leader>aw` publiceert en schrijft daarna precies één actuele `.txt` naar
    de juiste weekmap. Bij een fout blijft het exportplan staan voor de retry.
 
-Papieren agendapagina: plak alle dagen en activiteiten, kies `<leader>ka` →
-**Voorbereiden**, controleer de zichtbare velden en verstuur via hetzelfde
-menu. `>>>titel<<<` is premium en slaat AI over; `hele dag` mag; de body is
-maximaal 500 tekens. Dit maakt alleen het printconcept `!agendapagina`.
+Papieren agendapagina: plak alle dagen en activiteiten en druk eenmaal
+`<leader>ka`. Controleer daarna de zichtbare velden en druk `<leader>aw`; kies
+dan de krant. De technische controle draait automatisch vóór verzending.
+`>>>titel<<<` is premium: tekst blijft exact, AI mag alleen ontbrekende metadata
+uitlezen. `hele dag` mag; de printbody heeft geen lengtegrens. Gewone koppen zijn bij
+voorkeur 3–4 en maximaal 5 woorden; een
+herkend los slotblok wordt automatisch een aparte activiteit onder zijn
+primaire datum. Een duidelijk verkeerd geplaatst item verhuist mee, secundaire
+data niet. Dit maakt alleen
+het printconcept `!agendapagina`.
 
 ---
 

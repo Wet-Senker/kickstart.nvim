@@ -1663,6 +1663,11 @@ local event_prepare
 function M.pubble_send(target_buf)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  local agenda_page = require("agenda_page")
+  if agenda_page.is_prepared(buf) then
+    agenda_page.send(buf)
+    return
+  end
   if vim.b[buf].publication_in_progress then
     notify_workflow("Deze publicatierun is al bezig.", vim.log.levels.INFO)
     return
@@ -3720,7 +3725,7 @@ local help_categories = {
     items = {
       { label = "Rubriektemplate handmatig kiezen (<leader>kt)", action = function() require("krant").menu() end },
       { label = "Planning Raadspraat/Ondernemen (<leader>kp)", action = function() vim.cmd("RubriekPlanning") end },
-      { label = "Papieren agendapagina (<leader>ka)", action = function() require("agenda_page").menu() end },
+      { label = "Papieren agendapagina voorbereiden (<leader>ka)", action = function() require("agenda_page").prepare() end },
       { label = "Wat wordt automatisch herkend?", action = show_rubric_recognition_help },
     },
   },
