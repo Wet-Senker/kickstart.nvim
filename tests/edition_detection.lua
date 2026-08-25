@@ -13,6 +13,26 @@ local function overijssel_lines(prefix)
   return lines
 end
 
+local function kampen_lines(prefix)
+  local lines = prefix or {}
+  table.insert(lines, '=== ARTIKEL ===')
+  table.insert(lines, '')
+  table.insert(lines, 'Campagne tegen zorgcriminaliteit')
+  table.insert(lines, '')
+  table.insert(lines, 'KAMPEN - Inwoners leren signalen herkennen.')
+  return lines
+end
+
+local function lelystad_lines(prefix)
+  local lines = prefix or {}
+  table.insert(lines, '=== ARTIKEL ===')
+  table.insert(lines, '')
+  table.insert(lines, 'Batavia gaat aan land')
+  table.insert(lines, '')
+  table.insert(lines, 'LELYSTAD - De Batavia wordt naar Amsterdam gesleept.')
+  return lines
+end
+
 local imported = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(imported, 0, -1, false, overijssel_lines())
 ai._edition_autodetect(imported, buffer_text(imported))
@@ -32,23 +52,33 @@ assert(
 
 local original_confirm = ai._edition_rewrite_confirm
 local kept = vim.api.nvim_create_buf(false, true)
-vim.api.nvim_buf_set_lines(kept, 0, -1, false, overijssel_lines { 'e: SW', '' })
+vim.api.nvim_buf_set_lines(kept, 0, -1, false, lelystad_lines { 'e: br, dr', '' })
 local asked
 ai._edition_rewrite_confirm = function(current_label, detected_label, source)
   asked = { current_label, detected_label, source }
   return 1
 end
 local keep_done = false
-ai._reconcile_editions_after_rewrite(kept, buffer_text(kept), function(ok) keep_done = ok end)
+ai._reconcile_editions_after_rewrite(
+  kept,
+  buffer_text(kept),
+  buffer_text(kept),
+  function(ok) keep_done = ok end
+)
 assert(vim.wait(5000, function() return keep_done end, 20), 'rewritecontrole rondde niet af')
-assert(asked and asked[1] == 'De Swollenaer', 'afwijkende rewritebestemming werd niet voorgelegd')
-assert(buffer_text(kept):find('e: SW', 1, true), 'huidige editie werd niet behouden')
+assert(asked == nil, 'ongewijzigde inhoudsdetectie vroeg toch om een keuze')
+assert(buffer_text(kept):find('e: br, dr', 1, true), 'bewust ruimere e:-keuze werd niet behouden')
 
 local changed = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(changed, 0, -1, false, overijssel_lines { 'e: SW', '' })
 ai._edition_rewrite_confirm = function() return 2 end
 local change_done = false
-ai._reconcile_editions_after_rewrite(changed, buffer_text(changed), function(ok) change_done = ok end)
+ai._reconcile_editions_after_rewrite(
+  changed,
+  buffer_text(changed),
+  table.concat(kampen_lines { 'e: SW', '' }, '\n'),
+  function(ok) change_done = ok end
+)
 assert(vim.wait(5000, function() return change_done end, 20), 'rewritewijziging rondde niet af')
 assert(buffer_text(changed):find('e: B, SW, ST, K', 1, true), 'bevestigde nieuwe bestemming werd niet vastgelegd')
 ai._edition_rewrite_confirm = original_confirm

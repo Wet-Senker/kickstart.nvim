@@ -1021,7 +1021,7 @@ M._edition_rewrite_confirm = function(current_label, detected_label, source)
   )
 end
 
-local function reconcile_editions_after_rewrite(buf, content, done)
+local function reconcile_editions_after_rewrite(buf, content, original_content, done)
   resolve_editions_for_content(buf, content, function(resolved)
     if not resolved then
       if done then done(false) end
@@ -1047,18 +1047,36 @@ local function reconcile_editions_after_rewrite(buf, content, done)
       return
     end
 
-    local choice = M._edition_rewrite_confirm(
-      edition_names(resolved.editions, resolved.names),
-      edition_names(detection.editions, detection.names),
-      detection.source or "inhoudelijke detectie"
-    )
-    if choice == 2 then
-      set_edition_codes(buf, detection.editions)
-      adapt_editorial_address(buf, detection.editions[1])
-      if done then done(true, detection.editions, detection.names) end
+    -- Een bestaande e:-regel is een bewuste redactiekeuze en mag best ruimer
+    -- zijn dan de dateline. Vraag alleen wanneer de rewrite zélf de betrouwbare
+    -- plaats-/regiodetectie veranderde. Zonder betrouwbare brondetectie is er
+    -- niets te vergelijken en blijft de zichtbare keuze stil leidend.
+    if type(original_content) ~= "string" or vim.trim(original_content) == "" then
+      if done then done(true, resolved.editions, resolved.names) end
       return
     end
-    if done then done(true, resolved.editions, resolved.names) end
+    resolve_editions_for_content(buf, original_content, function(original_resolved)
+      local original_detection = high_confidence_detection(original_resolved)
+      if not original_detection
+        or same_edition_codes(original_detection.editions, detection.editions)
+      then
+        if done then done(true, resolved.editions, resolved.names) end
+        return
+      end
+
+      local choice = M._edition_rewrite_confirm(
+        edition_names(resolved.editions, resolved.names),
+        edition_names(detection.editions, detection.names),
+        detection.source or "inhoudelijke detectie"
+      )
+      if choice == 2 then
+        set_edition_codes(buf, detection.editions)
+        adapt_editorial_address(buf, detection.editions[1])
+        if done then done(true, detection.editions, detection.names) end
+        return
+      end
+      if done then done(true, resolved.editions, resolved.names) end
+    end)
   end)
 end
 
@@ -1284,6 +1302,10 @@ function M.rewrite_article_buffer()
     end
     saved_sections = drop_edition_versions_block(saved_sections)
   end
+  local original_for_edition_detection = table.concat(
+    reassemble_article(saved_fm, saved_ctrl, body_lines, {}, saved_boundary),
+    "\n"
+  )
 
   -- Expliciete foto-/bijschriftregels uit de bron hoeven niet door AI verplaatst
   -- te worden. Haal ze vóór de call uit de body; mediaregels die de AI uit
@@ -1384,13 +1406,19 @@ function M.rewrite_article_buffer()
       vim.b[buf].cached_calendar_metadata = nil
       vim.b[buf].cached_facebook_text = nil
 
-      -- Herken opnieuw op basis van de herschreven tekst, maar vervang een
-      -- bestaande (dus zichtbare) e:-keuze nooit zonder bevestiging.
-      reconcile_editions_after_rewrite(buf, rewritten_str, function(ok, codes, names)
-        if ok then
-          offer_and_generate_edition_versions(buf, rewritten_body_str, codes, names)
+      -- Herken opnieuw op basis van de herschreven tekst. Een zichtbare
+      -- e:-keuze blijft stil leidend zolang de betrouwbare inhoudsdetectie
+      -- door de rewrite niet is veranderd.
+      reconcile_editions_after_rewrite(
+        buf,
+        rewritten_str,
+        original_for_edition_detection,
+        function(ok, codes, names)
+          if ok then
+            offer_and_generate_edition_versions(buf, rewritten_body_str, codes, names)
+          end
         end
-      end)
+      )
 
       -- Agenda-schakelaar (agenda:/cal:/calendar:) + facebook: x lezen.
       local agenda = _agenda_mode_from_lines(final_ctrl)

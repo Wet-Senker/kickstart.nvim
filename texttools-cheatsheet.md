@@ -173,7 +173,8 @@ Of zet dezelfde regels **bovenaan het document zelf** (voor de kop), gevolgd doo
 
 Bij import wordt een betrouwbare dateline of duidelijke provinciale strekking
 eenmalig als `e:` ingevuld. Een bestaande regel wint altijd. Na herschrijven
-wordt alleen bij een afwijkende nieuwe detectie om een keuze gevraagd. Staat
+wordt alleen om een keuze gevraagd als de betrouwbare inhoudsdetectie door de
+rewrite zelf is veranderd. Staat
 bij `<leader>aw` nog geen `e:`, dan moet de afgeleide bestemming eerst worden
 bevestigd; daarna blijft de regel boven het artikel staan.
 

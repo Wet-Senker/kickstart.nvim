@@ -122,10 +122,12 @@ Zonder zo'n regel wordt een betrouwbare dateline direct ingevuld. Een exacte
 provincienaam is eveneens betrouwbaar wanneer zij vroeg in het artikel staat
 of meermaals voorkomt: `Overijssel` wordt `e: B, SW, ST, K`, `Flevoland` wordt
 `e: D, Z`. De importcontrole draait eenmaal per buffer. Na `<leader>ar` volgt
-een hercontrole; wijkt die af van een bestaande keuze, dan beslis je zelf welke
-bestemming blijft. Bij `<leader>aw` wordt alleen gevraagd om de bestemming te
-bevestigen wanneer nog geen expliciete `e:` bestaat. Na Ja wordt de regel in de
-buffer gezet, zodat de vraag niet terugkomt.
+een hercontrole. Een bestaande `e:` blijft zonder vraag leidend wanneer de
+betrouwbare plaats-/regiodetectie vóór en na de rewrite gelijk is. Alleen als
+de rewrite die detectie verandert, beslis je zelf welke bestemming blijft. Bij
+`<leader>aw` wordt alleen gevraagd om de bestemming te bevestigen wanneer nog
+geen expliciete `e:` bestaat. Na Ja wordt de regel in de buffer gezet, zodat de
+vraag niet terugkomt.
 
 Heeft de definitieve `e:` meer dan één gekozen krant, dan vraagt `<leader>ar`
 of iedere krant een eigen versie moet krijgen. **Nee** behoudt één gezamenlijke
