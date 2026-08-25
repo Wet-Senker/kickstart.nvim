@@ -16,7 +16,7 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
               ↳ detecteert 112 en kalender automatisch
 <leader>ac    Kalendermetadata + ## Kalender sectie
 <leader>ao    Tekstcheck: spelling/grammatica + ## Suggesties
-<leader>at    Tussenkopjes + optionele streamer
+<leader>at    Tussenkopjes + optionele streamer + 2 kopopties
 <leader>af    Facebook-post genereren → ## Facebook sectie
 <leader>aw    Versturen — bij agendapagina: krant kiezen, controleren en print-only versturen
 <leader>ka    Ruwe papieren agendapagina voorbereiden voor tekstcontrole
@@ -31,7 +31,7 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 | `<leader>ar` | Herschrijven naar krantenartikel (AI). Vraagt bij meerdere gekozen edities of aparte krantversies gewenst zijn. Start background jobs voor metadata, kalender en/of Facebook op basis van controlecodes. Detecteert 112 en agendaberichten automatisch. |
 | `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
-| `<leader>at` | Tussenkopjes en, als er nog geen eigen `>` staat, een streamer. |
+| `<leader>at` | Tussenkopjes, een streamer (als er nog geen eigen `>` staat) en twee kopopties die de streamer aanvullen. |
 | `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
 | `<leader>aw` | Versturen naar Pubble. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Bij gekozen eventvervolgen toont de eerste druk de teksten; de tweede publiceert alles samen. |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen. |

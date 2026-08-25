@@ -3796,21 +3796,43 @@ local function insert_streamer_midway(body, streamer_text)
   return out
 end
 
--- <leader>at — tussenkopjes + streamer, als twee gelijktijdige korte AI-calls.
--- De AI levert alleen kopjes-met-positie ("3: Kopje") en één streamerregel —
--- de artikeltekst zelf wordt nooit door de AI geregenereerd; alle invoeging
--- is deterministisch. De streamer-call wordt overgeslagen als er al een
--- eigen >-streamer in de tekst staat.
+-- Vervang de eerste alinea (de kop) door één nieuwe kopregel. Tussenkopjes en
+-- streamer komen nooit vóór de eerste alinea, dus dit kan veilig op het
+-- resultaat van insert_headings/insert_streamer_midway.
+local function replace_first_paragraph(body, kop)
+  local first = 1
+  while first <= #body and vim.trim(body[first]) == "" do first = first + 1 end
+  if first > #body then return body end
+  local last = first
+  while last + 1 <= #body and vim.trim(body[last + 1]) ~= "" do last = last + 1 end
+  local out = {}
+  for i = 1, first - 1 do table.insert(out, body[i]) end
+  table.insert(out, kop)
+  for i = last + 1, #body do table.insert(out, body[i]) end
+  return out
+end
+
+-- <leader>at — tussenkopjes + streamer + kopopties, als korte AI-calls.
+-- De AI levert alleen kopjes-met-positie ("3: Kopje"), één streamerregel en
+-- twee alternatieve koppen; de artikeltekst zelf wordt nooit door de AI
+-- geregenereerd; alle invoeging is deterministisch. De streamer-call wordt
+-- overgeslagen als er al een eigen >-streamer in de tekst staat — die eigen
+-- streamer gaat dan als context mee naar de kopopties, want kop en streamer
+-- moeten elkaar aanvullen. Uit de kopopties kies je via een menu; de huidige
+-- kop behouden kan altijd.
 function M.tussenkopjes_streamer()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
   local paras = scan_paragraphs(body)
 
-  local has_streamer = false
+  local existing_streamer = nil
   for _, l in ipairs(body) do
-    if l:match("^>%s") or vim.trim(l) == ">" then has_streamer = true; break end
+    local s = l:match("^>%s*(.+)$")
+    if s then existing_streamer = vim.trim(s); break end
+    if vim.trim(l) == ">" then existing_streamer = ""; break end
   end
+  local has_streamer = existing_streamer ~= nil
 
   local body_text = table.concat(body, "\n")
 
@@ -3823,8 +3845,9 @@ function M.tussenkopjes_streamer()
   end
   local numbered_text = table.concat(numbered, "\n")
 
-  local results = { koppen = nil, streamer = nil }
-  local pending = has_streamer and 1 or 2
+  local results = { koppen = nil, streamer = nil, kopopties = nil }
+  -- Slots: tussenkopjes + kopopties, plus de streamer-call als die nog moet.
+  local pending = has_streamer and 2 or 3
 
   local function finish()
     if pending > 0 then return end
@@ -3858,16 +3881,76 @@ function M.tussenkopjes_streamer()
         )
       end
     end
-    vim.api.nvim_buf_set_lines(
-      buf, 0, -1, false,
-      reassemble_article(fm, ctrl, new_body, sections, has_boundary)
-    )
-    if has_streamer then
-      notify_workflow(
-        "Tussenkopjes toegevoegd; eigen > streamer blijft staan.",
-        vim.log.levels.INFO
+
+    local function write_body(final_body)
+      vim.api.nvim_buf_set_lines(
+        buf, 0, -1, false,
+        reassemble_article(fm, ctrl, final_body, sections, has_boundary)
       )
+      if has_streamer then
+        notify_workflow(
+          "Tussenkopjes toegevoegd; eigen > streamer blijft staan.",
+          vim.log.levels.INFO
+        )
+      end
     end
+
+    -- Twee kopregels; nummering/bullets/vetmarkering van de AI wordt gestript.
+    local kop_options = {}
+    for _, l in ipairs(vim.split(results.kopopties or "", "\n", { plain = true })) do
+      local kop = vim.trim(l):gsub("^%d+[%.:%)]%s*", ""):gsub("^[-*]%s+", "")
+      kop = vim.trim(kop:gsub("^%*+", ""):gsub("%*+$", "")):gsub("%.$", "")
+      if kop ~= "" and #kop_options < 2 then table.insert(kop_options, kop) end
+    end
+
+    if #kop_options == 0 then
+      write_body(new_body)
+      return
+    end
+
+    local keep_label = "Huidige kop behouden"
+    local items = {}
+    for _, kop in ipairs(kop_options) do table.insert(items, kop) end
+    table.insert(items, keep_label)
+    vim.ui.select(items, { prompt = "Kop kiezen (vult de streamer aan):" }, function(choice)
+      if choice and choice ~= keep_label then
+        new_body = replace_first_paragraph(new_body, choice)
+      end
+      write_body(new_body)
+    end)
+  end
+
+  -- De kop moet de streamer aanvullen; deze call start daarom pas zodra de
+  -- streamertekst bekend is (bestaand of net gegenereerd, eventueel leeg).
+  local function launch_kopopties(streamer_text)
+    local input = body_text
+    if streamer_text and streamer_text ~= "" then
+      input = "Streamer: " .. streamer_text .. "\n\n" .. body_text
+    end
+    ai_system(
+      { aitext, "kopopties" },
+      { text = true, stdin = input },
+      function(result)
+        vim.schedule(function()
+          if result.code == 0 then
+            results.kopopties = result.stdout
+          else
+            notify_workflow(
+              "Kopopties genereren mislukt — huidige kop blijft staan.",
+              vim.log.levels.WARN
+            )
+          end
+          pending = pending - 1
+          finish()
+        end)
+      end,
+      "AI · Kopopties",
+      buf
+    )
+  end
+
+  if has_streamer then
+    launch_kopopties(existing_streamer)
   end
 
   ai_system(
@@ -3905,6 +3988,7 @@ function M.tussenkopjes_streamer()
               vim.log.levels.WARN
             )
           end
+          launch_kopopties(results.streamer)
           pending = pending - 1
           finish()
         end)
@@ -3916,7 +4000,7 @@ function M.tussenkopjes_streamer()
 end
 
 vim.keymap.set("n", "<leader>at", M.tussenkopjes_streamer, {
-  desc = "Tussenkopjes + streamer (streamer alleen als er nog geen > staat)",
+  desc = "Tussenkopjes + streamer + 2 kopopties (streamer alleen als er nog geen > staat)",
 })
 
 

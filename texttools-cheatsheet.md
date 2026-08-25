@@ -40,7 +40,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>ar` | Herschrijven naar krantenartikel (AI) |
 | `<leader>ac` | Metadata + kalenderitem — toont bewerkbare `## Kalender` sectie |
 | `<leader>ao` | Tekstcheck; twijfelgevallen komen onder `## Suggesties` |
-| `<leader>at` | Tussenkopjes en optionele streamer |
+| `<leader>at` | Tussenkopjes, optionele streamer en 2 kopopties |
 | `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie |
 | `<leader>aw` | Publicatie voorbereiden en naar Pubble versturen; ontbrekende `e:` eerst bevestigen en vastleggen |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen |
