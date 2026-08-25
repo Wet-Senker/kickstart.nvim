@@ -42,7 +42,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>ao` | Tekstcheck; twijfelgevallen komen onder `## Suggesties` |
 | `<leader>at` | Tussenkopjes en optionele streamer |
 | `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie |
-| `<leader>aw` | Publicatie voorbereiden en naar Pubble versturen |
+| `<leader>aw` | Publicatie voorbereiden en naar Pubble versturen; ontbrekende `e:` eerst bevestigen en vastleggen |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |
 | `<leader>ah` | Hiërarchisch hulpmenu voor codes, rubrieken, acties en cheatsheet |
@@ -170,6 +170,19 @@ Of zet dezelfde regels **bovenaan het document zelf** (voor de kop), gevolgd doo
 | `all` | alle edities |
 | `overijssel` | B, SW, ST, K |
 | `flevoland` | D, Z |
+
+Bij import wordt een betrouwbare dateline of duidelijke provinciale strekking
+eenmalig als `e:` ingevuld. Een bestaande regel wint altijd. Na herschrijven
+wordt alleen bij een afwijkende nieuwe detectie om een keuze gevraagd. Staat
+bij `<leader>aw` nog geen `e:`, dan moet de afgeleide bestemming eerst worden
+bevestigd; daarna blijft de regel boven het artikel staan.
+
+Na `<leader>ar` met meerdere gekozen edities verschijnt de vraag of iedere
+krant een eigen versie moet krijgen. Kies je **Ja**, dan blijft de versie voor
+de eerste `e:`-code in de gewone body en verschijnen de andere onder
+`## Editieversies`. Controleer alle teksten. `<leader>aw` verstuurt per krant
+de passende print- én webversie en blokkeert wanneer codes of versies niet meer
+exact overeenkomen. Kies **Nee** om één gezamenlijke tekst te behouden.
 
 ---
 

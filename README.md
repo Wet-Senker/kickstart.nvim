@@ -28,7 +28,7 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 
 | Leader | Actie |
 |---|---|
-| `<leader>ar` | Herschrijven naar krantenartikel (AI). Start background jobs voor metadata, kalender en/of Facebook op basis van controlecodes. Detecteert 112 en agendaberichten automatisch. |
+| `<leader>ar` | Herschrijven naar krantenartikel (AI). Vraagt bij meerdere gekozen edities of aparte krantversies gewenst zijn. Start background jobs voor metadata, kalender en/of Facebook op basis van controlecodes. Detecteert 112 en agendaberichten automatisch. |
 | `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
 | `<leader>at` | Tussenkopjes en, als er nog geen eigen `>` staat, een streamer. |
@@ -109,11 +109,36 @@ artikelbody staan.
 
 Bij het openen van een `.md`-bestand op `~/Desktop/`:
 
-Eén centrale, lokale herkenningsmodule leest de tekst eenmaal. De module doet
-alleen snelle patrooncontroles: geen AI, netwerk, bestanden of subprocessen.
-Iedere detector levert een score en concrete aanwijzingen op; de workflow
-bepaalt daarna of er automatisch iets mag gebeuren of eerst bevestiging nodig
-is.
+Eén centrale, lokale herkenningsmodule leest de tekst eenmaal. Rubriek- en
+kalenderdetectors doen alleen snelle patrooncontroles. De editiedetector vraagt
+daarnaast asynchroon de centrale Python-resolver om de verspreidingskennis,
+zodat die tabel niet ook in Lua hoeft te staan. Dit gebruikt geen AI of netwerk
+en blokkeert de editor niet. Iedere detector levert concrete aanwijzingen op;
+de workflow bepaalt daarna of er automatisch iets mag gebeuren of eerst
+bevestiging nodig is.
+
+**Editiedetectie** — een bestaande `e:`/`editie:`-regel blijft altijd staan.
+Zonder zo'n regel wordt een betrouwbare dateline direct ingevuld. Een exacte
+provincienaam is eveneens betrouwbaar wanneer zij vroeg in het artikel staat
+of meermaals voorkomt: `Overijssel` wordt `e: B, SW, ST, K`, `Flevoland` wordt
+`e: D, Z`. De importcontrole draait eenmaal per buffer. Na `<leader>ar` volgt
+een hercontrole; wijkt die af van een bestaande keuze, dan beslis je zelf welke
+bestemming blijft. Bij `<leader>aw` wordt alleen gevraagd om de bestemming te
+bevestigen wanneer nog geen expliciete `e:` bestaat. Na Ja wordt de regel in de
+buffer gezet, zodat de vraag niet terugkomt.
+
+Heeft de definitieve `e:` meer dan één gekozen krant, dan vraagt `<leader>ar`
+of iedere krant een eigen versie moet krijgen. **Nee** behoudt één gezamenlijke
+tekst. **Ja** start één veilige AI-call per editie. Alleen kop, dateline, intro
+en lokale invalshoek mogen veranderen wanneer de bron dat feitelijk draagt;
+zonder lokale haak mag een versie vrijwel gelijk blijven. De eerste editie op
+`e:` staat in de gewone body. De andere versies staan zichtbaar onder
+`## Editieversies` en moeten vóór verzending worden gecontroleerd.
+
+`<leader>aw` controleert dat iedere gekozen krant exact één geldige versie
+heeft en stuurt voor print én web alleen de passende tekst. Bij een ontbrekende,
+dubbele of verkeerde code stopt de verzending vóór Pubble. Staat er geen
+`## Editieversies`, dan blijft de gezamenlijke tekst voor alle kranten gelden.
 
 **112-detectie** — scoort tekst op signaalwoorden (politie, brandweer, ambulance, incident, etc.). Bij score ≥ 6 verschijnt een bevestigingsvraag. Bij "Ja": 112-template toegepast, `rubriek: 112` en `prio: 1` bovenaan gezet. Bij "Nee" blijft die keuze voor de huidige buffer staan en mag detectie na `<leader>ar` het template niet alsnog toepassen. De kop gebruikt via `pubble-places` de eerste bekende plaats uit de centrale verspreidingsgebiedentabel; zonder treffer wordt het `112:`.
 

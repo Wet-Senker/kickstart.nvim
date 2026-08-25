@@ -864,6 +864,411 @@ local function fill_editions_line(buf, content, done)
   )
 end
 
+local function same_edition_codes(left, right)
+  if type(left) ~= "table" or type(right) ~= "table" or #left ~= #right then
+    return false
+  end
+  for index, code in ipairs(left) do
+    if code ~= right[index] then return false end
+  end
+  return true
+end
+
+local function edition_names(codes, names)
+  local labels = {}
+  local fallback = {
+    B = "De Brug",
+    SW = "De Swollenaer",
+    ST = "De Stadskoerier",
+    Z = "Zeewolde Actueel",
+    D = "De Drontenaar",
+    K = "Nieuwsbode de Kop",
+  }
+  for index, code in ipairs(codes or {}) do
+    table.insert(labels, (names and names[index]) or fallback[code] or code)
+  end
+  return table.concat(labels, " + ")
+end
+
+local function buffer_has_edition_control(buf)
+  if not vim.api.nvim_buf_is_valid(buf) then return false end
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local _, controls = split_article_parts(lines)
+  for _, line in ipairs(controls) do
+    local key = vim.trim(line):match("^([%a][%a%d_]*)%s*:")
+    if key and (key:lower() == "e" or key:lower() == "editie") then
+      return true
+    end
+  end
+  return false
+end
+
+local function replace_edition_control_lines(buf, edition_lines)
+  if not vim.api.nvim_buf_is_valid(buf) then return false end
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local fm, controls, body, sections, has_boundary = split_article_parts(lines)
+  local new_controls = {}
+  for _, line in ipairs(edition_lines or {}) do
+    table.insert(new_controls, line)
+  end
+  for _, line in ipairs(controls) do
+    local key = vim.trim(line):match("^([%a][%a%d_]*)%s*:")
+    key = key and key:lower() or nil
+    if key ~= "e" and key ~= "editie" and key ~= "suggestiereden" then
+      table.insert(new_controls, line)
+    end
+  end
+  vim.api.nvim_buf_set_lines(
+    buf, 0, -1, false,
+    reassemble_article(fm, new_controls, body, sections, has_boundary)
+  )
+  return true
+end
+
+local function set_edition_codes(buf, codes)
+  if type(codes) ~= "table" or #codes == 0 then return false end
+  return replace_edition_control_lines(buf, { "e: " .. table.concat(codes, ", ") })
+end
+
+local function high_confidence_detection(resolved)
+  local detection = type(resolved) == "table" and resolved.detection or nil
+  if type(detection) ~= "table"
+    or detection.confidence ~= "high"
+    or type(detection.editions) ~= "table"
+    or #detection.editions == 0
+  then
+    return nil
+  end
+  return detection
+end
+
+-- Eén asynchrone toegang tot de Python-resolver. De editor dupliceert de
+-- verspreidingsgebiedentabel dus niet en de hoofdthread blijft ook op oudere
+-- Macs vrij.
+local function resolve_editions_for_content(buf, content, done)
+  local tmp = vim.fn.tempname() .. ".md"
+  vim.fn.writefile(vim.split(content, "\n", { plain = true }), tmp)
+  start_buffer_job(buf)
+  vim.system(
+    { pubble_send, tmp, "--resolve-editions", "--require-article-boundary" },
+    { text = true },
+    function(res)
+    vim.schedule(function()
+      local function complete(resolved)
+        finish_buffer_job(buf)
+        if done then done(resolved) end
+      end
+      vim.fn.delete(tmp)
+      local ok, resolved = pcall(vim.fn.json_decode, res.stdout or "")
+      if res.code ~= 0
+        or not ok
+        or type(resolved) ~= "table"
+        or type(resolved.editions) ~= "table"
+      then
+        complete(nil)
+        return
+      end
+      complete(resolved)
+    end)
+    end
+  )
+end
+
+local function adapt_editorial_address(buf, primary)
+  if not primary or not vim.api.nvim_buf_is_valid(buf) then return end
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local adapted = vim.system(
+    { redactie_adres, "--editie", primary },
+    { text = true, stdin = table.concat(lines, "\n") }
+  ):wait(3000)
+  if adapted.code == 0 and adapted.stdout and adapted.stdout ~= "" then
+    vim.api.nvim_buf_set_lines(
+      buf, 0, -1, false,
+      vim.split((adapted.stdout:gsub("\n$", "")), "\n", { plain = true })
+    )
+  end
+end
+
+-- De veilige variant voor import en <leader>av: bestaande keuzes blijven
+-- staan en een stille De-Brug-default wordt niet als e:-regel vastgelegd.
+local function fill_detected_editions_line(buf, content, done)
+  resolve_editions_for_content(buf, content, function(resolved)
+    if not resolved then
+      if done then done(false) end
+      return
+    end
+    if resolved.has_explicit_editions == true then
+      adapt_editorial_address(buf, resolved.editions[1])
+      if done then done(true) end
+      return
+    end
+    local detection = high_confidence_detection(resolved)
+    if detection then
+      set_edition_codes(buf, detection.editions)
+      adapt_editorial_address(buf, detection.editions[1])
+    end
+    if done then done(true) end
+  end)
+end
+
+M._edition_rewrite_confirm = function(current_label, detected_label, source)
+  return vim.fn.confirm(
+    "Bestemming na herschrijven controleren:\n\n"
+      .. "Huidig: " .. current_label .. "\n"
+      .. "Nieuwe detectie: " .. detected_label .. " (" .. source .. ")",
+    "&Huidige behouden\n&Nieuwe gebruiken",
+    1
+  )
+end
+
+local function reconcile_editions_after_rewrite(buf, content, done)
+  resolve_editions_for_content(buf, content, function(resolved)
+    if not resolved then
+      if done then done(false) end
+      return
+    end
+    local detection = high_confidence_detection(resolved)
+    if not detection then
+      if done then done(true, resolved.editions, resolved.names) end
+      return
+    end
+    if resolved.has_explicit_editions ~= true then
+      set_edition_codes(buf, detection.editions)
+      adapt_editorial_address(buf, detection.editions[1])
+      notify_workflow(
+        "Bestemming herkend na herschrijven: "
+          .. edition_names(detection.editions, detection.names) .. "."
+      )
+      if done then done(true, detection.editions, detection.names) end
+      return
+    end
+    if same_edition_codes(resolved.editions, detection.editions) then
+      if done then done(true, resolved.editions, resolved.names) end
+      return
+    end
+
+    local choice = M._edition_rewrite_confirm(
+      edition_names(resolved.editions, resolved.names),
+      edition_names(detection.editions, detection.names),
+      detection.source or "inhoudelijke detectie"
+    )
+    if choice == 2 then
+      set_edition_codes(buf, detection.editions)
+      adapt_editorial_address(buf, detection.editions[1])
+      if done then done(true, detection.editions, detection.names) end
+      return
+    end
+    if done then done(true, resolved.editions, resolved.names) end
+  end)
+end
+
+local function edition_autodetect(buf, content)
+  if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].edition_recognition_done then return end
+  vim.b[buf].edition_recognition_done = true
+  if content:find("=== AGENDAPAGINA ===", 1, true) or buffer_has_edition_control(buf) then
+    return
+  end
+
+  resolve_editions_for_content(buf, content, function(resolved)
+    if not resolved
+      or resolved.has_explicit_editions == true
+      or not vim.api.nvim_buf_is_valid(buf)
+      or buffer_has_edition_control(buf)
+    then
+      return
+    end
+    local detection = high_confidence_detection(resolved)
+    if not detection then return end
+    set_edition_codes(buf, detection.editions)
+    adapt_editorial_address(buf, detection.editions[1])
+    notify_workflow(
+      "Bestemming herkend bij import: "
+        .. edition_names(detection.editions, detection.names)
+        .. " ("
+        .. (detection.source or "deterministische detectie")
+        .. ")."
+    )
+  end)
+end
+
+local function drop_edition_versions_block(sections)
+  local result = {}
+  local skipping = false
+  for _, line in ipairs(sections or {}) do
+    if line:match("^## Editieversies%s*$") then
+      skipping = true
+    elseif skipping and line:match("^## %S") then
+      skipping = false
+      table.insert(result, line)
+    elseif not skipping then
+      table.insert(result, line)
+    end
+  end
+  while #result > 0 and vim.trim(result[1]) == "" do table.remove(result, 1) end
+  return result
+end
+
+local function has_edition_versions_block(sections)
+  for _, line in ipairs(sections or {}) do
+    if line:match("^## Editieversies%s*$") then return true end
+  end
+  return false
+end
+
+local function normalized_edition_variant(output)
+  local text = vim.trim(output or "")
+  if text == "" or text:find("=== ARTIKEL ===", 1, true)
+    or text:find("## Editieversies", 1, true)
+  then
+    return nil
+  end
+  local lines = vim.split(text, "\n", { plain = true })
+  while #lines > 0 and vim.trim(lines[1]) == "" do table.remove(lines, 1) end
+  while #lines > 0 and vim.trim(lines[#lines]) == "" do table.remove(lines) end
+  if #lines < 3 then return nil end
+  lines[1] = lines[1]:gsub("^#+%s*", "")
+  for _, line in ipairs(lines) do
+    if line:match("^##+ %S") then return nil end
+  end
+  local rendered = table.concat(lines, "\n")
+  if not rendered:find("**", 1, true) then return nil end
+  return rendered
+end
+
+local function apply_edition_versions(buf, codes, names, variants)
+  if not vim.api.nvim_buf_is_valid(buf) or #codes < 2 then return false end
+  for _, code in ipairs(codes) do
+    if type(variants[code]) ~= "string" or vim.trim(variants[code]) == "" then
+      return false
+    end
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local fm, controls, _, sections, has_boundary = split_article_parts(lines)
+  sections = drop_edition_versions_block(sections)
+  local version_section = {
+    "## Editieversies",
+    "",
+    "Primaire versie hierboven: " .. codes[1] .. " — "
+      .. edition_names({ codes[1] }, { names and names[1] }) .. ".",
+  }
+  for index = 2, #codes do
+    table.insert(version_section, "")
+    table.insert(
+      version_section,
+      "### Editieversie " .. codes[index] .. " — "
+        .. edition_names({ codes[index] }, { names and names[index] })
+    )
+    table.insert(version_section, "")
+    for _, line in ipairs(vim.split(variants[codes[index]], "\n", { plain = true })) do
+      table.insert(version_section, line)
+    end
+  end
+  if #sections > 0 then
+    table.insert(version_section, "")
+    for _, line in ipairs(sections) do table.insert(version_section, line) end
+  end
+
+  vim.api.nvim_buf_set_lines(
+    buf, 0, -1, false,
+    reassemble_article(
+      fm,
+      controls,
+      vim.split(variants[codes[1]], "\n", { plain = true }),
+      version_section,
+      has_boundary
+    )
+  )
+  return true
+end
+
+M._edition_versions_confirm = function(codes, names)
+  return vim.fn.confirm(
+    "Dit artikel gaat naar meerdere kranten:\n\n"
+      .. edition_names(codes, names)
+      .. "\n\nVoor iedere krant een eigen versie maken?",
+    "&Ja, aparte versies\n&Nee, gezamenlijke versie",
+    2
+  )
+end
+
+M._edition_versions_regenerate_confirm = function()
+  return vim.fn.confirm(
+    "Dit artikel bevat al aparte krantversies. <leader>ar vervangt deze allemaal. Doorgaan?",
+    "&Vervangen\n&Annuleren",
+    2
+  )
+end
+
+M._edition_variant_runner = function(buf, code, source, done)
+  ai_system(
+    { aitext, "krantversie", "--edition", code },
+    { text = true, stdin = source },
+    function(result)
+    vim.schedule(function()
+      if result.code ~= 0 then
+        done(false, nil, vim.trim(result.stderr or ""))
+        return
+      end
+      local variant = normalized_edition_variant(result.stdout)
+      if not variant then
+        done(false, nil, "AI-uitvoer heeft geen geldige kop, intro en body")
+        return
+      end
+      done(true, variant, nil)
+    end)
+    end,
+    "AI · Krantversie " .. code,
+    buf
+  )
+end
+
+local function offer_and_generate_edition_versions(buf, source, codes, names)
+  if type(codes) ~= "table" or #codes < 2 then return end
+  if M._edition_versions_confirm(codes, names) ~= 1 then
+    notify_workflow("Eén gezamenlijke artikelversie behouden.", vim.log.levels.INFO)
+    return
+  end
+
+  local variants, errors = {}, {}
+  local remaining = #codes
+  for _, code in ipairs(codes) do
+    M._edition_variant_runner(buf, code, source, function(ok, variant, err)
+      if ok then
+        variants[code] = variant
+      else
+        table.insert(errors, code .. (err and (": " .. err) or ""))
+      end
+      remaining = remaining - 1
+      if remaining ~= 0 then return end
+      if #errors > 0 then
+        notify_workflow(
+          "Aparte krantversies niet toegepast; mislukt voor "
+            .. table.concat(errors, "; ") .. ". De gezamenlijke versie blijft staan.",
+          vim.log.levels.ERROR
+        )
+        return
+      end
+      if not apply_edition_versions(buf, codes, names, variants) then
+        notify_workflow("Aparte krantversies konden niet veilig worden ingevoegd.", vim.log.levels.ERROR)
+        return
+      end
+      notify_workflow(
+        "Aparte krantversies toegevoegd. Controleer alle teksten en verzend daarna met <leader>aw."
+      )
+    end)
+  end
+end
+
+M._same_edition_codes = same_edition_codes
+M._set_edition_codes = set_edition_codes
+M._reconcile_editions_after_rewrite = reconcile_editions_after_rewrite
+M._edition_autodetect = edition_autodetect
+M._drop_edition_versions_block = drop_edition_versions_block
+M._normalized_edition_variant = normalized_edition_variant
+M._apply_edition_versions = apply_edition_versions
+M._offer_and_generate_edition_versions = offer_and_generate_edition_versions
+
 function M.rewrite_article_buffer()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -872,6 +1277,13 @@ function M.rewrite_article_buffer()
   -- buiten de AI-input en worden na de rewrite deterministisch teruggezet.
   local saved_fm, saved_ctrl, body_lines, saved_sections, saved_boundary =
     split_article_parts(lines)
+  if has_edition_versions_block(saved_sections) then
+    if M._edition_versions_regenerate_confirm() ~= 1 then
+      notify_workflow("Herschrijven geannuleerd; bestaande krantversies zijn behouden.", vim.log.levels.INFO)
+      return
+    end
+    saved_sections = drop_edition_versions_block(saved_sections)
+  end
 
   -- Expliciete foto-/bijschriftregels uit de bron hoeven niet door AI verplaatst
   -- te worden. Haal ze vóór de call uit de body; mediaregels die de AI uit
@@ -956,6 +1368,7 @@ function M.rewrite_article_buffer()
       local final_ctrl = #current_ctrl > 0 and current_ctrl or saved_ctrl
       final_ctrl = add_media_controls(final_ctrl, media_controls)
       local final_sections = #current_sections > 0 and current_sections or saved_sections
+      final_sections = drop_edition_versions_block(final_sections)
       local rewritten_body_str = table.concat(new_lines, "\n")
       new_lines = reassemble_article(
         final_fm,
@@ -971,9 +1384,13 @@ function M.rewrite_article_buffer()
       vim.b[buf].cached_calendar_metadata = nil
       vim.b[buf].cached_facebook_text = nil
 
-      -- Vul de e:-regel met de kranten (dateline) + suggesties (plaatsenscan),
-      -- zodat je vóór <leader>aw ziet en kunt bijsturen waar het heen gaat.
-      fill_editions_line(buf, rewritten_str)
+      -- Herken opnieuw op basis van de herschreven tekst, maar vervang een
+      -- bestaande (dus zichtbare) e:-keuze nooit zonder bevestiging.
+      reconcile_editions_after_rewrite(buf, rewritten_str, function(ok, codes, names)
+        if ok then
+          offer_and_generate_edition_versions(buf, rewritten_body_str, codes, names)
+        end
+      end)
 
       -- Agenda-schakelaar (agenda:/cal:/calendar:) + facebook: x lezen.
       local agenda = _agenda_mode_from_lines(final_ctrl)
@@ -1418,7 +1835,7 @@ function M.prepare_article(buf)
 
   -- 2. Editie-regel (dateline → e:) + redactie-adres.
   local content = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
-  fill_editions_line(buf, content, function(ok)
+  fill_detected_editions_line(buf, content, function(ok)
     if not ok then
       notify_workflow(
         "Editie bepalen mislukt — controleer de dateline (PLAATS - …) en de "
@@ -1596,6 +2013,7 @@ local function article_autodetect(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   if #lines == 0 then return end
   local text = table.concat(lines, "\n")
+  edition_autodetect(buf, text)
   local evaluation = article_recognition.evaluate(text)
   local calendar_prompted = _calendar_autodetect(buf, lines, text, evaluation, function()
     if not vim.api.nvim_buf_is_valid(buf) then return end
@@ -1659,6 +2077,31 @@ vim.keymap.set("n", "<leader>av", M.prepare_article, {
 -- moduletabel nog in een callback leven. De lokale closure blijft na volledige
 -- moduleload aan precies de bijbehorende implementatie gekoppeld.
 local event_prepare
+
+M._edition_send_confirm = function(resolved)
+  local destination = edition_names(resolved.editions, resolved.names)
+  local source = type(resolved.source) == "string"
+      and resolved.source
+    or "automatische detectie"
+  local prompt
+  if source:match("^standaard") then
+    prompt = "Geen betrouwbare editie gevonden. Toch naar " .. destination .. "?"
+  else
+    prompt = "Bestemming automatisch bepaald: " .. destination
+      .. " (" .. source .. "). Klopt dit?"
+  end
+  return vim.fn.confirm(
+    prompt,
+    "&Ja, vastleggen en doorgaan\n&Zelf e: invullen\n&Annuleren",
+    1
+  )
+end
+
+local function needs_edition_send_confirmation(resolved)
+  return type(resolved) == "table" and resolved.has_explicit_editions ~= true
+end
+
+M._needs_edition_send_confirmation = needs_edition_send_confirmation
 
 function M.pubble_send(target_buf)
   local buf = target_buf or vim.api.nvim_get_current_buf()
@@ -2336,6 +2779,33 @@ function M.pubble_send(target_buf)
         return
       end
 
+      -- Zonder zichtbare e:-keuze mag een afgeleide dateline, provincie of
+      -- De-Brug-default nooit stil naar Pubble gaan. Na Ja leggen we de keuze
+      -- in de buffer vast en starten we dezelfde flow opnieuw; daardoor wordt
+      -- dit niet nogmaals gevraagd en blijft e: de bron van waarheid.
+      if needs_edition_send_confirmation(resolved) then
+        local choice = M._edition_send_confirm(resolved)
+        if choice == 1 then
+          if not set_edition_codes(buf, resolved.editions) then
+            discard_unpublished_temp()
+            notify_workflow("Editiebestemming kon niet worden vastgelegd.", vim.log.levels.ERROR)
+            return
+          end
+          discard_unpublished_temp()
+          vim.schedule(function() M.pubble_send(buf) end)
+        elseif choice == 2 then
+          discard_unpublished_temp()
+          notify_workflow(
+            "Vul boven === ARTIKEL === een e:-regel in en druk daarna opnieuw <leader>aw.",
+            vim.log.levels.INFO
+          )
+        else
+          discard_unpublished_temp()
+          notify_workflow("Verzending geannuleerd.", vim.log.levels.INFO)
+        end
+        return
+      end
+
       if process_publication_link_actions(resolved.link_actions) then
         return
       end
@@ -2379,15 +2849,7 @@ function M.pubble_send(target_buf)
       -- Bij meerdere edities toont het aansluitende planningsmenu alle kranten
       -- en datums al; een extra melding onderaan is dan alleen een tussenstap.
       -- Voor één editie blijft de korte bestemmingsbevestiging wel nuttig.
-      if resolved.source and resolved.source:match("^standaard") then
-        -- Geen dateline herkend → stille terugval naar De Brug. Als
-        -- waarschuwing tonen zodat een verkeerde bestemming opvalt vóór het
-        -- versturen (dit is de misser die je met annuleren opving).
-        notify_workflow(
-          "LET OP: geen dateline herkend — gaat standaard naar De Brug. Voeg e: toe als dat niet klopt.",
-          vim.log.levels.WARN
-        )
-      elseif #resolved.editions == 1 then
+      if #resolved.editions == 1 then
         local msg = "Artikel gaat naar: " .. table.concat(bestemming, " + ")
         if resolved.source then
           msg = msg .. "  (" .. resolved.source .. ")"
