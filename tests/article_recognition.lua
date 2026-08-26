@@ -75,6 +75,24 @@ local emergency = recognition.evaluate(
 assert(emergency.by_id['112'].points >= recognition.EMERGENCY_THRESHOLD, 'bestaande 112-score ging verloren')
 assert(recognition.rubric_decision(emergency).action == 'confirm', '112 mag nooit zonder bevestiging worden toegepast')
 
+local investigated_door_fire = recognition.evaluate([[
+Politie onderzoekt brand bij voordeur woning Bereklauw
+
+KAMPEN - De politie onderzoekt een brand bij de voordeur van een woning in Kampen. Kort voor half één vannacht kwam daarover een melding binnen. Er zou een knal zijn gehoord. De brand heeft schade aan de woning veroorzaakt.
+
+De politie onderzoekt wat er precies is gebeurd en wie bij het incident betrokken is. Forensische Opsporing heeft ter plaatse sporen veiliggesteld. Ook worden onder meer camerabeelden bekeken.
+
+De politie roept mensen die afgelopen nacht iets hebben gezien of camerabeelden van het incident hebben op zich te melden. Dat kan via 0900-8844.
+]])
+assert(
+  investigated_door_fire.by_id['112'].points == recognition.EMERGENCY_THRESHOLD,
+  'politieonderzoek naar een brand moet via de combinatiebonus de 112-drempel halen'
+)
+assert(
+  recognition.rubric_decision(investigated_door_fire).action == 'confirm',
+  'politieonderzoek naar de voordeurbrand moet om 112-bevestiging vragen'
+)
+
 local conflict = recognition.evaluate(
   supplied_kiek .. '\nPolitie, brandweer en ambulance kwamen na een aanrijding ter plaatse.'
 )

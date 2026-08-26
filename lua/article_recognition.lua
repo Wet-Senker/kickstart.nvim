@@ -223,6 +223,8 @@ local function emergency_detection(text)
   local t = text:lower()
   local score = 0
   local evidence = {}
+  local has_service_signal = false
+  local has_incident_signal = false
 
   for _, phrase in ipairs({
     'politie', 'brandweer', 'ambulance', 'traumahelikopter',
@@ -232,6 +234,7 @@ local function emergency_detection(text)
   }) do
     if t:find(phrase, 1, true) then
       score = score + 3
+      has_service_signal = true
       add_evidence(evidence, 'hulpdienst: ' .. phrase)
     end
   end
@@ -249,8 +252,14 @@ local function emergency_detection(text)
   }) do
     if t:find(phrase, 1, true) then
       score = score + 2
+      has_incident_signal = true
       add_evidence(evidence, 'incident: ' .. phrase)
     end
+  end
+
+  if has_service_signal and has_incident_signal then
+    score = score + 1
+    add_evidence(evidence, 'combinatie: hulpdienst en incident')
   end
 
   if t:find('ter hoogte van') or t:find('op de hoek van') or t:find('nabij de') then
