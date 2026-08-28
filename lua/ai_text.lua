@@ -1,6 +1,16 @@
 local M = {}
 local notifications = require("texttools_notify")
 local article_recognition = require("article_recognition")
+local texttools_paths = require("texttools_paths")
+
+-- Nieuwe pv-imports leven in de gedeelde werkmap. Desktop blijft als
+-- compatibele invoerroute bestaan voor oude bestanden en handmatig geopende
+-- Markdown, maar is niet langer de standaardopslag.
+local import_patterns = {
+  vim.fn.expand("~/Desktop") .. "/*.md",
+  texttools_paths.work() .. "/*.md",
+}
+M._import_patterns = import_patterns
 
 -- Alleen editor-AI-processen zijn met <leader>aq annuleerbaar. Pubble-writes,
 -- uploads en archivering staan bewust niet in deze lijst: die kunnen extern al
@@ -131,11 +141,12 @@ function M.cancel_ai(buf)
   return true
 end
 
--- Maak Pubble Inbox mappenstructuur aan als Keyboard Maestro een paste-bestand opent.
+-- Maak de gedeelde werk- en batchmappen aan als een importbestand wordt geopend.
 vim.api.nvim_create_autocmd("BufNewFile", {
-  pattern = vim.fn.expand("~/Desktop") .. "/*.md",
+  pattern = import_patterns,
   callback = function()
-    local inbox = require('texttools_paths').inbox()
+    local inbox = texttools_paths.inbox()
+    vim.fn.mkdir(texttools_paths.work(), "p")
     vim.fn.mkdir(inbox .. "/pubble-batch", "p")
   end,
 })
@@ -2237,7 +2248,7 @@ end
 M._schedule_article_autodetect = schedule_article_autodetect
 
 vim.api.nvim_create_autocmd("BufReadPost", {
-  pattern = vim.fn.expand("~/Desktop") .. "/*.md",
+  pattern = import_patterns,
   callback = function(ev) schedule_article_autodetect(ev.buf) end,
 })
 vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
@@ -2282,6 +2293,81 @@ local function needs_edition_send_confirmation(resolved)
 end
 
 M._needs_edition_send_confirmation = needs_edition_send_confirmation
+
+local function normalized_path(path)
+  if type(path) ~= "string" or path == "" then return "" end
+  return vim.fs.normalize(vim.fn.fnamemodify(path, ":p"))
+end
+
+local function path_is_in_directory(path, directory, recursive)
+  local candidate = normalized_path(path)
+  local parent = normalized_path(directory):gsub("/+$", "")
+  if candidate == "" or parent == "" then return false end
+  if recursive then return vim.startswith(candidate, parent .. "/") end
+  return normalized_path(vim.fn.fnamemodify(candidate, ":h")):gsub("/+$", "") == parent
+end
+
+-- Alleen door pv beheerde werkbestanden worden na publicatie verwijderd.
+-- Een willekeurig elders geopend Markdownbestand blijft altijd eigendom van de
+-- gebruiker. Desktop geldt alleen nog als directe legacy-importmap; een
+-- direct Inboxbestand is een expliciet geopend transactioneel herstelbestand.
+local function is_managed_import_path(path)
+  return path_is_in_directory(path, texttools_paths.work(), true)
+      or path_is_in_directory(path, vim.fn.expand("~/Desktop"), false)
+      or path_is_in_directory(path, texttools_paths.inbox(), false)
+end
+M._is_managed_import_path = is_managed_import_path
+
+M._delete_source_file = function(path) return vim.fn.delete(path) end
+
+local function add_sent_marker(buf, marker_block)
+  local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  if buf_lines[1] and buf_lines[1]:match("^%*%*Verstuurd naar Pubble op ") then
+    local replace_to = 1
+    if buf_lines[2] and buf_lines[2]:match("^https?://") then replace_to = 2 end
+    vim.api.nvim_buf_set_lines(buf, 0, replace_to, false, marker_block)
+    return
+  end
+
+  local prepend = {}
+  for _, line in ipairs(marker_block) do table.insert(prepend, line) end
+  table.insert(prepend, "")
+  vim.api.nvim_buf_set_lines(buf, 0, 0, false, prepend)
+end
+
+-- Verwijder een beheerde pv-bron en verander de zichtbare tekst daarna in een
+-- niet-opslagbare nacontrolebuffer. Daardoor kan :w of :wq het verwijderde
+-- werkbestand niet opnieuw aanmaken. Niet-beheerde bestanden krijgen alleen de
+-- verzendmarker en blijven gewone bestanden.
+local function finalize_published_buffer(buf, file_path, marker_block, archive_path)
+  add_sent_marker(buf, marker_block)
+
+  if not is_managed_import_path(file_path) then return true, nil, false end
+
+  local cleanup_ok = true
+  local cleanup_error
+  if vim.fn.filereadable(file_path) == 1 and M._delete_source_file(file_path) ~= 0 then
+    cleanup_ok = false
+    cleanup_error = "Werkbestand kon niet worden verwijderd: " .. file_path
+  end
+
+  vim.b[buf].published_archive_path = archive_path
+  local display_name = vim.fn.fnamemodify(file_path, ":t")
+  pcall(
+    vim.api.nvim_buf_set_name,
+    buf,
+    ("pubble-nacontrole://%s/%d"):format(display_name ~= "" and display_name or "artikel.md", buf)
+  )
+  vim.bo[buf].bufhidden = "hide"
+  vim.bo[buf].swapfile = false
+  vim.bo[buf].modified = false
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].readonly = true
+  vim.bo[buf].modifiable = false
+
+  return cleanup_ok, cleanup_error, true
+end
+M._finalize_published_buffer = finalize_published_buffer
 
 function M.pubble_send(target_buf)
   local buf = target_buf or vim.api.nvim_get_current_buf()
@@ -2762,8 +2848,6 @@ function M.pubble_send(target_buf)
             return
           end
           if export_path then msg = msg .. " | vormgeving" end
-          notify_workflow(msg, message_level)
-
           -- Verplaats pas na hoofd- én vervolgpublicatie het volledige
           -- statusbestand naar het operationele publicatiearchief.
           local archive_result = vim.system(
@@ -2791,37 +2875,31 @@ function M.pubble_send(target_buf)
           vim.b[buf].failed_send_file = nil
           vim.b[buf].event_review_state = nil
 
+          local sent_marker = "**Verstuurd naar Pubble op " .. os.date("%d-%m-%Y %H:%M") .. "**"
+          local marker_block = { sent_marker }
+          if article_url then table.insert(marker_block, article_url) end
+          local cleanup_ok, cleanup_error = finalize_published_buffer(
+            buf,
+            file_path,
+            marker_block,
+            archive_data.path
+          )
+          if not cleanup_ok then
+            message_level = vim.log.levels.WARN
+            msg = msg .. " | LET OP: werkbestand bleef staan"
+            vim.notify(
+              cleanup_error .. ". Het artikel is wel gepubliceerd en gearchiveerd; verwijder dit bestand handmatig.",
+              vim.log.levels.WARN
+            )
+          end
+
           -- Het browsermoment is het eindsignaal: hoofdartikel, media,
           -- eventuele vervolgen en archivering zijn nu allemaal gereed.
           if article_url then
             open_url_without_focus(article_url)
           end
 
-          -- Verwijder origineel op bureaublad; buffer blijft zichtbaar voor nacontrole.
-          if file_path ~= "" and vim.fn.filereadable(file_path) == 1 then
-            vim.fn.delete(file_path)
-          end
-
-          -- Zet bovenaan de (nog open) buffer wanneer verzonden is, zodat je bij
-          -- meerdere open buffers in één oogopslag ziet wat al gelukt is. De
-          -- artikel-URL komt eronder: klikbaar met gx en meteen de weg terug.
-          -- Opnieuw verzenden vervangt het bestaande blok i.p.v. te stapelen.
-          local sent_marker = "**Verstuurd naar Pubble op " .. os.date("%d-%m-%Y %H:%M") .. "**"
-          local marker_block = { sent_marker }
-          if article_url then table.insert(marker_block, article_url) end
-
-          local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-          if buf_lines[1] and buf_lines[1]:match("^%*%*Verstuurd naar Pubble op ") then
-            -- Vervang het bestaande blok (marker + evt. eerdere URL-regel).
-            local replace_to = 1
-            if buf_lines[2] and buf_lines[2]:match("^https?://") then replace_to = 2 end
-            vim.api.nvim_buf_set_lines(buf, 0, replace_to, false, marker_block)
-          else
-            local prepend = {}
-            for _, l in ipairs(marker_block) do table.insert(prepend, l) end
-            table.insert(prepend, "")
-            vim.api.nvim_buf_set_lines(buf, 0, 0, false, prepend)
-          end
+          notify_workflow(msg, message_level)
 
           vim.b[buf].publication_in_progress = false
 

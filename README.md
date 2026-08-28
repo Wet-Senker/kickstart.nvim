@@ -9,7 +9,7 @@ Gekoppeld aan: [texttools](https://github.com/Wet-Senker/texttools) (Python-pack
 ## Workflow
 
 ```
-Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
+Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 
 <leader>ar    Herschrijven naar krantenartikel (AI)
               ↳ start background jobs (metadata, kalender, Facebook) op basis van controlecodes
@@ -108,7 +108,7 @@ artikelbody staan.
 
 ## Automatische detectie bij import
 
-Bij het openen van een `.md`-bestand op `~/Desktop/`:
+Bij het openen van een `.md`-bestand in `~/.texttools/pubble-inbox/werk/`:
 
 Eén centrale, lokale herkenningsmodule leest de tekst eenmaal. Rubriek- en
 kalenderdetectors doen alleen snelle patrooncontroles. De editiedetector vraagt
@@ -117,6 +117,9 @@ zodat die tabel niet ook in Lua hoeft te staan. Dit gebruikt geen AI of netwerk
 en blokkeert de editor niet. Iedere detector levert concrete aanwijzingen op;
 de workflow bepaalt daarna of er automatisch iets mag gebeuren of eerst
 bevestiging nodig is.
+
+Direct op `~/Desktop/` geopende Markdown blijft als legacy-import ondersteund.
+Nieuwe `pv`-bestanden komen niet meer op het bureaublad.
 
 **Editiedetectie** — een bestaande `e:`/`editie:`-regel blijft altijd staan.
 Zonder zo'n regel wordt een betrouwbare dateline direct ingevuld. Een exacte
@@ -185,6 +188,13 @@ mappen en configuratie ingevuld.
 - `<leader>ar` op een al opgemaakte 112-buffer: herschrijft alleen titel en body, laat prefix en disclaimer intact
 
 ## Pubble-archief
+
+Handmatige `pv`-artikelen staan tijdens het werk in
+`~/.texttools/pubble-inbox/werk/`; `pubble-batch/` blijft uitsluitend voor de
+batchroute. Na volledige publicatie wordt het werkbestand verwijderd en wordt
+de zichtbare tekst een niet-schrijfbare `pubble-nacontrole://`-buffer. Daardoor
+kan `:w` of `:wq` de verwijderde bron niet opnieuw aanmaken. Een mislukte
+verwijdering geeft een expliciete waarschuwing met het achtergebleven pad.
 
 Na `<leader>aw` verhuist het volledige Markdownbestand met frontmatter en alle
 Pubble-ID's naar `~/Documents/Pubble Archief/<jaar>/<maand>/`. Het blijft de
@@ -289,7 +299,7 @@ De 112-disclaimer in het 112-template is de enige bron — `ai_text.lua` leest h
 | `plugin/agenda_page.lua` | laadt de afzonderlijke agendapagina-UI |
 | `plugin/column_reminders.lua` | Rubriekplanning (`<leader>kp`): reminders en overzichten |
 | `lua/pubble_archive.lua` | Telescope-zoekingangen voor bestandsnaam en archiefinhoud |
-| `lua/texttools_paths.lua` | Gedeeld, configureerbaar pad naar de Pubble Inbox |
+| `lua/texttools_paths.lua` | Gedeelde, configureerbare paden naar de Pubble Inbox en handmatige werkmap |
 | `lua/texttools_commands.lua` | Gedeelde, via `TEXTTOOLS_ROOT` configureerbare paden naar texttools-CLI's |
 | `lua/texttools_socket.lua` | Veilige vaste serversocket met stale-socketherstel en race-guard |
 

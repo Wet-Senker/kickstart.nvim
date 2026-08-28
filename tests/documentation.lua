@@ -65,5 +65,7 @@ assert(documentation:find("precies één", 1, true), "enkelvoudige vormgevingsex
 assert(documentation:find("!agendapagina", 1, true), "papieren agendapagina ontbreekt in de documentatie")
 assert(documentation:find("3–4", 1, true), "korte agendakoppen ontbreken in de documentatie")
 assert(documentation:find("los slotblok", 1, true), "herstel van losse agendatekst ontbreekt in de documentatie")
+assert(documentation:find("Pubble Inbox/werk", 1, true), "de handmatige pv-werkmap ontbreekt in de documentatie")
+assert(documentation:find("niet-schrijfbare", 1, true), "de veilige nacontrolebuffer ontbreekt in de documentatie")
 
 print("documentation mappings: OK")

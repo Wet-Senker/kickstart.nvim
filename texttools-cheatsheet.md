@@ -6,7 +6,7 @@
 
 ```
 Clipboard/bron kopiëren
-→ Keyboard Maestro trigger → pastevim() → cleantext → opent in Neovim
+→ Keyboard Maestro trigger → pastevim() → `Pubble Inbox/werk` → cleantext → opent in Neovim
 
 In Neovim:
   Controlecodes bovenaan typen (zie hieronder)
@@ -15,6 +15,9 @@ In Neovim:
   <leader>af    Facebook-post genereren — verschijnt als ## Facebook sectie
   <leader>aw    onbewerkte-importcontrole, planning en versturen naar Pubble
 ```
+
+Na volledig succes verhuist het artikel naar `Pubble Archief`; het werkbestand
+verdwijnt en de open tekst wordt een niet-schrijfbare nacontrolebuffer.
 
 ### 2. pubble-batch (meerdere documenten tegelijk)
 

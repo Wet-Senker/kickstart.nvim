@@ -10,4 +10,9 @@ function M.inbox()
   return vim.fn.expand('~/.texttools/pubble-inbox')
 end
 
+---Return the work folder for articles imported manually through `pv`.
+function M.work()
+  return M.inbox() .. '/werk'
+end
+
 return M
