@@ -1794,6 +1794,26 @@ local function build_calendar_section_lines(lines)
     end
   end
 
+  local missing_hints = {
+    calendar_title = "Titel (`Titel: ...`)",
+    event_date = "Datum (`Datum: YYYY-MM-DD`, bijvoorbeeld `Datum: 2026-09-03`)",
+    start_time = "Tijd (`Tijd: HH:MM`, bijvoorbeeld `Tijd: 10:00`)",
+    location_name = "Locatie (`Locatie: ...`)",
+    city = "Stad (`Stad: ...`)",
+    calendar_body = "agendatekst (na een lege regel onder de velden)",
+  }
+
+  local function add_missing_hint(target, missing)
+    if type(missing) == "string" then missing = { missing } end
+    if type(missing) ~= "table" or #missing == 0 then return end
+    local rendered = {}
+    for _, field in ipairs(missing) do
+      table.insert(rendered, missing_hints[field] or field)
+    end
+    table.insert(target, "")
+    table.insert(target, "<!-- Ontbreekt: " .. table.concat(rendered, "; ") .. " -->")
+  end
+
   local function add_item(target, item)
     add(target, "Titel",       item.calendar_title or item.event_title)
     add(target, "Datum",       item.event_date)
@@ -1809,15 +1829,12 @@ local function build_calendar_section_lines(lines)
     add(target, "Adres",       item.location_address)
     add(target, "Stad",        item.city)
 
+    if item.calendar_ready ~= "true" and item.missing_event_fields then
+      add_missing_hint(target, item.missing_event_fields)
+    end
     if item.calendar_body and item.calendar_body ~= "" then
       table.insert(target, "")
       table.insert(target, item.calendar_body)
-    end
-    if item.calendar_ready ~= "true" and item.missing_event_fields then
-      local missing = item.missing_event_fields
-      if type(missing) == "table" then missing = table.concat(missing, ", ") end
-      table.insert(target, "")
-      table.insert(target, "<!-- Ontbreekt: " .. missing .. " -->")
     end
   end
 

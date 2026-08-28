@@ -38,7 +38,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | Leader | Actie |
 |---|---|
 | `<leader>ar` | Herschrijven naar krantenartikel (AI) |
-| `<leader>ac` | Metadata + kalenderitem — toont ook onvolledige items met `<!-- Ontbreekt: … -->` |
+| `<leader>ac` | Metadata + kalenderitem — ontbrekende velden tonen het formaat, zoals `Tijd: HH:MM` |
 | `<leader>ao` | Tekstcheck; twijfelgevallen komen onder `## Suggesties` |
 | `<leader>at` | Tussenkopjes, optionele streamer en 2 kopopties |
 | `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie |

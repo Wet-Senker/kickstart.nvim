@@ -89,8 +89,30 @@ assert(
   "bekende kalendervelden ontbreken in de controlesectie"
 )
 assert(
-  incomplete_text:find("<!-- Ontbreekt: start_time -->", 1, true),
-  "ontbrekende begintijd werd niet zichtbaar gemarkeerd"
+  incomplete_text:find(
+    "<!-- Ontbreekt: Tijd (`Tijd: HH:MM`, bijvoorbeeld `Tijd: 10:00`) -->",
+    1,
+    true
+  ),
+  "ontbrekende begintijd kreeg geen zichtbaar invoerformaat"
+)
+
+local incomplete_date_and_place = vim.deepcopy(incomplete_single)
+for index, line in ipairs(incomplete_date_and_place) do
+  if line == "  missing_event_fields:" then
+    table.insert(incomplete_date_and_place, index + 1, "  - event_date")
+    table.insert(incomplete_date_and_place, index + 2, "  - city")
+    break
+  end
+end
+local multi_hint_text = table.concat(
+  ai_text._build_calendar_section_lines(incomplete_date_and_place),
+  "\n"
+)
+assert(
+  multi_hint_text:find("Datum: YYYY-MM-DD", 1, true)
+    and multi_hint_text:find("Stad (`Stad: ...`)", 1, true),
+  "meerdere ontbrekende velden kregen niet ieder hun invoerhint"
 )
 
 local no_event = {
