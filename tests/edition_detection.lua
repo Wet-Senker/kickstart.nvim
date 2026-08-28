@@ -83,7 +83,28 @@ assert(vim.wait(5000, function() return change_done end, 20), 'rewritewijziging 
 assert(buffer_text(changed):find('e: B, SW, ST, K', 1, true), 'bevestigde nieuwe bestemming werd niet vastgelegd')
 ai._edition_rewrite_confirm = original_confirm
 
-assert(ai._needs_edition_send_confirmation { has_explicit_editions = false }, 'afgeleide aw-bestemming vraagt geen bevestiging')
+-- Zonder betrouwbare detectie (stille De-Brug-default) blijft bevestigen verplicht.
+local standaard = {
+  has_explicit_editions = false,
+  detection = { confidence = 'none', editions = {} },
+}
+assert(ai._needs_edition_send_confirmation(standaard), 'stille De-Brug-default vraagt geen bevestiging')
+assert(ai._edition_send_autorecord(standaard) == nil, 'default zonder detectie wordt onterecht vastgelegd')
+
+-- Een dateline is gezaghebbend: die legt zichzelf vast zonder tussenvraag.
+local dateline = {
+  has_explicit_editions = false,
+  detection = {
+    confidence = 'high',
+    editions = { 'B' },
+    names = { 'De Brug' },
+    source = 'dateline KAMPEN',
+  },
+}
+assert(not ai._needs_edition_send_confirmation(dateline), 'betrouwbare dateline vraagt onnodig bevestiging')
+local recorded = ai._edition_send_autorecord(dateline)
+assert(recorded and recorded.editions[1] == 'B', 'dateline wordt niet als bestemming vastgelegd')
+
 assert(not ai._needs_edition_send_confirmation { has_explicit_editions = true }, 'expliciete aw-bestemming vraagt onnodig bevestiging')
 
 print 'edition detection: OK'

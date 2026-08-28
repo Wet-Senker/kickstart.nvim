@@ -2294,8 +2294,24 @@ M._edition_send_confirm = function(resolved)
   )
 end
 
+-- Een dateline of betrouwbare regiodetectie is gezaghebbend; die hoort niet
+-- opnieuw bevestigd te worden maar stil als e:-regel te worden vastgelegd.
+-- Geeft de detectie terug die daarvoor gebruikt mag worden.
+local function edition_send_autorecord(resolved)
+  if type(resolved) ~= "table" or resolved.has_explicit_editions == true then
+    return nil
+  end
+  return high_confidence_detection(resolved)
+end
+
+M._edition_send_autorecord = edition_send_autorecord
+
+-- Blokkerend bevestigen blijft verplicht wanneer niets het artikel ergens
+-- plaatst: de stille De-Brug-default mag nooit ongevraagd naar Pubble.
 local function needs_edition_send_confirmation(resolved)
-  return type(resolved) == "table" and resolved.has_explicit_editions ~= true
+  return type(resolved) == "table"
+    and resolved.has_explicit_editions ~= true
+    and edition_send_autorecord(resolved) == nil
 end
 
 M._needs_edition_send_confirmation = needs_edition_send_confirmation
@@ -3039,10 +3055,31 @@ function M.pubble_send(target_buf)
         return
       end
 
-      -- Zonder zichtbare e:-keuze mag een afgeleide dateline, provincie of
-      -- De-Brug-default nooit stil naar Pubble gaan. Na Ja leggen we de keuze
-      -- in de buffer vast en starten we dezelfde flow opnieuw; daardoor wordt
-      -- dit niet nogmaals gevraagd en blijft e: de bron van waarheid.
+      -- Ontbreekt de zichtbare e:-regel, dan legt een betrouwbare dateline- of
+      -- regiodetectie zichzelf alsnog vast: die is gezaghebbend en hoort niet
+      -- bevestigd te worden. Zo blijft e: de bron van waarheid, ook wanneer de
+      -- invulling bij import of na herschrijven niet is gebeurd.
+      local autorecord = edition_send_autorecord(resolved)
+      if autorecord then
+        if not set_edition_codes(buf, autorecord.editions) then
+          discard_unpublished_temp()
+          notify_workflow("Editiebestemming kon niet worden vastgelegd.", vim.log.levels.ERROR)
+          return
+        end
+        discard_unpublished_temp()
+        notify_workflow(
+          "Bestemming vastgelegd: "
+            .. edition_names(autorecord.editions, autorecord.names)
+            .. " (" .. (autorecord.source or "automatische detectie") .. ")."
+        )
+        vim.schedule(function() M.pubble_send(buf) end)
+        return
+      end
+
+      -- Zonder zichtbare e:-keuze én zonder betrouwbare detectie mag de stille
+      -- De-Brug-default nooit naar Pubble. Na Ja leggen we de keuze in de
+      -- buffer vast en starten we dezelfde flow opnieuw; daardoor wordt dit
+      -- niet nogmaals gevraagd en blijft e: de bron van waarheid.
       if needs_edition_send_confirmation(resolved) then
         local choice = M._edition_send_confirm(resolved)
         if choice == 1 then
