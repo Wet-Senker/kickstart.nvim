@@ -18,7 +18,8 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 <leader>ao    Tekstcheck: spelling/grammatica + ## Suggesties
 <leader>at    Tussenkopjes + optionele streamer + 2 kopopties
 <leader>af    Facebook-post genereren → ## Facebook sectie
-<leader>aw    Versturen — bij agendapagina: krant kiezen, controleren en print-only versturen
+<leader>aw    Versturen — waarschuwt bij een vrijwel onbewerkte import
+              bij agendapagina: krant kiezen, controleren en print-only versturen
 <leader>ka    Ruwe papieren agendapagina voorbereiden voor tekstcontrole
 ```
 
@@ -33,7 +34,7 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
 | `<leader>at` | Tussenkopjes, een streamer (als er nog geen eigen `>` staat) en twee kopopties die de streamer aanvullen. |
 | `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
-| `<leader>aw` | Versturen naar Pubble. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Bij gekozen eventvervolgen toont de eerste druk de teksten; de tweede publiceert alles samen. |
+| `<leader>aw` | Versturen naar Pubble. Bij een import vraagt een extra safeguard om bevestiging wanneer geen volledige AI-rewrite is voltooid óf de body nog nauwelijks afwijkt. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Bij gekozen eventvervolgen toont de eerste druk de teksten; de tweede publiceert alles samen. |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen. |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder. |
 | `<leader>ah` | Hiërarchisch hulpmenu: kies onder meer Edities, Rubrieken, Publicatieplanning, Acties of de volledige cheatsheet. |

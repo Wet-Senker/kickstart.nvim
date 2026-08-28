@@ -505,6 +505,128 @@ local function split_article_parts(lines)
   return fm, ctrl, body, sections, has_boundary
 end
 
+-- Een import mag niet per ongeluk vrijwel onbewerkt naar Pubble. Vergelijk
+-- uitsluitend de artikelbody: editiecodes, metadata, foto's, kalender- en
+-- socialsecties zijn workflowdata en tellen niet als redactionele bewerking.
+local SEND_SAFEGUARD_CHANGE_THRESHOLD = 0.15
+
+local function editorial_body_text(lines)
+  local _, _, body = split_article_parts(lines)
+  return vim.trim(table.concat(body, "\n"))
+end
+
+local function normalized_editorial_tokens(text)
+  local normalized = vim.fn.tolower(text or ""):gsub("[%c%s]+", " ")
+  local tokens = {}
+  for token in normalized:gmatch("%S+") do
+    token = token:gsub("^%p+", ""):gsub("%p+$", "")
+    if token ~= "" then table.insert(tokens, token) end
+  end
+  return tokens
+end
+
+local function editorial_shingles(text)
+  local tokens = normalized_editorial_tokens(text)
+  local width = math.min(3, #tokens)
+  local shingles = {}
+  if width == 0 then return shingles end
+  for index = 1, #tokens - width + 1 do
+    local key = table.concat(tokens, "\31", index, index + width - 1)
+    shingles[key] = (shingles[key] or 0) + 1
+  end
+  return shingles
+end
+
+local function substantially_changed_since_import(original, current)
+  local before = editorial_shingles(original)
+  local after = editorial_shingles(current)
+  local intersection = 0
+  local union = 0
+  local seen = {}
+  for shingle, before_count in pairs(before) do
+    local after_count = after[shingle] or 0
+    intersection = intersection + math.min(before_count, after_count)
+    union = union + math.max(before_count, after_count)
+    seen[shingle] = true
+  end
+  for shingle, after_count in pairs(after) do
+    if not seen[shingle] then union = union + after_count end
+  end
+  if union == 0 then return false end
+  local changed = union - intersection
+  local required = math.max(3, math.ceil(union * SEND_SAFEGUARD_CHANGE_THRESHOLD))
+  return changed >= required
+end
+
+local function capture_import_baseline(buf)
+  if not vim.api.nvim_buf_is_valid(buf)
+      or type(vim.b[buf].send_import_body) == "string" then
+    return
+  end
+  vim.b[buf].send_import_body = editorial_body_text(
+    vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  )
+  vim.b[buf].send_ai_rewrite_completed = false
+  vim.b[buf].send_safeguard_approved_body = nil
+end
+
+local function mark_ai_rewrite_completed(buf)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  vim.b[buf].send_ai_rewrite_completed = true
+  vim.b[buf].send_safeguard_approved_body = nil
+end
+
+local function send_safeguard_reason(buf, lines)
+  local imported = vim.b[buf].send_import_body
+  if type(imported) ~= "string" then return nil end
+
+  local current = editorial_body_text(lines)
+  local current_hash = vim.fn.sha256(current)
+  if vim.b[buf].send_safeguard_approved_body == current_hash then return nil end
+
+  local rewritten = vim.b[buf].send_ai_rewrite_completed == true
+  local changed = substantially_changed_since_import(imported, current)
+  if rewritten and changed then return nil end
+  if not rewritten and not changed then
+    return "Deze geïmporteerde artikeltekst is niet volledig door AI herschreven "
+      .. "en wijkt nog nauwelijks af van de import."
+  end
+  if not rewritten then
+    return "Deze geïmporteerde artikeltekst is wel substantieel aangepast, "
+      .. "maar er is geen volledige AI-herschrijving voltooid."
+  end
+  return "De AI-herschrijving is voltooid, maar de artikeltekst wijkt volgens "
+    .. "de tekstvergelijking nog nauwelijks af van de import."
+end
+
+M._send_safeguard_confirm = function(reason)
+  return vim.fn.confirm(
+    "Extra verzendcontrole\n\n" .. reason
+      .. "\n\nWeet je zeker dat je het artikel zo wilt versturen?",
+    "&Toch versturen\n&Annuleren",
+    2
+  )
+end
+
+local function confirm_send_safeguard(buf, lines)
+  local reason = send_safeguard_reason(buf, lines)
+  if not reason then return true end
+  if M._send_safeguard_confirm(reason) ~= 1 then
+    notify_workflow("Verzending geannuleerd; controleer of herschrijf de artikeltekst.")
+    return false
+  end
+  vim.b[buf].send_safeguard_approved_body = vim.fn.sha256(editorial_body_text(lines))
+  return true
+end
+
+-- Inspecteerbare testpunten; de productieflow gebruikt exact dezelfde logica.
+M._editorial_body_text = editorial_body_text
+M._substantially_changed_since_import = substantially_changed_since_import
+M._capture_import_baseline = capture_import_baseline
+M._mark_ai_rewrite_completed = mark_ai_rewrite_completed
+M._send_safeguard_reason = send_safeguard_reason
+M._confirm_send_safeguard = confirm_send_safeguard
+
 -- Verwijder een eerder ## Suggesties-blok uit de staartsecties (t/m de
 -- volgende ## kop of het einde) — tekstcheck levert verse suggesties.
 local function drop_suggestions_block(sections)
@@ -1402,6 +1524,7 @@ function M.rewrite_article_buffer()
 
       local rewritten_str = table.concat(new_lines, "\n")
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
+      mark_ai_rewrite_completed(buf)
       vim.b[buf].cached_metadata = nil
       vim.b[buf].cached_calendar_metadata = nil
       vim.b[buf].cached_facebook_text = nil
@@ -2063,6 +2186,7 @@ M._calendar_autodetect = _calendar_autodetect
 -- dat korte venster kan de server laten vastlopen. Wacht daarom op UIEnter; bij een al
 -- zichtbare Neovim-sessie (zoals een pv --remote) volstaat een korte defer.
 local function schedule_article_autodetect(buf)
+  capture_import_baseline(buf)
   local function run()
     vim.defer_fn(function()
       if vim.api.nvim_buf_is_valid(buf) then article_autodetect(buf) end
@@ -2180,6 +2304,7 @@ function M.pubble_send(target_buf)
     vim.notify("Huidig buffer is leeg", vim.log.levels.ERROR)
     return
   end
+  if not confirm_send_safeguard(buf, lines) then return end
 
   -- Inject cached metadata (from background rewrite chain) if the buffer
   -- has no frontmatter yet. Calendar-metadata heeft voorrang: het is een
@@ -4132,6 +4257,7 @@ function M.ai_prompt_rewrite()
           buf, 0, -1, false,
           reassemble_article(fm, ctrl, new_body, sections, has_boundary)
         )
+        mark_ai_rewrite_completed(buf)
         notify_workflow("Klaar. Gebruik u om ongedaan te maken.", vim.log.levels.INFO)
       end)
     end,

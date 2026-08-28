@@ -13,7 +13,7 @@ In Neovim:
   <leader>ar    herschrijven; start metadata en gevraagde extra's
   <leader>ac    metadata + kalenderitem — verschijnt als ## Kalender sectie
   <leader>af    Facebook-post genereren — verschijnt als ## Facebook sectie
-  <leader>aw    publicatieplanning controleren en versturen naar Pubble
+  <leader>aw    onbewerkte-importcontrole, planning en versturen naar Pubble
 ```
 
 ### 2. pubble-batch (meerdere documenten tegelijk)
@@ -42,7 +42,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>ao` | Tekstcheck; twijfelgevallen komen onder `## Suggesties` |
 | `<leader>at` | Tussenkopjes, optionele streamer en 2 kopopties |
 | `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie |
-| `<leader>aw` | Publicatie voorbereiden en naar Pubble versturen; ontbrekende `e:` eerst bevestigen en vastleggen |
+| `<leader>aw` | Publicatie voorbereiden en naar Pubble versturen; waarschuwt als een import geen volledige AI-rewrite heeft óf nog nauwelijks afwijkt, en laat een ontbrekende `e:` eerst bevestigen |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |
 | `<leader>ah` | Hiërarchisch hulpmenu voor codes, rubrieken, acties en cheatsheet |
