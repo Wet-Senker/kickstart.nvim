@@ -71,6 +71,22 @@ ai._send_safeguard_confirm = function()
   return 1
 end
 local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+
+-- De extra waarschuwing is een gewone ja/nee-vraag. Nee is de veilige
+-- standaard; de gebruiker hoeft geen afwijkende T/A-menukeuze te onthouden.
+local original_vim_confirm = vim.fn.confirm
+local prompt_checked = false
+vim.fn.confirm = function(message, choices, default)
+  assert(message:find("Toch publiceren?", 1, true), "de safeguard stelt geen duidelijke publicatievraag")
+  assert(choices == "&Ja\n&Nee", "de safeguard gebruikt niet de verwachte j/n-keuzes")
+  assert(default == 2, "Nee is niet de veilige standaardkeuze")
+  prompt_checked = true
+  return 2
+end
+assert(original_confirm("Testreden") == 2, "de nee-keuze werd niet teruggegeven")
+vim.fn.confirm = original_vim_confirm
+assert(prompt_checked, "de j/n-bevestiging is niet aangeroepen")
+
 assert(ai._confirm_send_safeguard(buf, current_lines), 'bevestigde verzending werd geblokkeerd')
 assert(ai._confirm_send_safeguard(buf, current_lines), 'onthouden bevestiging werd geblokkeerd')
 assert(confirmations == 1, 'dezelfde ongewijzigde body vroeg meermaals om bevestiging')

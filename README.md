@@ -49,6 +49,10 @@ In hiërarchische keuzemenu's staan acties eerst en staat `← Terug naar …`
 altijd onderaan. Escape sluit de volledige workflow. Korte persoon- en
 fotokeuzes gebruiken alleen Escape om de wizard te annuleren.
 
+De extra waarschuwing voor een vrijwel onbewerkte import vraagt
+`Toch publiceren?`: druk `j` voor ja of `n` voor nee. Nee is de veilige
+standaard.
+
 Voor een complete papieren agendapagina plak je alle dagen en activiteiten en
 gebruik je eenmaal `<leader>ka`. Gewone items worden per activiteit geredigeerd;
 `>>>titel<<<` en de bijbehorende premiumbody worden nooit herschreven. Alleen

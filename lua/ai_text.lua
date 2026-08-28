@@ -632,9 +632,8 @@ end
 
 M._send_safeguard_confirm = function(reason)
   return vim.fn.confirm(
-    "Extra verzendcontrole\n\n" .. reason
-      .. "\n\nWeet je zeker dat je het artikel zo wilt versturen?",
-    "&Toch versturen\n&Annuleren",
+    "Extra verzendcontrole\n\n" .. reason .. "\n\nToch publiceren?",
+    "&Ja\n&Nee",
     2
   )
 end
