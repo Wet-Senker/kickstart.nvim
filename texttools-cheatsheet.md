@@ -11,7 +11,7 @@ Clipboard/bron kopiëren
 In Neovim:
   Controlecodes bovenaan typen (zie hieronder)
   <leader>ar    herschrijven; start metadata en gevraagde extra's
-  <leader>ac    metadata + kalenderitem — verschijnt als ## Kalender sectie
+  <leader>ac    kalenderdata; onvolledige items tonen wat nog ontbreekt
   <leader>af    Facebook-post genereren — verschijnt als ## Facebook sectie
   <leader>aw    onbewerkte-importcontrole, planning en versturen naar Pubble
 ```
@@ -38,7 +38,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | Leader | Actie |
 |---|---|
 | `<leader>ar` | Herschrijven naar krantenartikel (AI) |
-| `<leader>ac` | Metadata + kalenderitem — toont bewerkbare `## Kalender` sectie |
+| `<leader>ac` | Metadata + kalenderitem — toont ook onvolledige items met `<!-- Ontbreekt: … -->` |
 | `<leader>ao` | Tekstcheck; twijfelgevallen komen onder `## Suggesties` |
 | `<leader>at` | Tussenkopjes, optionele streamer en 2 kopopties |
 | `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie |

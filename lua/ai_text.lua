@@ -1685,7 +1685,8 @@ local function extract_calendar_frontmatter(lines)
           local key, val = line:match("^  ([%w_]+):%s*(.*)$")
           if key then
             list_key = nil
-            if key == "recurrence_days" and val == "" then
+            if (key == "recurrence_days" or key == "missing_event_fields")
+                and val == "" then
               fields[key] = {}
               list_key = key
             elseif val ~= "" and val ~= "null" and val ~= "~" then
@@ -1775,7 +1776,15 @@ local function build_calendar_section_lines(lines)
   local f = extract_calendar_frontmatter(lines)
   local items = extract_calendar_items(lines)
   local is_multiple = f.mode == "multiple" or #items > 0
-  if not is_multiple and f.calendar_ready ~= "true" then return nil end
+  -- Een incomplete maar echte kandidaat moet juist zichtbaar zijn zodat de
+  -- redacteur alleen de ontbrekende velden kan aanvullen. Voorheen verdween
+  -- ieder enkelvoudig item met calendar_ready=false volledig en leek de
+  -- herkenning ten onrechte mislukt. Een echte niet-kandidaat blijft verborgen.
+  if not is_multiple
+      and f.calendar_ready ~= "true"
+      and f.event_candidate ~= "true" then
+    return nil
+  end
   if is_multiple and #items == 0 then return nil end
 
   local section = { "", "---", "", "## Kalender", "" }
@@ -1830,6 +1839,8 @@ local function build_calendar_section_lines(lines)
   if #section <= 5 then return nil end
   return section
 end
+
+M._build_calendar_section_lines = build_calendar_section_lines
 
 -- Strip an existing ## Kalender section (and preceding --- separator).
 local function strip_calendar_section(lines)

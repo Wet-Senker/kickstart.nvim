@@ -62,4 +62,48 @@ assert(
   "numerieke datums werden niet correct geteld"
 )
 
+local incomplete_single = {
+  "---",
+  "calendar:",
+  "  event_candidate: true",
+  "  calendar_ready: false",
+  "  event_title: Hanzefestival 2026",
+  "  calendar_title: Hanzefestival Kampen",
+  "  event_date: '2026-09-03'",
+  "  event_end_date: '2026-09-05'",
+  "  start_time: null",
+  "  location_name: Binnenstad Kampen",
+  "  city: Kampen",
+  "  calendar_body: Drie dagen met muziek, kermis en maritiem erfgoed.",
+  "  missing_event_fields:",
+  "  - start_time",
+  "  needs_manual_check: true",
+  "  manual_check_reason: Begintijd ontbreekt.",
+  "---",
+}
+local incomplete_section = ai_text._build_calendar_section_lines(incomplete_single)
+assert(incomplete_section, "onvolledig enkel agenda-item werd volledig verborgen")
+local incomplete_text = table.concat(incomplete_section, "\n")
+assert(
+  incomplete_text:find("Titel: Hanzefestival Kampen", 1, true),
+  "bekende kalendervelden ontbreken in de controlesectie"
+)
+assert(
+  incomplete_text:find("<!-- Ontbreekt: start_time -->", 1, true),
+  "ontbrekende begintijd werd niet zichtbaar gemarkeerd"
+)
+
+local no_event = {
+  "---",
+  "calendar:",
+  "  event_candidate: false",
+  "  calendar_ready: false",
+  "  missing_event_fields:",
+  "---",
+}
+assert(
+  ai_text._build_calendar_section_lines(no_event) == nil,
+  "tekst zonder evenement kreeg toch een kalendersectie"
+)
+
 print("calendar detection: OK")

@@ -30,7 +30,7 @@ Clipboard → pastevim() → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 | Leader | Actie |
 |---|---|
 | `<leader>ar` | Herschrijven naar krantenartikel (AI). Vraagt bij meerdere gekozen edities of aparte krantversies gewenst zijn. Start background jobs voor metadata, kalender en/of Facebook op basis van controlecodes. Detecteert 112 en agendaberichten automatisch. |
-| `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. |
+| `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. Een herkend maar onvolledig item toont `<!-- Ontbreekt: … -->`, zodat alleen die velden nog aangevuld hoeven te worden. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
 | `<leader>at` | Tussenkopjes, een streamer (als er nog geen eigen `>` staat) en twee kopopties die de streamer aanvullen. |
 | `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
