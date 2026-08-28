@@ -10,6 +10,7 @@ local ai_text = read("lua/ai_text.lua")
 local init = read("init.lua")
 local reminders = read("plugin/column_reminders.lua")
 local agenda_page = read("lua/agenda_page.lua")
+local edition_review = read("lua/edition_review.lua")
 
 local documented_mappings = {
   { key = "<leader>ar", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ar"' },
@@ -17,6 +18,8 @@ local documented_mappings = {
   { key = "<leader>ao", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ao"' },
   { key = "<leader>at", source = ai_text, registration = 'vim.keymap.set("n", "<leader>at"' },
   { key = "<leader>af", source = ai_text, registration = 'vim.keymap.set("n", "<leader>af"' },
+  { key = "<leader>aV", source = edition_review, registration = 'vim.keymap.set("n", "<leader>aV"' },
+  { key = "<leader>aG", source = edition_review, registration = 'vim.keymap.set("n", "<leader>aG"' },
   { key = "<leader>aw", source = ai_text, registration = 'vim.keymap.set("n", "<leader>aw"' },
   { key = "<leader>ap", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ap"' },
   { key = "<leader>ag", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ag"' },

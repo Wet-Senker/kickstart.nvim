@@ -1126,6 +1126,18 @@ local function resolve_editions_for_content(buf, content, done)
   )
 end
 
+-- Losse reviewbuffers zijn uitsluitend een NeoVim-weergave van het
+-- UI-onafhankelijke Python-contract. Hashes, status, migratie en serialisatie
+-- worden niet in Lua gedupliceerd.
+local edition_review = require("edition_review").setup {
+  python = texttools_python,
+  notify = notify_workflow,
+  start_job = start_buffer_job,
+  finish_job = finish_buffer_job,
+  resolve_editions = resolve_editions_for_content,
+  send = function(source_buf) M.pubble_send(source_buf) end,
+}
+
 local function adapt_editorial_address(buf, primary)
   if not primary or not vim.api.nvim_buf_is_valid(buf) then return end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -1305,50 +1317,18 @@ local function normalized_edition_variant(output)
   return rendered
 end
 
-local function apply_edition_versions(buf, codes, names, variants)
-  if not vim.api.nvim_buf_is_valid(buf) or #codes < 2 then return false end
+local function apply_edition_versions(buf, codes, names, variants, source, done)
+  if not vim.api.nvim_buf_is_valid(buf) or #codes < 2 then
+    if done then done(false) end
+    return false
+  end
   for _, code in ipairs(codes) do
     if type(variants[code]) ~= "string" or vim.trim(variants[code]) == "" then
+      if done then done(false) end
       return false
     end
   end
-
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local fm, controls, _, sections, has_boundary = split_article_parts(lines)
-  sections = drop_edition_versions_block(sections)
-  local version_section = {
-    "## Editieversies",
-    "",
-    "Primaire versie hierboven: " .. codes[1] .. " — "
-      .. edition_names({ codes[1] }, { names and names[1] }) .. ".",
-  }
-  for index = 2, #codes do
-    table.insert(version_section, "")
-    table.insert(
-      version_section,
-      "### Editieversie " .. codes[index] .. " — "
-        .. edition_names({ codes[index] }, { names and names[index] })
-    )
-    table.insert(version_section, "")
-    for _, line in ipairs(vim.split(variants[codes[index]], "\n", { plain = true })) do
-      table.insert(version_section, line)
-    end
-  end
-  if #sections > 0 then
-    table.insert(version_section, "")
-    for _, line in ipairs(sections) do table.insert(version_section, line) end
-  end
-
-  vim.api.nvim_buf_set_lines(
-    buf, 0, -1, false,
-    reassemble_article(
-      fm,
-      controls,
-      vim.split(variants[codes[1]], "\n", { plain = true }),
-      version_section,
-      has_boundary
-    )
-  )
+  edition_review.create_workspace(buf, source, codes, names, variants, done)
   return true
 end
 
@@ -1419,13 +1399,16 @@ local function offer_and_generate_edition_versions(buf, source, codes, names)
         )
         return
       end
-      if not apply_edition_versions(buf, codes, names, variants) then
+      if not apply_edition_versions(buf, codes, names, variants, source, function(applied)
+        if not applied then
+          notify_workflow(
+            "Aparte krantversies konden niet veilig worden ingevoegd.",
+            vim.log.levels.ERROR
+          )
+        end
+      end) then
         notify_workflow("Aparte krantversies konden niet veilig worden ingevoegd.", vim.log.levels.ERROR)
-        return
       end
-      notify_workflow(
-        "Aparte krantversies toegevoegd. Controleer alle teksten en verzend daarna met <leader>aw."
-      )
     end)
   end
 end
@@ -1438,6 +1421,7 @@ M._drop_edition_versions_block = drop_edition_versions_block
 M._normalized_edition_variant = normalized_edition_variant
 M._apply_edition_versions = apply_edition_versions
 M._offer_and_generate_edition_versions = offer_and_generate_edition_versions
+M._edition_review = edition_review
 
 function M.rewrite_article_buffer()
   local buf = vim.api.nvim_get_current_buf()
@@ -1555,6 +1539,9 @@ function M.rewrite_article_buffer()
       local rewritten_str = table.concat(new_lines, "\n")
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
       mark_ai_rewrite_completed(buf)
+      -- Een eerdere reviewworkspace is door deze expliciet bevestigde rewrite
+      -- vervangen. Oude scratchbuffers mogen daarna niet meer terugschrijven.
+      edition_review.close(buf, true)
       vim.b[buf].cached_metadata = nil
       vim.b[buf].cached_calendar_metadata = nil
       vim.b[buf].cached_facebook_text = nil

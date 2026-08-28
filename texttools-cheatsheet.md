@@ -13,6 +13,8 @@ In Neovim:
   <leader>ar    herschrijven; start metadata en gevraagde extra's
   <leader>ac    kalenderdata; onvolledige items tonen wat nog ontbreekt
   <leader>af    Facebook-post genereren — verschijnt als ## Facebook sectie
+  <leader>aV    overzicht van bron en losse krantversiebuffers
+  <leader>aG    huidige krantversie opslaan en goedkeuren
   <leader>aw    onbewerkte-importcontrole, planning en versturen naar Pubble
 ```
 
@@ -45,6 +47,8 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>ao` | Tekstcheck; twijfelgevallen komen onder `## Suggesties` |
 | `<leader>at` | Tussenkopjes, optionele streamer en 2 kopopties |
 | `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie |
+| `<leader>aV` | Overzicht van bron en afzonderlijke krantversiebuffers |
+| `<leader>aG` | Huidige krantversie opslaan en expliciet goedkeuren |
 | `<leader>aw` | Publicatie voorbereiden en naar Pubble versturen; waarschuwt als een import geen volledige AI-rewrite heeft óf nog nauwelijks afwijkt, en laat een ontbrekende `e:` eerst bevestigen |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |
@@ -182,11 +186,12 @@ bij `<leader>aw` nog geen `e:`, dan moet de afgeleide bestemming eerst worden
 bevestigd; daarna blijft de regel boven het artikel staan.
 
 Na `<leader>ar` met meerdere gekozen edities verschijnt de vraag of iedere
-krant een eigen versie moet krijgen. Kies je **Ja**, dan blijft de versie voor
-de eerste `e:`-code in de gewone body en verschijnen de andere onder
-`## Editieversies`. Controleer alle teksten. `<leader>aw` verstuurt per krant
-de passende print- én webversie en blokkeert wanneer codes of versies niet meer
-exact overeenkomen. Kies **Nee** om één gezamenlijke tekst te behouden.
+krant een eigen versie moet krijgen. Kies je **Ja**, dan blijft de gewone body
+de niet te publiceren bron en krijgt iedere krant een eigen buffer. Sla een
+edit op met `:w`, keur haar goed met `<leader>aG` en gebruik `<leader>aV` voor
+het overzicht. `<leader>aw` verstuurt per krant de passende print- én webversie
+en blokkeert bij ontbrekende, verouderde of nog niet goedgekeurde teksten. Kies
+**Nee** om één gezamenlijke tekst te behouden.
 
 ---
 

@@ -18,6 +18,8 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 <leader>ao    Tekstcheck: spelling/grammatica + ## Suggesties
 <leader>at    Tussenkopjes + optionele streamer + 2 kopopties
 <leader>af    Facebook-post genereren → ## Facebook sectie
+<leader>aV    Krantversies en reviewstatus openen
+<leader>aG    Huidige krantversie opslaan en goedkeuren
 <leader>aw    Versturen — waarschuwt bij een vrijwel onbewerkte import
               bij agendapagina: krant kiezen, controleren en print-only versturen
 <leader>ka    Ruwe papieren agendapagina voorbereiden voor tekstcontrole
@@ -34,6 +36,8 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
 | `<leader>at` | Tussenkopjes, een streamer (als er nog geen eigen `>` staat) en twee kopopties die de streamer aanvullen. |
 | `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
+| `<leader>aV` / `:Krantversies` | Overzicht van de gedeelde bron en alle afzonderlijke krantversiebuffers openen. |
+| `<leader>aG` / `:KrantversieGoedkeuren` | Huidige krantversie terugschrijven en de exacte tekst expliciet goedkeuren. |
 | `<leader>aw` | Versturen naar Pubble. Bij een import vraagt een extra safeguard om bevestiging wanneer geen volledige AI-rewrite is voltooid óf de body nog nauwelijks afwijkt. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Bij gekozen eventvervolgen toont de eerste druk de teksten; de tweede publiceert alles samen. |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen. |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder. |
@@ -143,16 +147,23 @@ vraag niet terugkomt.
 
 Heeft de definitieve `e:` meer dan één gekozen krant, dan vraagt `<leader>ar`
 of iedere krant een eigen versie moet krijgen. **Nee** behoudt één gezamenlijke
-tekst. **Ja** start één veilige AI-call per editie. Alleen kop, dateline, intro
-en lokale invalshoek mogen veranderen wanneer de bron dat feitelijk draagt;
-zonder lokale haak mag een versie vrijwel gelijk blijven. De eerste editie op
-`e:` staat in de gewone body. De andere versies staan zichtbaar onder
-`## Editieversies` en moeten vóór verzending worden gecontroleerd.
+tekst. **Ja** start één veilige AI-call per editie. Iedere editie krijgt een
+volledige, gelijkwaardige versie en een eigen buffer. De gewone body blijft de
+gedeelde bron en wordt niet gepubliceerd. Een lokaal bronfeit mag de kop,
+intro en artikelopbouw bepalen; zonder lokale haak gebruikt de versie een
+eerlijke regionale invalshoek zonder plaatselijke cijfers te verzinnen.
+
+Sla een versie op met `:w`; zij blijft dan `controleren`. Keur exact die tekst
+goed met `<leader>aG`. `<leader>aV` toont de bron en alle statussen. Een edit na
+goedkeuring trekt alleen die goedkeuring in. Een edit in de gedeelde bron maakt
+alle varianten `verouderd` en vereist nieuwe generatie.
 
 `<leader>aw` controleert dat iedere gekozen krant exact één geldige versie
-heeft en stuurt voor print én web alleen de passende tekst. Bij een ontbrekende,
-dubbele of verkeerde code stopt de verzending vóór Pubble. Staat er geen
-`## Editieversies`, dan blijft de gezamenlijke tekst voor alle kranten gelden.
+heeft én dat alle versies na de laatste bronwijziging expliciet zijn
+goedgekeurd. Voor print en web gaat alleen de passende tekst mee. Bij een
+ontbrekende, dubbele, verouderde, niet-goedgekeurde of verkeerde code stopt de
+verzending vóór Pubble. Staat er geen `## Editieversies`, dan blijft de
+gezamenlijke tekst voor alle kranten gelden.
 
 **112-detectie** — scoort tekst op signaalwoorden (politie, brandweer, ambulance, incident, etc.). De combinatie van minimaal één hulpdienst en één concreet incident krijgt één extra punt. Bij score ≥ 6 verschijnt een bevestigingsvraag. Bij "Ja": 112-template toegepast, `rubriek: 112` en `prio: 1` bovenaan gezet. Bij "Nee" blijft die keuze voor de huidige buffer staan en mag detectie na `<leader>ar` het template niet alsnog toepassen. De kop gebruikt via `pubble-places` de eerste bekende plaats uit de centrale verspreidingsgebiedentabel; zonder treffer wordt het `112:`.
 
@@ -300,7 +311,8 @@ De 112-disclaimer in het 112-template is de enige bron — `ai_text.lua` leest h
 | Bestand | Inhoud |
 |---|---|
 | `lua/article_recognition.lua` | Deterministische scores, bewijsregels en beslisbeleid voor importherkenning |
-| `lua/ai_text.lua` | Alle leaders, herkenningsacties, AI-aanroepen en pubble-send |
+| `lua/ai_text.lua` | Hoofdflow, herkenningsacties, AI-aanroepen en pubble-send |
+| `lua/edition_review.lua` | Dunne NeoVim-client voor losse krantbuffers, synchronisatie en goedkeuring via het Python-contract |
 | `lua/krant.lua` | Rubriek-templates (`<leader>kt`), `apply_template_by_name()` |
 | `lua/layout_export.lua` | uniform exportplan, placeholdercontrole en definitieve vormgevingstekst |
 | `lua/agenda_page.lua` | papieren agendapagina voorbereiden, controleren, previewen en versturen (`<leader>ka`) |
