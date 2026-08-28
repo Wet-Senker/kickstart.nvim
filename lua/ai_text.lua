@@ -5,11 +5,31 @@ local texttools_paths = require("texttools_paths")
 
 -- Nieuwe pv-imports leven in de gedeelde werkmap. Desktop blijft als
 -- compatibele invoerroute bestaan voor oude bestanden en handmatig geopende
--- Markdown, maar is niet langer de standaardopslag.
-local import_patterns = {
-  vim.fn.expand("~/Desktop") .. "/*.md",
-  texttools_paths.work() .. "/*.md",
-}
+-- Markdown, maar is niet langer de standaardopslag. Neovim canonicaliseert
+-- paden bij onder meer --remote; registreer daarom zowel het zichtbare
+-- symlinkpad als het echte iCloud-pad.
+local function normalized_path(path)
+  if type(path) ~= "string" or path == "" then return "" end
+  local absolute = vim.fn.fnamemodify(vim.fn.expand(path), ":p")
+  return vim.fs.normalize(vim.fn.resolve(absolute))
+end
+
+local function import_patterns_for(directory)
+  local visible = vim.fs.normalize(
+    vim.fn.fnamemodify(vim.fn.expand(directory), ":p")
+  ):gsub("/+$", "")
+  local canonical = normalized_path(directory):gsub("/+$", "")
+  local patterns = { visible .. "/*.md" }
+  if canonical ~= visible then table.insert(patterns, canonical .. "/*.md") end
+  return patterns
+end
+
+local import_patterns = {}
+for _, directory in ipairs({ vim.fn.expand("~/Desktop"), texttools_paths.work() }) do
+  for _, pattern in ipairs(import_patterns_for(directory)) do
+    table.insert(import_patterns, pattern)
+  end
+end
 M._import_patterns = import_patterns
 
 -- Alleen editor-AI-processen zijn met <leader>aq annuleerbaar. Pubble-writes,
@@ -2293,11 +2313,6 @@ local function needs_edition_send_confirmation(resolved)
 end
 
 M._needs_edition_send_confirmation = needs_edition_send_confirmation
-
-local function normalized_path(path)
-  if type(path) ~= "string" or path == "" then return "" end
-  return vim.fs.normalize(vim.fn.fnamemodify(path, ":p"))
-end
 
 local function path_is_in_directory(path, directory, recursive)
   local candidate = normalized_path(path)

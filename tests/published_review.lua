@@ -3,18 +3,27 @@ local repo_root = vim.fn.fnamemodify(test_file, ":h:h")
 vim.opt.runtimepath:prepend(repo_root)
 
 local test_root = vim.fn.tempname()
-vim.fn.mkdir(test_root .. "/inbox/werk", "p")
-vim.env.TEXTTOOLS_INBOX_DIR = test_root .. "/inbox"
+local real_inbox = test_root .. "/real-inbox"
+local linked_inbox = test_root .. "/linked-inbox"
+vim.fn.mkdir(real_inbox .. "/werk", "p")
+vim.fn.system({ "ln", "-s", real_inbox, linked_inbox })
+assert(vim.v.shell_error == 0, "testsymlink voor de Inbox kon niet worden gemaakt")
+local canonical_inbox = vim.fn.resolve(real_inbox)
+vim.env.TEXTTOOLS_INBOX_DIR = linked_inbox
 
 package.loaded.texttools_paths = nil
 package.loaded.ai_text = nil
 local paths = require("texttools_paths")
 local ai = require("ai_text")
 
-assert(paths.work() == test_root .. "/inbox/werk", "de pv-werkmap volgt TEXTTOOLS_INBOX_DIR niet")
+assert(paths.work() == linked_inbox .. "/werk", "de pv-werkmap volgt TEXTTOOLS_INBOX_DIR niet")
 assert(
   vim.tbl_contains(ai._import_patterns, paths.work() .. "/*.md"),
   "de werkmap activeert de importherkenning niet"
+)
+assert(
+  vim.tbl_contains(ai._import_patterns, canonical_inbox .. "/werk/*.md"),
+  "het echte pad achter de Inbox-symlink activeert de importherkenning niet"
 )
 assert(
   vim.tbl_contains(ai._import_patterns, vim.fn.expand("~/Desktop") .. "/*.md"),
@@ -23,6 +32,22 @@ assert(
 assert(
   ai._is_managed_import_path(paths.inbox() .. "/herstel.md"),
   "een direct transactioneel Inboxbestand is geen beheerde hervatbron"
+)
+
+-- Regressie: `nvim --remote` kan de symlink vóór BufReadPost naar het echte
+-- iCloud-pad oplossen. Ook dan moet exact dezelfde centrale importketen starten.
+local resolved_import = canonical_inbox .. "/werk/via-echt-pad.md"
+vim.fn.writefile({
+  "=== ARTIKEL ===",
+  "",
+  "Concert",
+  "",
+  "KAMPEN - Zaterdag 19 september om 20.00 uur is er een concert voor publiek.",
+}, resolved_import)
+vim.cmd.edit(vim.fn.fnameescape(resolved_import))
+assert(
+  vim.b.send_import_body and vim.b.send_import_body ~= "",
+  "BufReadPost sloeg een via de symlink opgelost werkbestand over"
 )
 
 local source = paths.work() .. "/testartikel.md"

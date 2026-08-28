@@ -29,6 +29,18 @@ De lessen beginnen dagelijks om 09.00 uur. Deelnemers werken aan tekenen,
 schilderen en boetseren.
 ]]
 
+local crk_voices = [[
+=== ARTIKEL ===
+
+CRK Voices viert 25-jarig jubileum met feestelijk concert in de Bovenkerk
+
+KAMPEN – CRK Voices bestaat dit jaar 25 jaar. Ter gelegenheid van dit
+jubileum geeft het koor op zaterdag 19 september om 20.00 uur een groot
+jubileumconcert in de Bovenkerk in Kampen. Het jubileumconcert vindt plaats op
+zaterdag 19 september om 20.00 uur. Kaarten zijn in de voorverkoop
+verkrijgbaar via info@crkvoices.nl voor 15 euro of aan de kerk voor 20 euro.
+]]
+
 assert(
   ai_text._calendar_signal_score(kunstweekend) >= threshold,
   "expliciet meerdaags kunstweekend werd niet als kalenderkandidaat herkend"
@@ -44,6 +56,10 @@ assert(
 assert(
   ai_text._calendar_signal_score(wekelijkse_lessen) >= threshold,
   "herhalende lessen voor deelnemers werden niet als kalenderkandidaat herkend"
+)
+assert(
+  ai_text._calendar_signal_score(crk_voices) >= threshold,
+  "CRK Voices-jubileumconcert werd inhoudelijk niet als kalenderkandidaat herkend"
 )
 
 local veel_data = [[

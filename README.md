@@ -120,6 +120,10 @@ bevestiging nodig is.
 
 Direct op `~/Desktop/` geopende Markdown blijft als legacy-import ondersteund.
 Nieuwe `pv`-bestanden komen niet meer op het bureaublad.
+De herkenning werkt zowel via het lokale Inbox-symlinkpad als via het echte
+iCloud-pad waarnaar NeoVim dat pad bij `--remote` kan omzetten. Daarmee starten
+agenda, editie, 112, rubrieken en de verzendsafeguard altijd via dezelfde
+centrale importketen.
 
 **Editiedetectie** — een bestaande `e:`/`editie:`-regel blijft altijd staan.
 Zonder zo'n regel wordt een betrouwbare dateline direct ingevuld. Een exacte
