@@ -36,7 +36,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. Een herkend maar onvolledig item toont `<!-- Ontbreekt: … -->` inclusief invoerformaat, bijvoorbeeld `Tijd: HH:MM`. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
 | `<leader>an` | Journalistiek neutraliseren: verwijdert alleen subjectieve journalistentaal; feiten, structuur en bestaande citaten blijven behouden. |
-| `<leader>at` | Tussenkopjes, een streamer (als er nog geen eigen `>` staat) en twee kopopties die de streamer aanvullen. |
+| `<leader>at` | Tussenkopjes, een streamer (als er nog geen eigen `>` staat) en twee kopopties. Een gekozen kop vervangt alleen een bestaande korte kop; bij een dateline, auteursregel of eerste alinea van meer dan tien woorden wordt zij vóór de lead ingevoegd. |
 | `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
 | `<leader>aV` / `:Krantversies` | Overzicht van de gedeelde bron en alle afzonderlijke krantversiebuffers openen. |
 | `<leader>aG` / `:KrantversieGoedkeuren` | Huidige krantversie terugschrijven en de exacte tekst expliciet goedkeuren. |

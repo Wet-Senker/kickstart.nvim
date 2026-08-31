@@ -47,7 +47,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>ac` | Metadata + kalenderitem — ontbrekende velden tonen het formaat, zoals `Tijd: HH:MM` |
 | `<leader>ao` | Tekstcheck; twijfelgevallen komen onder `## Suggesties` |
 | `<leader>an` | Journalistiek neutraliseren; minimale ingreep, bestaande citaten en concrete waarden beschermd |
-| `<leader>at` | Tussenkopjes, optionele streamer en 2 kopopties |
+| `<leader>at` | Tussenkopjes, optionele streamer en 2 kopopties; gekozen kop wordt zo nodig vóór de lead ingevoegd |
 | `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie |
 | `<leader>aV` | Overzicht van bron en afzonderlijke krantversiebuffers |
 | `<leader>aG` | Huidige krantversie opslaan en expliciet goedkeuren |

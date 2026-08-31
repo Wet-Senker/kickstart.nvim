@@ -230,6 +230,7 @@ local aitext = texttools_commands.bin("aitext")
 local kampen_fix = texttools_commands.bin("kampen-fix")
 local redactie_adres = texttools_commands.bin("redactie-adres")
 local article_dateline = texttools_commands.bin("article-dateline")
+local article_headline = texttools_commands.bin("article-headline")
 local teams_config_cli = texttools_commands.bin("teams-config")
 local aichat = texttools_commands.bin("aichat")
 local articlemeta = texttools_commands.bin("articlemeta")
@@ -4094,12 +4095,13 @@ end
 -- (kop hoort direct bóven alinea n). Ongeldige posities worden overgeslagen:
 -- boven kop/lead, direct na de intro (n=3) of boven de laatste alinea.
 -- Invoegen van achter naar voren zodat de alinea-indexen geldig blijven.
-local function insert_headings(body, koppen, paras)
+local function insert_headings(body, koppen, paras, has_headline)
   table.sort(koppen, function(a, b) return a.n > b.n end)
   local out = {}
   for i, l in ipairs(body) do out[i] = l end
+  local first_allowed = has_headline and 4 or 3
   for _, k in ipairs(koppen) do
-    if k.n >= 4 and k.n <= #paras - 1 then
+    if k.n >= first_allowed and k.n <= #paras - 1 then
       table.insert(out, paras[k.n].s, "")
       table.insert(out, paras[k.n].s, "**" .. k.kop .. "**")
     end
@@ -4114,13 +4116,14 @@ end
 -- nooit na de laatste tekstalinea en nooit direct naast een **tussenkop**.
 -- Web maakt er een quote-widget van, print een <<STREAMER>>-markering — beide
 -- op dezelfde plek.
-local function insert_streamer_midway(body, streamer_text)
+local function insert_streamer_midway(body, streamer_text, has_headline)
   local paras = scan_paragraphs(body)
   local prose = {}
-  for i = 2, #paras do
-    -- Alinea 2 is de lead; scan_paragraphs markeert een vette lead technisch
-    -- als heading, maar inhoudelijk blijft dit de eerste tekstalinea.
-    if i == 2 or not paras[i].heading then
+  local first_prose = has_headline and 2 or 1
+  for i = first_prose, #paras do
+    -- De eerste prozaalinea is de lead; scan_paragraphs kan een vette lead
+    -- technisch als heading markeren, maar inhoudelijk blijft dit tekst.
+    if i == first_prose or not paras[i].heading then
       table.insert(prose, i)
     end
   end
@@ -4157,20 +4160,42 @@ local function insert_streamer_midway(body, streamer_text)
   return out
 end
 
--- Vervang de eerste alinea (de kop) door één nieuwe kopregel. Tussenkopjes en
--- streamer komen nooit vóór de eerste alinea, dus dit kan veilig op het
--- resultaat van insert_headings/insert_streamer_midway.
-local function replace_first_paragraph(body, kop)
-  local first = 1
-  while first <= #body and vim.trim(body[first]) == "" do first = first + 1 end
-  if first > #body then return body end
-  local last = first
-  while last + 1 <= #body and vim.trim(body[last + 1]) ~= "" do last = last + 1 end
-  local out = {}
-  for i = 1, first - 1 do table.insert(out, body[i]) end
-  table.insert(out, kop)
-  for i = last + 1, #body do table.insert(out, body[i]) end
-  return out
+-- Laat de Python-core bepalen of de eerste alinea een bestaande kop of de lead
+-- is. Daardoor delen inspectie en plaatsing in alle clients exact dezelfde
+-- deterministische regels.
+local function inspect_article_headline(body)
+  local result = vim.system(
+    { article_headline, "inspect" },
+    { text = true, stdin = table.concat(body, "\n") }
+  ):wait(3000)
+  local ok, inspection = pcall(vim.json.decode, result.stdout or "")
+  if result.code ~= 0 or not ok or type(inspection) ~= "table" then
+    local detail = vim.trim(result.stderr or "")
+    vim.notify(
+      "Kopstructuur kon niet worden gecontroleerd"
+        .. (detail ~= "" and (": " .. detail) or "."),
+      vim.log.levels.ERROR
+    )
+    return nil
+  end
+  return inspection
+end
+
+local function apply_selected_headline(body, kop)
+  local result = vim.system(
+    { article_headline, "apply", "--headline", kop },
+    { text = true, stdin = table.concat(body, "\n") }
+  ):wait(3000)
+  if result.code ~= 0 or type(result.stdout) ~= "string" or result.stdout == "" then
+    local detail = vim.trim(result.stderr or "")
+    vim.notify(
+      "Gekozen kop kon niet worden geplaatst"
+        .. (detail ~= "" and (": " .. detail) or "."),
+      vim.log.levels.ERROR
+    )
+    return nil
+  end
+  return vim.split((result.stdout:gsub("\n$", "")), "\n", { plain = true })
 end
 
 -- <leader>at — tussenkopjes + streamer + kopopties, als korte AI-calls.
@@ -4185,6 +4210,9 @@ function M.tussenkopjes_streamer()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
+  local headline = inspect_article_headline(body)
+  if not headline then return end
+  local has_headline = headline.has_headline == true
   local paras = scan_paragraphs(body)
 
   local existing_streamer = nil
@@ -4204,7 +4232,8 @@ function M.tussenkopjes_streamer()
   for n, p in ipairs(paras) do
     numbered[p.s] = "[" .. n .. "] " .. numbered[p.s]
   end
-  local numbered_text = table.concat(numbered, "\n")
+  local headline_status = has_headline and "aanwezig" or "ontbreekt"
+  local numbered_text = "Kopstatus: " .. headline_status .. "\n" .. table.concat(numbered, "\n")
 
   local results = { koppen = nil, streamer = nil, kopopties = nil }
   -- Slots: tussenkopjes + kopopties, plus de streamer-call als die nog moet.
@@ -4223,7 +4252,7 @@ function M.tussenkopjes_streamer()
       end
     end
 
-    local new_body = insert_headings(body, koppen, paras)
+    local new_body = insert_headings(body, koppen, paras, has_headline)
     if #koppen == 0 then
       notify_workflow(
         "Geen tussenkopjes toegevoegd (artikel te kort of AI gaf niets terug).",
@@ -4232,7 +4261,7 @@ function M.tussenkopjes_streamer()
     end
 
     if results.streamer and results.streamer ~= "" then
-      local with_streamer = insert_streamer_midway(new_body, results.streamer)
+      local with_streamer = insert_streamer_midway(new_body, results.streamer, has_headline)
       if with_streamer then
         new_body = with_streamer
       else
@@ -4275,7 +4304,9 @@ function M.tussenkopjes_streamer()
     table.insert(items, keep_label)
     vim.ui.select(items, { prompt = "Kop kiezen (vult de streamer aan):" }, function(choice)
       if choice and choice ~= keep_label then
-        new_body = replace_first_paragraph(new_body, choice)
+        local with_headline = apply_selected_headline(new_body, choice)
+        if not with_headline then return end
+        new_body = with_headline
       end
       write_body(new_body)
     end)
@@ -4284,10 +4315,11 @@ function M.tussenkopjes_streamer()
   -- De kop moet de streamer aanvullen; deze call start daarom pas zodra de
   -- streamertekst bekend is (bestaand of net gegenereerd, eventueel leeg).
   local function launch_kopopties(streamer_text)
-    local input = body_text
+    local input = "Kopstatus: " .. headline_status .. "\n"
     if streamer_text and streamer_text ~= "" then
-      input = "Streamer: " .. streamer_text .. "\n\n" .. body_text
+      input = input .. "Streamer: " .. streamer_text .. "\n"
     end
+    input = input .. "\n" .. body_text
     ai_system(
       { aitext, "kopopties" },
       { text = true, stdin = input },
@@ -4363,6 +4395,9 @@ end
 vim.keymap.set("n", "<leader>at", M.tussenkopjes_streamer, {
   desc = "Tussenkopjes + streamer + 2 kopopties (streamer alleen als er nog geen > staat)",
 })
+
+M._inspect_article_headline = inspect_article_headline
+M._apply_selected_headline = apply_selected_headline
 
 
 -- Split buffer on the LAST "***" line.
