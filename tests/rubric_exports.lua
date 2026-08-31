@@ -48,6 +48,8 @@ assert(layout_export.pending(raad_buf) == nil, 'Raadspraat accepteerde een vervu
 clear_inbox()
 krant.raadspraat_menu()
 local raad_plan = assert(layout_export.pending(raad_buf), 'Raadspraat exportplan ontbreekt')
+local raad_text = table.concat(vim.api.nvim_buf_get_lines(raad_buf, 0, -1, false), '\n')
+assert(raad_text:find('\ne: B\n', 1, true), 'Raadspraat kreeg niet automatisch editie B')
 assert(raad_plan.dir:match('_gemeentenieuws$'), 'Raadspraat gaat niet naar gemeentenieuws')
 assert(raad_plan.txt_name == '1.raadspraatFOTO.txt', 'verkeerde Raadspraattekstnaam')
 assert(vim.fn.filereadable(raad_plan.dir .. '/' .. raad_plan.img_name) == 1, 'Raadspraatfoto ontbreekt')
@@ -88,6 +90,7 @@ assert(
   'Kamper Kiek kreeg niet de vaste z-werktitel'
 )
 assert(kiek_text:find('prio: 1', 1, true), 'Kamper Kiek verloor de bestaande prioriteitscode')
+assert(kiek_text:find('\ne: B\n', 1, true), 'Kamper Kiek kreeg niet automatisch editie B')
 assert(kiek_text:find('=== ARTIKEL ===', 1, true), 'Kamper Kiek verloor de artikelgrens')
 assert(kiek_text:find('De Kamper Kiek op de wîêk', 1, true), 'vaste Kamper-Kiekkop ontbreekt')
 assert(
@@ -137,6 +140,7 @@ local ondernemen_plan = assert(layout_export.pending(ondernemen_buf), 'Onderneme
 assert(ondernemen_plan.dir:match('_ondernemen_in_kampen$'), 'Ondernemen gaat naar verkeerde map')
 assert(vim.fn.filereadable(ondernemen_plan.dir .. '/' .. ondernemen_plan.txt_name) == 0, 'Ondernementekst is te vroeg geschreven')
 local ondernemen_text = table.concat(vim.api.nvim_buf_get_lines(ondernemen_buf, 0, -1, false), '\n')
+assert(ondernemen_text:find('\ne: B\n', 1, true), 'Ondernemen kreeg niet automatisch editie B')
 assert(ondernemen_text:find('Column Ondernemen in Kampen: Een ondernemende kop', 1, true), 'Ondernementitel is niet ingevuld')
 assert(not ondernemen_text:find('{{titel}}', 1, true), 'Ondernemen liet een titelplaceholder staan')
 
@@ -146,8 +150,24 @@ assert(krant.apply_template_by_name('Column Natuurvereniging', {}, generic_buf))
 local generic_plan = assert(layout_export.pending(generic_buf), 'generiek exportplan ontbreekt')
 assert(generic_plan.dir:match('_lezersnieuws$'), 'gewone template gaat niet naar lezersnieuws')
 local generic_text = table.concat(vim.api.nvim_buf_get_lines(generic_buf, 0, -1, false), '\n')
+assert(generic_text:find('\ne: B\n', 1, true), 'gewone column kreeg niet automatisch editie B')
 assert(generic_text:find('Column Natuurvereniging: Titel uit bron', 1, true), '{{title}} is niet automatisch ingevuld')
 assert(not generic_text:find('{{title}}', 1, true), 'historische titelplaceholder bleef staan')
+
+local explicit_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(explicit_buf, 0, -1, false, {
+  'e: SW',
+  '',
+  '=== ARTIKEL ===',
+  '',
+  'Bewuste uitzondering',
+  '',
+  'Columntekst.',
+})
+assert(krant.apply_template_by_name('Column Natuurvereniging', {}, explicit_buf))
+local explicit_text = table.concat(vim.api.nvim_buf_get_lines(explicit_buf, 0, -1, false), '\n')
+assert(explicit_text:find('e: SW\n', 1, true), 'expliciete columneditie werd niet behouden')
+assert(not explicit_text:find('\ne: B\n', 1, true), 'columnstandaard overschreef expliciete editie')
 
 vim.fn.delete(tmp, 'rf')
 print('rubric exports: OK')

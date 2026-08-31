@@ -40,7 +40,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
 | `<leader>aV` / `:Krantversies` | Overzicht van de gedeelde bron en alle afzonderlijke krantversiebuffers openen. |
 | `<leader>aG` / `:KrantversieGoedkeuren` | Huidige krantversie terugschrijven en de exacte tekst expliciet goedkeuren. |
-| `<leader>aw` | Versturen naar Pubble. Bij een import vraagt een extra safeguard om bevestiging wanneer geen volledige AI-rewrite is voltooid óf de body nog nauwelijks afwijkt. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Bij gekozen eventvervolgen toont de eerste druk de teksten; de tweede publiceert alles samen. |
+| `<leader>aw` | Versturen naar Pubble. Bij een import vraagt een extra safeguard alleen om bevestiging wanneer de body nog nauwelijks afwijkt van de import. Een substantiële handmatige bewerking is dus voldoende; AI is niet verplicht. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Bij gekozen eventvervolgen toont de eerste druk de teksten; de tweede publiceert alles samen. |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen. |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder. |
 | `<leader>ah` | Hiërarchisch hulpmenu: kies onder meer Edities, Rubrieken, Publicatieplanning, Acties of de volledige cheatsheet. |
@@ -271,6 +271,9 @@ Gedefinieerd in `~/.config/nvim/lua/krant.lua`. De gewone templates staan in
 hetzelfde menu. De eerste twee gebruiken een dynamische flow voor persoon,
 foto, bijschrift en template; Kamper Kiek gebruikt de ene foto uit Pubble
 Inbox. Raadspraat en Ondernemen worden niet automatisch geclassificeerd.
+De huidige columns en gespecialiseerde rubrieken zijn voor De Brug en krijgen
+daarom bij de templatebewerking zichtbaar `e: B`. Een bestaande handmatige
+editiekeuze wordt niet overschreven.
 Kamper Kiek kan behalve via dit handmatige menu ook automatisch worden
 toegepast wanneer de importherkenning de vaste naam plus nummering 1–3 vindt.
 Hondenhoek kan automatisch worden toegepast bij twee sterke tekstsignalen en

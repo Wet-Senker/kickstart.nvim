@@ -633,19 +633,17 @@ local function send_safeguard_reason(buf, lines)
 
   local rewritten = vim.b[buf].send_ai_rewrite_completed == true
   local changed = substantially_changed_since_import(imported, current)
-  if rewritten and changed then return nil end
+  -- De safeguard beschermt tegen vrijwel ongeredigeerd doorplaatsen, niet
+  -- tegen handmatig redigeren. Een aantoonbaar substantiële bodywijziging is
+  -- daarom zelfstandig voldoende; AI is geen publicatievoorwaarde.
+  if changed then return nil end
   if type(neutrality_hash) == "string" then
-    if changed then return nil end
     return "De artikeltekst is na de journalistieke neutraliteitscontrole weer "
       .. "gewijzigd en wijkt nog nauwelijks af van de oorspronkelijke import."
   end
   if not rewritten and not changed then
     return "Deze geïmporteerde artikeltekst is niet volledig door AI herschreven "
       .. "en wijkt nog nauwelijks af van de import."
-  end
-  if not rewritten then
-    return "Deze geïmporteerde artikeltekst is wel substantieel aangepast, "
-      .. "maar er is geen volledige AI-herschrijving voltooid."
   end
   return "De AI-herschrijving is voltooid, maar de artikeltekst wijkt volgens "
     .. "de tekstvergelijking nog nauwelijks af van de import."
@@ -2265,6 +2263,14 @@ local function article_autodetect(buf)
   local text = table.concat(lines, "\n")
   edition_autodetect(buf, text)
   local evaluation = article_recognition.evaluate(text)
+  -- Reeds toegepaste vaste templates hoeven niet opnieuw te worden toegepast,
+  -- maar oudere buffers krijgen hier wel hun inmiddels vaste editiecode.
+  local existing_rubric = article_recognition.rubric_decision(evaluation).existing
+  if existing_rubric then
+    require("krant").ensure_detected_rubric_edition(existing_rubric.id, buf)
+    vim.b[buf].recognized_rubric = existing_rubric.id
+    vim.b[buf].recognized_rubric_score = existing_rubric.confidence
+  end
   local calendar_prompted = _calendar_autodetect(buf, lines, text, evaluation, function()
     if not vim.api.nvim_buf_is_valid(buf) then return end
     local current_text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")

@@ -53,8 +53,8 @@ assert(unchanged_reason and unchanged_reason:find('niet volledig door AI herschr
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(rewritten, '\n', { plain = true }))
 local manual_reason = ai._send_safeguard_reason(buf, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
 assert(
-  manual_reason and manual_reason:find('geen volledige AI-herschrijving', 1, true),
-  'een handmatige substantiële bewerking passeerde zonder AI-waarschuwing'
+  manual_reason == nil,
+  'een handmatige substantiële bewerking activeerde de safeguard'
 )
 
 ai._mark_ai_rewrite_completed(buf)

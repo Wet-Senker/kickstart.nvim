@@ -165,6 +165,7 @@ assert(
   'automatische Kamper Kiek kreeg niet de vaste z-werktitel'
 )
 assert(output:find('De Kamper Kiek op de wîêk', 1, true), 'automatisch template ontbreekt')
+assert(output:find('\ne: B\n', 1, true), 'automatische Kamper Kiek kreeg niet editie B')
 assert(output:find('\n1. Eerste punt.\n2. Tweede punt.\n3. Derde punt.', 1, true), 'automatische nummering klopt niet')
 assert(vim.b[buf].recognized_rubric == 'kamper_kiek', 'herkende rubriek is niet in de bufferstatus opgeslagen')
 assert(vim.b[buf].recognized_rubric_score == 100, 'herkenningsscore is niet in de bufferstatus opgeslagen')
@@ -173,6 +174,26 @@ assert(require('layout_export').pending(buf), 'automatische Kamper Kiek verloor 
 local once = output
 ai_text._article_autodetect(buf)
 assert(table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n') == once, 'herkenning draaide tweemaal')
+
+-- Oude, al getemplate bestanden zonder e:-regel worden bij heropenen veilig
+-- aangevuld, zodat zij niet terugvallen op de generieke De-Brug-vraag.
+local legacy_kiek = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(legacy_kiek, 0, -1, false, {
+  '=== ARTIKEL ===',
+  '',
+  'De Kamper Kiek op de wîêk',
+  '',
+  'In De Brug kijkt burgemeester Sander de Rouwe wekelijks in fotovorm terug op de afgelopen week.',
+  '',
+  '1. Eerste punt.',
+  '2. Tweede punt.',
+  '3. Derde punt.',
+})
+ai_text._article_autodetect(legacy_kiek)
+assert(
+  table.concat(vim.api.nvim_buf_get_lines(legacy_kiek, 0, -1, false), '\n'):find('e: B\n', 1, true) == 1,
+  'bestaande Kamper Kiek zonder editie werd niet naar B gemigreerd'
+)
 
 -- Integratie: Hondenhoek gebruikt dezelfde centrale route, een vaste
 -- stockfoto en de expliciet meegegeven buffer (ook als die niet actief is).
@@ -198,6 +219,7 @@ ai_text._article_autodetect(honden_buf)
 
 local honden_output = table.concat(vim.api.nvim_buf_get_lines(honden_buf, 0, -1, false), '\n')
 assert(honden_output:find('newspaper:\n  working_title: "z - 1 Hondenhoek"', 1, true), 'Hondenhoekfrontmatter ontbreekt')
+assert(honden_output:find('\ne: B\n', 1, true), 'automatische Hondenhoek kreeg niet editie B')
 assert(honden_output:find('\nHondenhoek\n', 1, true), 'vaste Hondenhoektitel ontbreekt')
 assert(not honden_output:find('\nHondenhoek:\n', 1, true), 'aangeleverde Hondenhoekkop bleef dubbel staan')
 assert(honden_output:find('Wat hebben honden en mensen gemeen?', 1, true), 'Hondenhoektekst is gewijzigd')

@@ -50,6 +50,7 @@ M.templates = {
   },
   {
     name = "Kiek op de wiek (Sander de Rouwe)",
+    edition = 'B',
     working_title = 'z - 1 Kamper Kiek',
     -- De speciale Kiek-flow registreert gemeentenieuws; nooit de generieke
     -- lezersnieuwsexport uit apply().
@@ -298,6 +299,19 @@ local function split_visible_article(lines)
   return {}, content
 end
 
+-- Vaste rubrieken mogen een standaardeditie invullen, maar een zichtbare
+-- handmatige e:/editie:-keuze blijft altijd leidend.
+local function with_default_edition(header, edition)
+  local result = vim.deepcopy(header or {})
+  if type(edition) ~= 'string' or vim.trim(edition) == '' then return result end
+  for _, line in ipairs(result) do
+    local key = (vim.trim(line):match('^([%a][%a%d_]*)%s*:') or ''):lower()
+    if key == 'e' or key == 'editie' then return result end
+  end
+  table.insert(result, 1, 'e: ' .. vim.trim(edition))
+  return result
+end
+
 local function append_visible_article(out, header, article)
   for _, line in ipairs(header) do table.insert(out, line) end
   if #header > 0 then table.insert(out, '') end
@@ -481,7 +495,7 @@ function M.raadspraat_menu()
         -- de vaste partijregel.
         body = table.concat(article_lines, '\n'),
       })
-      append_visible_article(new_lines, existing_header, article)
+      append_visible_article(new_lines, with_default_edition(existing_header, 'B'), article)
 
       vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
 
@@ -640,7 +654,7 @@ function M.ondernemen_menu()
     local new_lines = {}
     for _, l in ipairs(fm_lines) do table.insert(new_lines, l) end
     local article = render_template(template, article_lines)
-    append_visible_article(new_lines, existing_header, article)
+    append_visible_article(new_lines, with_default_edition(existing_header, 'B'), article)
     vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
 
     -- Kopieer foto naar Pubble Inbox.
@@ -676,6 +690,10 @@ local function apply(t, vars, target_buf)
   local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
   local existing_fm = visible_frontmatter(buf_lines)
   local existing_header, content = split_visible_article(buf_lines)
+  existing_header = with_default_edition(
+    existing_header,
+    t.edition or (t.column and 'B' or nil)
+  )
 
   existing_fm = upsert_newspaper_frontmatter(existing_fm, t.working_title, 1)
 
@@ -878,6 +896,7 @@ end
 stock_rubrieken = {
   {
     name        = 'Hondenhoek',
+    edition     = 'B',
     stock_image = 'hondenhoek.jpg',
     txt_name    = '1.hondenhoekFOTO.txt',
     working_title = 'z - 1 Hondenhoek',
@@ -893,6 +912,7 @@ stock_rubrieken = {
   },
   {
     name        = 'Open Hof',
+    edition     = 'B',
     stock_image = 'open-hof.jpg',
     txt_name    = '1.openHofFOTO.txt',
     working_title = 'z - 1 Open Hof',
@@ -906,6 +926,7 @@ stock_rubrieken = {
   },
   {
     name        = 'Nog Even Dit',
+    edition     = 'B',
     stock_image = 'nog-even-dit.jpg',
     txt_name    = '1.nogEvenDitFOTO.txt',
     working_title = 'z - 1 Nog Even Dit',
@@ -958,7 +979,7 @@ function M.stock_rubriek_flow(config, target_buf)
     template_vars = { body = table.concat(article_lines, '\n') }
   end
   local article = render_template(config.template, article_lines, template_vars)
-  append_visible_article(new_lines, existing_header, article)
+  append_visible_article(new_lines, with_default_edition(existing_header, config.edition), article)
 
   -- Eerst de stockfoto valideren/kopiëren; bij een fout blijft het artikel
   -- volledig ongemoeid, wat bij automatische herkenning essentieel is.
@@ -987,6 +1008,26 @@ function M.stock_rubriek_flow(config, target_buf)
     vim.log.levels.INFO,
     { annote = 'Rubriek', ttl = 12 }
   )
+  return true
+end
+
+-- Backwards compatibility voor reeds getemplate Kamper-Kiek- en
+-- Hondenhoekbestanden van vóór de zichtbare e:-regel.
+function M.ensure_detected_rubric_edition(rubric_id, target_buf)
+  local editions = { kamper_kiek = 'B', hondenhoek = 'B' }
+  local edition = editions[rubric_id]
+  if not edition then return false end
+  target_buf = target_buf or vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
+  local frontmatter = visible_frontmatter(lines)
+  local header, article = split_visible_article(lines)
+  local updated_header = with_default_edition(header, edition)
+  if #updated_header == #header then return false end
+  local updated = {}
+  for _, line in ipairs(frontmatter) do table.insert(updated, line) end
+  if #frontmatter > 0 then table.insert(updated, '') end
+  append_visible_article(updated, updated_header, article)
+  vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, updated)
   return true
 end
 

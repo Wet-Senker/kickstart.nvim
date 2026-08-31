@@ -51,7 +51,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie |
 | `<leader>aV` | Overzicht van bron en afzonderlijke krantversiebuffers |
 | `<leader>aG` | Huidige krantversie opslaan en expliciet goedkeuren |
-| `<leader>aw` | Publicatie voorbereiden en naar Pubble versturen; waarschuwt als een import geen volledige AI-rewrite heeft óf nog nauwelijks afwijkt, en laat een ontbrekende `e:` eerst bevestigen |
+| `<leader>aw` | Publicatie voorbereiden en naar Pubble versturen; waarschuwt als de artikelbody nog nauwelijks afwijkt van de import, en laat een ontbrekende `e:` eerst bevestigen |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |
 | `<leader>ah` | Hiërarchisch hulpmenu voor codes, rubrieken, acties en cheatsheet |
