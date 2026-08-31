@@ -598,12 +598,21 @@ local function capture_import_baseline(buf)
     vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   )
   vim.b[buf].send_ai_rewrite_completed = false
+  vim.b[buf].send_ai_neutrality_body_hash = nil
   vim.b[buf].send_safeguard_approved_body = nil
 end
 
 local function mark_ai_rewrite_completed(buf)
   if not vim.api.nvim_buf_is_valid(buf) then return end
   vim.b[buf].send_ai_rewrite_completed = true
+  vim.b[buf].send_ai_neutrality_body_hash = nil
+  vim.b[buf].send_safeguard_approved_body = nil
+end
+
+local function mark_ai_neutrality_completed(buf, lines)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  lines = lines or vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  vim.b[buf].send_ai_neutrality_body_hash = vim.fn.sha256(editorial_body_text(lines))
   vim.b[buf].send_safeguard_approved_body = nil
 end
 
@@ -615,9 +624,19 @@ local function send_safeguard_reason(buf, lines)
   local current_hash = vim.fn.sha256(current)
   if vim.b[buf].send_safeguard_approved_body == current_hash then return nil end
 
+  local neutrality_hash = vim.b[buf].send_ai_neutrality_body_hash
+  if type(neutrality_hash) == "string" and neutrality_hash == current_hash then
+    return nil
+  end
+
   local rewritten = vim.b[buf].send_ai_rewrite_completed == true
   local changed = substantially_changed_since_import(imported, current)
   if rewritten and changed then return nil end
+  if type(neutrality_hash) == "string" then
+    if changed then return nil end
+    return "De artikeltekst is na de journalistieke neutraliteitscontrole weer "
+      .. "gewijzigd en wijkt nog nauwelijks af van de oorspronkelijke import."
+  end
   if not rewritten and not changed then
     return "Deze geïmporteerde artikeltekst is niet volledig door AI herschreven "
       .. "en wijkt nog nauwelijks af van de import."
@@ -654,6 +673,7 @@ M._editorial_body_text = editorial_body_text
 M._substantially_changed_since_import = substantially_changed_since_import
 M._capture_import_baseline = capture_import_baseline
 M._mark_ai_rewrite_completed = mark_ai_rewrite_completed
+M._mark_ai_neutrality_completed = mark_ai_neutrality_completed
 M._send_safeguard_reason = send_safeguard_reason
 M._confirm_send_safeguard = confirm_send_safeguard
 
@@ -3975,6 +3995,65 @@ vim.keymap.set("n", "<leader>ao", M.tekstcheck, {
   desc = "Tekstcheck: spelling/grammatica; twijfelgevallen als suggesties onderaan",
 })
 
+-- <leader>an — neutraliseer uitsluitend subjectieve journalistentaal. De
+-- centrale prompt en Python-validatie bewaken minimale wijzigingen, citaten en
+-- concrete waarden. Een laat resultaat mag nieuwere bufferbewerkingen nooit
+-- overschrijven.
+function M.journalistic_neutralize()
+  local buf = vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
+  local requested_tick = vim.api.nvim_buf_get_changedtick(buf)
+
+  ai_system(
+    { aitext, "journalistiek_neutraliseren" },
+    { text = true, stdin = table.concat(body, "\n") },
+    function(result)
+      vim.schedule(function()
+        if not vim.api.nvim_buf_is_valid(buf) then return end
+        if vim.api.nvim_buf_get_changedtick(buf) ~= requested_tick then
+          notify_workflow(
+            "Neutraliteitsresultaat niet toegepast: de tekst is tijdens de AI-controle gewijzigd.",
+            vim.log.levels.WARN,
+            { ttl = 9 }
+          )
+          return
+        end
+        if result.code ~= 0 then
+          local err = vim.trim(result.stderr or result.stdout or "")
+          vim.notify(
+            "Journalistiek neutraliseren mislukt: " .. (err ~= "" and err or "onbekende fout"),
+            vim.log.levels.ERROR
+          )
+          return
+        end
+
+        local output = vim.trim(result.stdout or "")
+        if output == "" then
+          vim.notify("Neutraliteitscontrole gaf geen tekst terug.", vim.log.levels.ERROR)
+          return
+        end
+
+        local new_body = vim.split(output, "\n", { plain = true })
+        local new_lines = reassemble_article(fm, ctrl, new_body, sections, has_boundary)
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
+        mark_ai_neutrality_completed(buf, new_lines)
+        notify_workflow(
+          "Journalistieke neutraliteitscontrole klaar. Controleer de minimale wijzigingen; gebruik u om ongedaan te maken.",
+          vim.log.levels.INFO,
+          { ttl = 9 }
+        )
+      end)
+    end,
+    "AI · Journalistiek neutraliseren",
+    buf
+  )
+end
+
+vim.keymap.set("n", "<leader>an", M.journalistic_neutralize, {
+  desc = "Journalistiek neutraliseren met minimale tekstwijzigingen",
+})
+
 -- Scan de body in alinea's (blokken gescheiden door lege regels).
 -- Geeft per alinea: s = eerste regel, e = laatste regel, heading = of het
 -- een losse **vetgedrukte** regel is (tussenkop of vette lead).
@@ -4596,6 +4675,7 @@ local help_categories = {
       { label = "Artikel herschrijven (<leader>ar)", action = function() M.rewrite_article_buffer() end },
       { label = "Eigen artikel voorbereiden, geen rewrite (<leader>av)", action = function() M.prepare_article() end },
       { label = "Tekstcheck (<leader>ao)", action = function() M.tekstcheck() end },
+      { label = "Journalistiek neutraliseren (<leader>an)", action = function() M.journalistic_neutralize() end },
       { label = "Tussenkopjes en streamer (<leader>at)", action = function() M.tussenkopjes_streamer() end },
       { label = "LinkedIn-tekst maken (<leader>al)", action = function() M.generate_linkedin() end },
       { label = "Eigen opdracht via *** (<leader>ap)", action = function() M.ai_prompt_rewrite() end },

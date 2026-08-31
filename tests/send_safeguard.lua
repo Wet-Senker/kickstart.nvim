@@ -64,6 +64,25 @@ vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(imported, '\n', { plain 
 local similar_after_ai = ai._send_safeguard_reason(buf, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
 assert(similar_after_ai and similar_after_ai:find('wijkt', 1, true), 'een vrijwel onveranderde AI-uitvoer passeerde zonder waarschuwing')
 
+local neutral_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(neutral_buf, 0, -1, false, vim.split(imported, '\n', { plain = true }))
+ai._capture_import_baseline(neutral_buf)
+local neutral_lines = vim.api.nvim_buf_get_lines(neutral_buf, 0, -1, false)
+ai._mark_ai_neutrality_completed(neutral_buf, neutral_lines)
+assert(
+  ai._send_safeguard_reason(neutral_buf, neutral_lines) == nil,
+  'een expliciet neutraal bevonden, ongewijzigd artikel activeerde de safeguard'
+)
+vim.api.nvim_buf_set_lines(neutral_buf, 0, -1, false, vim.split(imported:gsub('vandaag', 'vandaag nog'), '\n', { plain = true }))
+local changed_after_neutrality = ai._send_safeguard_reason(
+  neutral_buf,
+  vim.api.nvim_buf_get_lines(neutral_buf, 0, -1, false)
+)
+assert(
+  changed_after_neutrality and changed_after_neutrality:find('na de journalistieke neutraliteitscontrole', 1, true),
+  'een kleine wijziging na de neutraliteitscontrole passeerde zonder nieuwe controle'
+)
+
 local confirmations = 0
 local original_confirm = ai._send_safeguard_confirm
 ai._send_safeguard_confirm = function()

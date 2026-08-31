@@ -16,6 +16,7 @@ local documented_mappings = {
   { key = "<leader>ar", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ar"' },
   { key = "<leader>ac", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ac"' },
   { key = "<leader>ao", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ao"' },
+  { key = "<leader>an", source = ai_text, registration = 'vim.keymap.set("n", "<leader>an"' },
   { key = "<leader>at", source = ai_text, registration = 'vim.keymap.set("n", "<leader>at"' },
   { key = "<leader>af", source = ai_text, registration = 'vim.keymap.set("n", "<leader>af"' },
   { key = "<leader>aV", source = edition_review, registration = 'vim.keymap.set("n", "<leader>aV"' },
