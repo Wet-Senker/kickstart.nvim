@@ -40,6 +40,10 @@ assert(
   vim.wait(5000, function() return buffer_text(imported):find('e: B, SW, ST, K', 1, true) ~= nil end, 20),
   'provinciebrede bestemming werd bij import niet ingevuld'
 )
+assert(
+  vim.wait(5000, function() return buffer_text(imported):find('OVERIJSSEL - Inwoners', 1, true) ~= nil end, 20),
+  'provinciale dateline werd bij import niet toegevoegd'
+)
 assert(vim.b[imported].edition_recognition_done == true, 'eenmalige importmarkering ontbreekt')
 
 local explicit = vim.api.nvim_create_buf(false, true)

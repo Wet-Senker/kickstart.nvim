@@ -254,6 +254,8 @@ local layout_export = require("layout_export")
 local aitext = texttools_commands.bin("aitext")
 local kampen_fix = texttools_commands.bin("kampen-fix")
 local redactie_adres = texttools_commands.bin("redactie-adres")
+local article_dateline = texttools_commands.bin("article-dateline")
+local teams_config_cli = texttools_commands.bin("teams-config")
 local aichat = texttools_commands.bin("aichat")
 local articlemeta = texttools_commands.bin("articlemeta")
 local pubble_send = texttools_commands.bin("pubble-send")
@@ -1102,6 +1104,34 @@ local function set_edition_codes(buf, codes)
   return replace_edition_control_lines(buf, { "e: " .. table.concat(codes, ", ") })
 end
 
+-- De Python-kern bepaalt óf en welke dateline inhoudelijk gerechtvaardigd is;
+-- Lua past alleen het geretourneerde document op de zichtbare buffer toe.
+local function ensure_detected_dateline(buf, detection)
+  local place = type(detection) == "table" and detection.suggested_dateline or nil
+  if type(place) ~= "string" or vim.trim(place) == ""
+      or not vim.api.nvim_buf_is_valid(buf) then
+    return true
+  end
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local result = vim.system(
+    { article_dateline, "--place", place },
+    { text = true, stdin = table.concat(lines, "\n") }
+  ):wait(3000)
+  if result.code ~= 0 or type(result.stdout) ~= "string" or result.stdout == "" then
+    notify_workflow(
+      "Dateline kon niet automatisch worden toegevoegd: "
+        .. vim.trim(result.stderr or "onbekende fout"),
+      vim.log.levels.WARN
+    )
+    return false
+  end
+  vim.api.nvim_buf_set_lines(
+    buf, 0, -1, false,
+    vim.split((result.stdout:gsub("\n$", "")), "\n", { plain = true })
+  )
+  return true
+end
+
 local function high_confidence_detection(resolved)
   local detection = type(resolved) == "table" and resolved.detection or nil
   if type(detection) ~= "table"
@@ -1189,6 +1219,7 @@ local function fill_detected_editions_line(buf, content, done)
     local detection = high_confidence_detection(resolved)
     if detection then
       set_edition_codes(buf, detection.editions)
+      ensure_detected_dateline(buf, detection)
       adapt_editorial_address(buf, detection.editions[1])
     end
     if done then done(true) end
@@ -1218,6 +1249,7 @@ local function reconcile_editions_after_rewrite(buf, content, original_content, 
     end
     if resolved.has_explicit_editions ~= true then
       set_edition_codes(buf, detection.editions)
+      ensure_detected_dateline(buf, detection)
       adapt_editorial_address(buf, detection.editions[1])
       notify_workflow(
         "Bestemming herkend na herschrijven: "
@@ -1255,6 +1287,7 @@ local function reconcile_editions_after_rewrite(buf, content, original_content, 
       )
       if choice == 2 then
         set_edition_codes(buf, detection.editions)
+        ensure_detected_dateline(buf, detection)
         adapt_editorial_address(buf, detection.editions[1])
         if done then done(true, detection.editions, detection.names) end
         return
@@ -1282,6 +1315,7 @@ local function edition_autodetect(buf, content)
     local detection = high_confidence_detection(resolved)
     if not detection then return end
     set_edition_codes(buf, detection.editions)
+    ensure_detected_dateline(buf, detection)
     adapt_editorial_address(buf, detection.editions[1])
     notify_workflow(
       "Bestemming herkend bij import: "
@@ -3086,6 +3120,8 @@ function M.pubble_send(target_buf)
           notify_workflow("Editiebestemming kon niet worden vastgelegd.", vim.log.levels.ERROR)
           return
         end
+        ensure_detected_dateline(buf, autorecord)
+        adapt_editorial_address(buf, autorecord.editions[1])
         discard_unpublished_temp()
         notify_workflow(
           "Bestemming vastgelegd: "
@@ -3554,37 +3590,30 @@ M._event_prepare = event_prepare
 
 -- ---------------------------------------------------------------------------
 -- :TeamsRedactie — beheer van de Teams-meldingen naar eindredacteuren.
--- De bron van waarheid is ~/.texttools/teams_notify.json (geseed en gelezen
--- door pubble-send/pubble_teams.py). Dit menu is puur de UI erop: waarneming
--- uit een lokale lijst kiezen, een nieuwe vervanger bewaren, terugzetten naar
+-- De bron van waarheid staat in de gedeelde cloudmap en wordt uitsluitend via
+-- teams-config gelezen/gemuteerd. Dit menu is puur de UI erop: waarneming uit
+-- de gedeelde lijst kiezen, een nieuwe vervanger bewaren, terugzetten naar
 -- de vaste eindredacteur, meldingen per editie uitzetten, of alles aan/uit.
 -- ---------------------------------------------------------------------------
-local teams_config_dir = vim.env.TEXTTOOLS_LOG_DIR
-if type(teams_config_dir) ~= "string" or vim.trim(teams_config_dir) == "" then
-  teams_config_dir = vim.fn.expand("~/.texttools")
-else
-  teams_config_dir = vim.fn.expand(teams_config_dir)
-end
-local teams_config_file = vim.fs.joinpath(teams_config_dir, "teams_notify.json")
 
-local function teams_read_config()
-  if vim.fn.filereadable(teams_config_file) == 0 then
-    -- Laat pubble-send het bestand seeden met de standaardbezetting, zodat
-    -- de mapping maar op één plek leeft (Python).
-    vim.system({ pubble_send, "--teams-config" }, { text = true }):wait()
+local function teams_config_command(args)
+  local command = { teams_config_cli }
+  vim.list_extend(command, args)
+  local output = vim.fn.system(command)
+  if vim.v.shell_error ~= 0 then
+    vim.notify("Teams-config bijwerken mislukt: " .. vim.trim(output), vim.log.levels.ERROR)
+    return nil
   end
-  local ok, config = pcall(function()
-    return vim.json.decode(table.concat(vim.fn.readfile(teams_config_file), "\n"))
-  end)
+  local ok, config = pcall(vim.json.decode, output)
   if not ok or type(config) ~= "table" or type(config.editions) ~= "table" then
-    vim.notify("Teams-config onleesbaar: " .. teams_config_file, vim.log.levels.ERROR)
+    vim.notify("Teams-config gaf geen geldige JSON terug.", vim.log.levels.ERROR)
     return nil
   end
   return config
 end
 
-local function teams_write_config(config)
-  vim.fn.writefile(vim.split(vim.json.encode(config), "\n"), teams_config_file)
+local function teams_read_config()
+  return teams_config_command({ "show" })
 end
 
 local function teams_email(value)
@@ -3664,18 +3693,6 @@ local function teams_recipient_label(config, email)
   return teams_email(email) or "geen melding"
 end
 
-local function teams_store_recipient(config, name, email)
-  if type(config.recipients) ~= "table" then config.recipients = {} end
-  for _, person in ipairs(config.recipients) do
-    if type(person) == "table" and teams_same_email(person.email, email) then
-      person.name = name
-      person.email = email
-      return
-    end
-  end
-  table.insert(config.recipients, { name = name, email = email })
-end
-
 function M.teams_redactie()
   local config = teams_read_config()
   if not config then return end
@@ -3713,8 +3730,8 @@ function M.teams_redactie()
     if not choice then return end
 
     if choice.kind == "toggle" then
-      config.enabled = not aan
-      teams_write_config(config)
+      config = teams_config_command({ "set-enabled", aan and "off" or "on" })
+      if not config then return end
       notify_workflow(
         "Teams-meldingen " .. (config.enabled and "AAN" or "UIT"),
         vim.log.levels.INFO
@@ -3754,8 +3771,15 @@ function M.teams_redactie()
     })
 
     local function save_email(email)
-      e.email = email or vim.NIL
-      teams_write_config(config)
+      local args = { "set-recipient", choice.code }
+      if email then
+        vim.list_extend(args, { "--email", email })
+      else
+        table.insert(args, "--off")
+      end
+      config = teams_config_command(args)
+      if not config then return end
+      e = config.editions[choice.code]
       local nieuw = (e.email == vim.NIL) and "geen melding" or tostring(e.email or "geen melding")
       notify_workflow(
         string.format("%s → %s", e.krant or choice.code, nieuw),
@@ -3791,8 +3815,15 @@ function M.teams_redactie()
               vim.notify("Geen geldig e-mailadres; vervanger niet opgeslagen", vim.log.levels.ERROR)
               return
             end
-            teams_store_recipient(config, name, email)
-            save_email(email)
+            config = teams_config_command({
+              "add-recipient", choice.code, "--name", name, "--email", email,
+            })
+            if not config then return end
+            e = config.editions[choice.code]
+            notify_workflow(
+              string.format("%s → %s", e.krant or choice.code, tostring(e.email)),
+              vim.log.levels.INFO
+            )
           end)
         end)
       end
