@@ -30,4 +30,14 @@ assert(
   "uitvoer zonder resultaatmarker werd als status gezien"
 )
 
+local opened_url
+local original_open = vim.ui.open
+vim.ui.open = function(url)
+  opened_url = url
+  return {}
+end
+assert(ai_text._open_published_url("https://example.test/article"), "browseropen gaf geen succes terug")
+vim.ui.open = original_open
+assert(opened_url == "https://example.test/article", "gepubliceerde URL ging niet naar de standaardbrowser")
+
 print("publication status: OK")

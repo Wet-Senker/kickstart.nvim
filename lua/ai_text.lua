@@ -46,41 +46,16 @@ local function notify_workflow(message, level, options)
   notifications.workflow(message, level, options)
 end
 
-local OPEN_URL_IN_BACKGROUND_SCRIPT = [=[
-function run(argv) {
-  ObjC.import("AppKit");
-  const workspace = $.NSWorkspace.sharedWorkspace;
-  const previousApp = workspace.frontmostApplication;
-  const configuration = $.NSWorkspaceOpenConfiguration.configuration;
-  configuration.activates = false;
-  const targetURL = $.NSURL.URLWithString(argv[0]);
-  workspace.openURLConfigurationCompletionHandler(
-    targetURL,
-    configuration,
-    function() {}
-  );
-  delay(0.6);
-  previousApp.activateWithOptions($.NSApplicationActivateIgnoringOtherApps);
-}
-]=]
-
-local function open_url_without_focus(url)
-  vim.system(
-    { "osascript", "-l", "JavaScript", "-e", OPEN_URL_IN_BACKGROUND_SCRIPT, url },
-    { text = true },
-    function(result)
-      if result.code ~= 0 then
-        vim.schedule(function()
-          local err = vim.trim(result.stderr or "")
-          vim.notify(
-            "Pubble-pagina kon niet op de achtergrond worden geopend"
-              .. (err ~= "" and (": " .. err) or "."),
-            vim.log.levels.WARN
-          )
-        end)
-      end
-    end
+local function open_published_url(url)
+  local ok, _, open_error = pcall(vim.ui.open, url)
+  if ok and not open_error then return true end
+  local detail = vim.trim(tostring(open_error or _ or ""))
+  vim.notify(
+    "Pubble-pagina kon niet worden geopend"
+      .. (detail ~= "" and (": " .. detail) or "."),
+    vim.log.levels.WARN
   )
+  return false
 end
 
 local function is_cancellable_ai_command(cmd)
@@ -298,6 +273,7 @@ end
 
 M._publication_status_from_output = publication_status_from_output
 M._failed_publication_labels = failed_publication_labels
+M._open_published_url = open_published_url
 
 local function shellescape(value)
   return vim.fn.shellescape(value)
@@ -2973,7 +2949,7 @@ function M.pubble_send(target_buf)
           -- Het browsermoment is het eindsignaal: hoofdartikel, media,
           -- eventuele vervolgen en archivering zijn nu allemaal gereed.
           if article_url then
-            open_url_without_focus(article_url)
+            open_published_url(article_url)
           end
 
           notify_workflow(msg, message_level)

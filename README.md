@@ -259,8 +259,8 @@ Je hoeft ze niet met Enter te sluiten en kunt meteen verder typen of opnieuw
 `<leader>aw` gebruiken.
 
 Na een geslaagde publicatie opent de Pubble-pagina in de standaardbrowser. De
-verzendflow onthoudt eerst welk macOS-programma vooraan staat en activeert dat
-na het openen opnieuw, zodat de browser NeoVim niet blijvend uit focus haalt.
+browser blijft vooraan staan, zodat het geplaatste artikel direct kan worden
+bekeken en gecontroleerd.
 
 ---
 
