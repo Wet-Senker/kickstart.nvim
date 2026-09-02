@@ -106,6 +106,8 @@ b: Bijschrift      # globaal fotobijschrift
 c: Naam fotograaf  # globale fotocredit
 b1: / c1:          # bijschrift/credit voor foto 1 specifiek
 b2: / c2:          # bijschrift/credit voor foto 2 specifiek
+@John Boodschap    # alleen in Teams-bericht voor actuele ontvanger John
+@all Boodschap     # in alle Teams-berichten van dit artikel
 
 === ARTIKEL ===
 
@@ -117,6 +119,12 @@ Ook een visuele AI-selectie die de marker kruist wordt geweigerd.
 Bij `<leader>aw` valideert Python iedere regel daar strikt. `f:` is geen tag;
 gebruik `c:` of `Foto:`. `***` is bewust iets anders: die regel blijft voor
 inline AI-prompts en gesprekken gereserveerd.
+
+Teams-selectors zijn hoofdletterongevoelig en mogen worden gecombineerd als
+`@Joop, @Saskia Boodschap`. Ze volgen de actuele ontvanger uit
+`:TeamsRedactie`, inclusief waarneming. De selector zelf verschijnt niet in
+Teams; de boodschap komt na de plaatsingszin en vóór de kop. Zonder passende
+regel blijft het bestaande Teams-bericht ongewijzigd.
 
 Als `<leader>ar` een letterlijke fotocredit of een bijschrift uit de brontekst
 haalt, verplaatst de nabewerking zowel `Foto:` als `Bijschrift:` automatisch

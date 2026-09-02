@@ -4714,6 +4714,7 @@ local help_categories = {
       { label = "LinkedIn-tekst door AI laten maken", action = function() M.generate_linkedin() end },
       { label = "Eigen Facebooktekst schrijven", action = function() M.edit_facebook_text() end },
       { label = "Eigen LinkedIn-tekst schrijven", action = function() M.edit_linkedin_text() end },
+      { label = "Teams-boodschap voor alle ontvangers", insert = "@all " },
     },
   },
   {

@@ -109,7 +109,13 @@ editie: B          # of SW, ST, Z, D, K, all, overijssel, flevoland
 prio: 2            # 1=moet mee  2=mag mee  3=rest(standaard)  4=nood
 b: Bijschrift      # fotobijschrift
 c: Naam fotograaf  # fotocredit
+@John Boodschap    # alleen voor actuele Teams-ontvanger John
+@all Boodschap     # voor alle Teams-meldingen van dit artikel
 ```
+
+Meerdere ontvangers op één regel: `@Joop, @Saskia Boodschap`. De selectors
+zijn hoofdletterongevoelig, worden niet getoond en volgen eventuele waarneming
+uit `:TeamsRedactie`.
 
 Alternatieve notatie voor bijschrift/credit (ook herkend in eerste 4 regels):
 ```
