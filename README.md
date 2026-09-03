@@ -16,7 +16,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
               ↳ detecteert 112 en kalender automatisch
 <leader>ac    Kalendermetadata + ## Kalender sectie
 <leader>ao    Tekstcheck: spelling/grammatica + ## Suggesties
-<leader>an    Journalistiek neutraliseren met minimale wijzigingen
+<leader>an    Minimaal publicatieklaar maken: kop/lead waar nodig, rest behouden
 <leader>at    Tussenkopjes + optionele streamer + 2 kopopties
 <leader>af    Facebook-post genereren → ## Facebook sectie
 <leader>aV    Krantversies en reviewstatus openen
@@ -35,7 +35,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | `<leader>ar` | Herschrijven naar krantenartikel (AI). Vraagt bij meerdere gekozen edities of aparte krantversies gewenst zijn. Start background jobs voor metadata, kalender en/of Facebook op basis van controlecodes. Detecteert 112 en agendaberichten automatisch. |
 | `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. Een herkend maar onvolledig item toont `<!-- Ontbreekt: … -->` inclusief invoerformaat, bijvoorbeeld `Tijd: HH:MM`. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
-| `<leader>an` | Journalistiek neutraliseren: verwijdert alleen subjectieve journalistentaal; feiten, structuur en bestaande citaten blijven behouden. |
+| `<leader>an` | Minimaal publicatieklaar maken: herstelt waar nodig kop en nieuwsgerichte lead; neutraliseert de rest met minimale wijzigingen. |
 | `<leader>at` | Tussenkopjes, een streamer (als er nog geen eigen `>` staat) en twee kopopties. Een gekozen kop vervangt alleen een bestaande korte kop; bij een dateline, auteursregel of eerste alinea van meer dan tien woorden wordt zij vóór de lead ingevoegd. |
 | `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
 | `<leader>aV` / `:Krantversies` | Overzicht van de gedeelde bron en alle afzonderlijke krantversiebuffers openen. |
@@ -59,14 +59,19 @@ De extra waarschuwing voor een vrijwel onbewerkte import vraagt
 `Toch publiceren?`: druk `j` voor ja of `n` voor nee. Nee is de veilige
 standaard.
 
-`<leader>an` is bedoeld voor een tekst die al goed is opgebouwd en alleen nog
-subjectieve, promotionele of overdreven opmerkingen van de journalist bevat.
-De AI maakt de kleinst mogelijke ingreep. Alleen een expliciet aan een bron
-gekoppelde claim mag indirect worden toegeschreven; er worden nooit nieuwe
-directe citaten gemaakt. Verandering van bestaande citaten, getallen, datums,
-tijden, URL's of mailadressen wordt technisch geweigerd. Een geslaagde controle
-geldt bij verzending alleen voor de exact gecontroleerde body. Bewerk je de
-buffer terwijl de AI draait, dan wordt het late resultaat niet toegepast.
+`<leader>an` is bedoeld voor een tekst waarvan de inhoud grotendeels goed staat,
+maar die nog niet helemaal plaatsbaar is. Een goede kop en lead blijven staan;
+een ontbrekende of ondeugdelijke kop of lead wordt gericht hersteld. De lead
+brengt het nieuws direct en begint niet met een datum of tijd. Een dateline
+wordt alleen toegevoegd als één plaats ondubbelzinnig centraal staat. In de
+rest maakt de AI de kleinst mogelijke ingreep: subjectieve, promotionele of
+overdreven journalistentaal en directe lezersaanspraak verdwijnen, zonder een
+volledige rewrite. Alleen een expliciet aan een bron gekoppelde claim mag
+indirect worden toegeschreven; er worden nooit nieuwe directe citaten gemaakt.
+Verandering van bestaande citaten, getallen, datums, tijden, URL's of
+mailadressen wordt technisch geweigerd. Een geslaagde controle geldt bij
+verzending alleen voor de exact gecontroleerde body. Bewerk je de buffer terwijl
+de AI draait, dan wordt het late resultaat niet toegepast.
 
 Voor een complete papieren agendapagina plak je alle dagen en activiteiten en
 gebruik je eenmaal `<leader>ka`. Gewone items worden per activiteit geredigeerd;

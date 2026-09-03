@@ -4009,10 +4009,10 @@ vim.keymap.set("n", "<leader>ao", M.tekstcheck, {
   desc = "Tekstcheck: spelling/grammatica; twijfelgevallen als suggesties onderaan",
 })
 
--- <leader>an — neutraliseer uitsluitend subjectieve journalistentaal. De
--- centrale prompt en Python-validatie bewaken minimale wijzigingen, citaten en
--- concrete waarden. Een laat resultaat mag nieuwere bufferbewerkingen nooit
--- overschrijven.
+-- <leader>an — maak kop en lead waar nodig publicatieklaar en neutraliseer de
+-- rest met minimale wijzigingen. De centrale prompt en Python-validatie bewaken
+-- citaten en concrete waarden. Een laat resultaat mag nieuwere
+-- bufferbewerkingen nooit overschrijven.
 function M.journalistic_neutralize()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -4036,7 +4036,7 @@ function M.journalistic_neutralize()
         if result.code ~= 0 then
           local err = vim.trim(result.stderr or result.stdout or "")
           vim.notify(
-            "Journalistiek neutraliseren mislukt: " .. (err ~= "" and err or "onbekende fout"),
+            "Minimaal publicatieklaar maken mislukt: " .. (err ~= "" and err or "onbekende fout"),
             vim.log.levels.ERROR
           )
           return
@@ -4044,7 +4044,7 @@ function M.journalistic_neutralize()
 
         local output = vim.trim(result.stdout or "")
         if output == "" then
-          vim.notify("Neutraliteitscontrole gaf geen tekst terug.", vim.log.levels.ERROR)
+          vim.notify("Publicatiecontrole gaf geen tekst terug.", vim.log.levels.ERROR)
           return
         end
 
@@ -4053,19 +4053,19 @@ function M.journalistic_neutralize()
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
         mark_ai_neutrality_completed(buf, new_lines)
         notify_workflow(
-          "Journalistieke neutraliteitscontrole klaar. Controleer de minimale wijzigingen; gebruik u om ongedaan te maken.",
+          "Artikel minimaal publicatieklaar gemaakt. Controleer vooral kop en lead; gebruik u om ongedaan te maken.",
           vim.log.levels.INFO,
           { ttl = 9 }
         )
       end)
     end,
-    "AI · Journalistiek neutraliseren",
+    "AI · Minimaal publicatieklaar maken",
     buf
   )
 end
 
 vim.keymap.set("n", "<leader>an", M.journalistic_neutralize, {
-  desc = "Journalistiek neutraliseren met minimale tekstwijzigingen",
+  desc = "Kop en lead waar nodig herstellen; rest minimaal wijzigen",
 })
 
 -- Scan de body in alinea's (blokken gescheiden door lege regels).
@@ -4724,7 +4724,7 @@ local help_categories = {
       { label = "Artikel herschrijven (<leader>ar)", action = function() M.rewrite_article_buffer() end },
       { label = "Eigen artikel voorbereiden, geen rewrite (<leader>av)", action = function() M.prepare_article() end },
       { label = "Tekstcheck (<leader>ao)", action = function() M.tekstcheck() end },
-      { label = "Journalistiek neutraliseren (<leader>an)", action = function() M.journalistic_neutralize() end },
+      { label = "Minimaal publicatieklaar maken (<leader>an)", action = function() M.journalistic_neutralize() end },
       { label = "Tussenkopjes en streamer (<leader>at)", action = function() M.tussenkopjes_streamer() end },
       { label = "LinkedIn-tekst maken (<leader>al)", action = function() M.generate_linkedin() end },
       { label = "Eigen opdracht via *** (<leader>ap)", action = function() M.ai_prompt_rewrite() end },

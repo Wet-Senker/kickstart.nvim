@@ -12,7 +12,7 @@ In Neovim:
   Controlecodes bovenaan typen (zie hieronder)
   <leader>ar    herschrijven; start metadata en gevraagde extra's
   <leader>ac    kalenderdata; onvolledige items tonen wat nog ontbreekt
-  <leader>an    alleen subjectieve journalistentaal minimaal neutraliseren
+  <leader>an    kop/lead waar nodig herstellen; rest minimaal neutraliseren
   <leader>af    Facebook-post genereren — verschijnt als ## Facebook sectie
   <leader>aV    overzicht van bron en losse krantversiebuffers
   <leader>aG    huidige krantversie opslaan en goedkeuren
@@ -46,7 +46,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>ar` | Herschrijven naar krantenartikel (AI) |
 | `<leader>ac` | Metadata + kalenderitem — ontbrekende velden tonen het formaat, zoals `Tijd: HH:MM` |
 | `<leader>ao` | Tekstcheck; twijfelgevallen komen onder `## Suggesties` |
-| `<leader>an` | Journalistiek neutraliseren; minimale ingreep, bestaande citaten en concrete waarden beschermd |
+| `<leader>an` | Minimaal publicatieklaar: kop/lead waar nodig herstellen, rest behouden; citaten en concrete waarden beschermd |
 | `<leader>at` | Tussenkopjes, optionele streamer en 2 kopopties; gekozen kop wordt zo nodig vóór de lead ingevoegd |
 | `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie |
 | `<leader>aV` | Overzicht van bron en afzonderlijke krantversiebuffers |
