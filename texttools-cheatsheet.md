@@ -98,7 +98,8 @@ primaire datum. Een duidelijk verkeerd geplaatst item verhuist mee, secundaire
 data niet. Dit maakt alleen
 het printconcept `!agendapagina`.
 
-De doublurecontrole volgt het beleid van de Texttools-branch:
+De doublurecontrole volgt het beleid van de Texttools-branch. Op `master`
+staat voorlopig **altijd controleren** aan. De testvarianten blijven beschikbaar:
 `codex/doublure-altijd` controleert ieder artikel, ook alleen De Brug;
 `codex/doublure-voorwaardelijk` zodra een andere krant is gekozen, ook alleen
 De Kop. Onbevestigde `SUGGESTIE`-codes zijn geen gekozen edities.

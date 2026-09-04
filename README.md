@@ -4,6 +4,11 @@ Neovim-configuratie voor de redactionele workflow van Brugmedia. Artikelen worde
 
 Gekoppeld aan: [texttools](https://github.com/Wet-Senker/texttools) (Python-package voor AI, metadata en Pubble-API).
 
+Op `master` staat de doublurecontrole voorlopig op **altijd**, inclusief alleen
+De Brug. Werk beide repositories bij en voer na deze update in Texttools
+eenmaal `uv sync --locked` uit voor het nieuwe controlecommando. Herstart
+daarna de terminal en Neovim. De twee doublure-testbranches blijven beschikbaar.
+
 ---
 
 ## Workflow
