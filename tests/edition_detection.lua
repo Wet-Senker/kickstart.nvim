@@ -63,7 +63,7 @@ assert(
   buffer_text(explicit):find('e: SW', 1, true) ~= nil and buffer_text(explicit):find('e: B, SW, ST, K', 1, true) == nil,
   'bestaande e:-regel werd bij import overschreven'
 )
-vim.wait(1000, function() return (vim.b[explicit].pending_jobs or 0) == 0 end, 20)
+vim.wait(5000, function() return #duplicate_runs == 2 end, 20)
 assert(#duplicate_runs == 2, 'één expliciete andere krant moet naar de doublurecontrole')
 assert(duplicate_runs[2].command[#duplicate_runs[2].command] == 'SW', 'andere krant is verkeerd doorgegeven')
 
