@@ -47,15 +47,39 @@ local function notify_workflow(message, level, options)
   notifications.workflow(message, level, options)
 end
 
-local function open_published_url(url)
-  local ok, _, open_error = pcall(vim.ui.open, url)
-  if ok and not open_error then return true end
-  local detail = vim.trim(tostring(open_error or _ or ""))
+local function notify_open_error(detail)
+  detail = vim.trim(tostring(detail or ""))
   vim.notify(
     "Pubble-pagina kon niet worden geopend"
       .. (detail ~= "" and (": " .. detail) or "."),
     vim.log.levels.WARN
   )
+end
+
+local function open_published_url(url, is_macos)
+  if is_macos == nil then is_macos = vim.fn.has("mac") == 1 end
+  if is_macos then
+    -- `open -g` gebruikt de ingestelde standaardbrowser, maar activeert hem
+    -- niet. De gebruiker kan dus doorwerken in de app die nu vooraan staat.
+    local ok, process_or_error = pcall(
+      vim.system,
+      { "/usr/bin/open", "-g", url },
+      { text = true },
+      function(result)
+        if result.code == 0 then return end
+        vim.schedule(function()
+          notify_open_error(result.stderr or result.stdout)
+        end)
+      end
+    )
+    if ok and process_or_error then return true end
+    notify_open_error(process_or_error)
+    return false
+  end
+
+  local ok, _, open_error = pcall(vim.ui.open, url)
+  if ok and not open_error then return true end
+  notify_open_error(open_error or _)
   return false
 end
 

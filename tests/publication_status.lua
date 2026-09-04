@@ -31,13 +31,40 @@ assert(
 )
 
 local opened_url
+local opened_command
+local opened_options
 local original_open = vim.ui.open
+local original_system = vim.system
 vim.ui.open = function(url)
   opened_url = url
   return {}
 end
-assert(ai_text._open_published_url("https://example.test/article"), "browseropen gaf geen succes terug")
+vim.system = function(command, options)
+  opened_command = command
+  opened_options = options
+  return {}
+end
+assert(
+  ai_text._open_published_url("https://example.test/article", true),
+  "macOS-browseropen gaf geen succes terug"
+)
+assert(opened_url == nil, "macOS-browseropen gebruikte de focusnemende vim.ui.open-route")
+assert(opened_command[1] == "/usr/bin/open", "macOS-browseropen gebruikte niet het systeemcommando")
+assert(opened_command[2] == "-g", "macOS-browseropen miste de achtergrondoptie -g")
+assert(
+  opened_command[3] == "https://example.test/article",
+  "gepubliceerde URL ontbrak in de achtergrondopdracht"
+)
+assert(opened_options.text == true, "macOS-browseropen startte zonder tekstoptie")
+
+opened_command = nil
+assert(
+  ai_text._open_published_url("https://example.test/article", false),
+  "niet-macOS-browseropen gaf geen succes terug"
+)
 vim.ui.open = original_open
+vim.system = original_system
 assert(opened_url == "https://example.test/article", "gepubliceerde URL ging niet naar de standaardbrowser")
+assert(opened_command == nil, "niet-macOS-browseropen gebruikte onterecht het macOS-commando")
 
 print("publication status: OK")

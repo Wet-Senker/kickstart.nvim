@@ -276,9 +276,9 @@ verzendsamenvatting verschijnen als tijdelijke, niet-blokkerende notificatie.
 Je hoeft ze niet met Enter te sluiten en kunt meteen verder typen of opnieuw
 `<leader>aw` gebruiken.
 
-Na een geslaagde publicatie opent de Pubble-pagina in de standaardbrowser. De
-browser blijft vooraan staan, zodat het geplaatste artikel direct kan worden
-bekeken en gecontroleerd.
+Na een geslaagde publicatie opent de Pubble-pagina direct in de
+standaardbrowser. Op macOS gebeurt dat op de achtergrond: de browser krijgt
+geen focus en neemt de app waarin je werkt dus niet over.
 
 ---
 
