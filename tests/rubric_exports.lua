@@ -169,5 +169,40 @@ local explicit_text = table.concat(vim.api.nvim_buf_get_lines(explicit_buf, 0, -
 assert(explicit_text:find('e: SW\n', 1, true), 'expliciete columneditie werd niet behouden')
 assert(not explicit_text:find('\ne: B\n', 1, true), 'columnstandaard overschreef expliciete editie')
 
+-- Data-driven rubriek-editie: de bestemming komt uit de rubriekdefinitie
+-- (edition-veld), niet uit een hardgecodeerde map. Zo werkt een toekomstige
+-- rubriek voor een andere of meerdere kranten vanzelf mee.
+assert(krant._rubric_edition_for('kamper_kiek') == 'B', 'kamper_kiek editie moet uit de definitie komen')
+assert(krant._rubric_edition_for('hondenhoek') == 'B', 'hondenhoek editie moet uit de definitie komen')
+assert(krant._rubric_edition_for('bestaat_niet') == nil, 'onbekende rubriek levert geen editie')
+
+local function has_line(text, target)
+  for _, line in ipairs(vim.split(text, '\n', { plain = true })) do
+    if line == target then return true end
+  end
+  return false
+end
+
+-- Een herkende column zonder zichtbare e: krijgt alsnog z'n editie (het geval
+-- waarin de e: bij import of na bewerken verdwenen was).
+local kiek_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(kiek_buf, 0, -1, false, {
+  '=== ARTIKEL ===', '', 'De Kamper Kiek op de wîêk', '', '1. Iets.',
+})
+assert(krant.ensure_detected_rubric_edition('kamper_kiek', kiek_buf))
+assert(has_line(table.concat(vim.api.nvim_buf_get_lines(kiek_buf, 0, -1, false), '\n'), 'e: B'),
+  'kamper_kiek zonder e: kreeg niet automatisch e: B')
+
+-- Een handmatige e: blijft leidend; ensure mag niet overschrijven.
+local kiek_sw = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(kiek_sw, 0, -1, false, {
+  'e: SW', '', '=== ARTIKEL ===', '', 'De Kamper Kiek op de wîêk', '', '1. Iets.',
+})
+assert(krant.ensure_detected_rubric_edition('kamper_kiek', kiek_sw) == false,
+  'ensure mag een bestaande e: niet aanraken')
+local kiek_sw_text = table.concat(vim.api.nvim_buf_get_lines(kiek_sw, 0, -1, false), '\n')
+assert(has_line(kiek_sw_text, 'e: SW') and not has_line(kiek_sw_text, 'e: B'),
+  'handmatige e: SW werd overschreven')
+
 vim.fn.delete(tmp, 'rf')
 print('rubric exports: OK')

@@ -50,6 +50,10 @@ M.templates = {
   },
   {
     name = "Kiek op de wiek (Sander de Rouwe)",
+    -- id koppelt deze rubriek aan article_recognition; edition is de bron van
+    -- waarheid voor de bestemming (nu De Brug; voor een andere/meerdere kranten
+    -- volstaat hier bv. edition = 'D' of edition = 'B, SW').
+    id = 'kamper_kiek',
     edition = 'B',
     working_title = 'z - 1 Kamper Kiek',
     -- De speciale Kiek-flow registreert gemeentenieuws; nooit de generieke
@@ -896,6 +900,7 @@ end
 stock_rubrieken = {
   {
     name        = 'Hondenhoek',
+    id          = 'hondenhoek',
     edition     = 'B',
     stock_image = 'hondenhoek.jpg',
     txt_name    = '1.hondenhoekFOTO.txt',
@@ -1013,9 +1018,30 @@ end
 
 -- Backwards compatibility voor reeds getemplate Kamper-Kiek- en
 -- Hondenhoekbestanden van vóór de zichtbare e:-regel.
+-- Editie(s) die bij een auto-herkende rubriek horen, gelezen uit de
+-- rubriekdefinitie zelf (één bron van waarheid). Ondersteunt een enkele krant
+-- ('B'), meerdere ('B, SW') of een groep ('overijssel'); een generieke column
+-- zonder eigen editie valt terug op De Brug. Geen editie gevonden → nil, dan
+-- verandert er niets. Zo werkt een toekomstige rubriek voor een andere of
+-- meerdere kranten vanzelf mee zodra die z'n `edition` declareert.
+local function rubric_edition_for(rubric_id)
+  if type(rubric_id) ~= 'string' or rubric_id == '' then return nil end
+  for _, template in ipairs(M.templates) do
+    if template.id == rubric_id then
+      return template.edition or (template.column and 'B' or nil)
+    end
+  end
+  for _, config in ipairs(stock_rubrieken or {}) do
+    if config.id == rubric_id then
+      return config.edition or (config.column and 'B' or nil)
+    end
+  end
+  return nil
+end
+M._rubric_edition_for = rubric_edition_for
+
 function M.ensure_detected_rubric_edition(rubric_id, target_buf)
-  local editions = { kamper_kiek = 'B', hondenhoek = 'B' }
-  local edition = editions[rubric_id]
+  local edition = rubric_edition_for(rubric_id)
   if not edition then return false end
   target_buf = target_buf or vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)

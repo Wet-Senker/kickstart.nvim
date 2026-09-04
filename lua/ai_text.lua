@@ -2585,6 +2585,22 @@ function M.pubble_send(target_buf)
     return
   end
 
+  -- Vaste rubrieken (Kamper Kiek, Hondenhoek, …) hebben in hun definitie een
+  -- eigen editie. Leg die stil vast als de zichtbare e:-regel ontbreekt, zodat
+  -- een herkende rubriek niet onnodig om een editiebevestiging vraagt — ook als
+  -- die e: bij import of na bewerken verdwenen is. De bestemming komt uit de
+  -- rubriekdefinitie zelf (De Brug of anders), niet uit een aanname hier; een
+  -- bestaande handmatige e:-keuze blijft altijd leidend.
+  do
+    local recog = article_recognition.evaluate(
+      table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+    )
+    local existing_rubric = article_recognition.rubric_decision(recog).existing
+    if existing_rubric then
+      require("krant").ensure_detected_rubric_edition(existing_rubric.id, buf)
+    end
+  end
+
   -- Eénmalige keuze uit de agenda-waarschuwing. De buffer zelf blijft intact;
   -- alleen het tijdelijke Pubble-bestand wordt zonder kalenderdata verwerkt.
   local skip_calendar = vim.b[buf].skip_calendar_once == true
