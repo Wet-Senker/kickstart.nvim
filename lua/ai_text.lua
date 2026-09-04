@@ -2,6 +2,7 @@ local M = {}
 local notifications = require("texttools_notify")
 local article_recognition = require("article_recognition")
 local texttools_paths = require("texttools_paths")
+local pubble_duplicates = require("pubble_duplicates")
 
 -- Nieuwe pv-imports leven in de gedeelde werkmap. Desktop blijft als
 -- compatibele invoerroute bestaan voor oude bestanden en handmatig geopende
@@ -236,6 +237,7 @@ local aichat = texttools_commands.bin("aichat")
 local articlemeta = texttools_commands.bin("articlemeta")
 local pubble_send = texttools_commands.bin("pubble-send")
 local pubble_schedule = texttools_commands.bin("pubble-schedule")
+local pubble_duplicates_command = texttools_commands.bin("pubble-duplicates")
 local pubble_event = texttools_commands.bin("pubble-event")
 local texttools_python = texttools_commands.bin("python")
 local publication_links_module = "texttools.publication_links_cli"
@@ -1039,6 +1041,94 @@ local function edition_names(codes, names)
   return table.concat(labels, " + ")
 end
 
+M._duplicate_stage_runner = function(command, callback, options)
+  pubble_duplicates.check(command, callback, options)
+end
+
+-- Eén buffercontrole wordt zo vroeg mogelijk aangeboden na editieresolutie.
+-- Alleen Python bepaalt of het branchbeleid een netwerkcontrole vereist.
+-- Import, herschrijven en verzenden gebruiken
+-- dezelfde runner en dezelfde bufferstate; alleen een werkelijk afgeronde
+-- controle wordt onthouden. Pubble zelf wordt altijd over alle zes sites
+-- doorzocht door de Python-actie.
+local function check_duplicate_stage(buf, codes, stage, done, existing_file)
+  if not vim.api.nvim_buf_is_valid(buf) then
+    if done then done(false) end
+    return
+  end
+  if type(codes) ~= "table" or #codes == 0
+      or vim.b[buf].pubble_duplicate_check_completed == true then
+    if done then done(true) end
+    return
+  end
+  if vim.b[buf].pubble_duplicate_check_running == true then
+    if done then done(false) end
+    return
+  end
+
+  local temporary = existing_file == nil
+  local file = existing_file or (vim.fn.tempname() .. ".md")
+  local snapshot = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local function is_current()
+    if not vim.api.nvim_buf_is_valid(buf) then return false end
+    local current = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    if stage == "verzenden" then return vim.deep_equal(snapshot, current) end
+    -- Kalender-/socialsecties mogen parallel worden aangevuld. Een wijziging
+    -- van de artikeltekst zelf maakt de lopende vergelijking wel verouderd.
+    return editorial_body_text(snapshot) == editorial_body_text(current)
+  end
+  if temporary then
+    if vim.fn.writefile(snapshot, file) ~= 0 then
+      notify_workflow("Doublurecontrole kon geen tijdelijk artikel maken.", vim.log.levels.WARN)
+      if done then done(false) end
+      return
+    end
+  end
+
+  vim.b[buf].pubble_duplicate_check_running = true
+  start_buffer_job(buf)
+  local early = stage ~= "verzenden"
+  M._duplicate_stage_runner(
+    {
+      pubble_duplicates_command,
+      file,
+      "--json",
+      "--editions",
+      table.concat(codes, ","),
+    },
+    function(approved, data)
+      if temporary then vim.fn.delete(file) end
+      if not is_current() then
+        approved, data = false, nil
+        if vim.api.nvim_buf_is_valid(buf) then
+          notify_workflow(
+            "Artikel gewijzigd tijdens de doublurecontrole; controleer opnieuw bij herschrijven of verzenden.",
+            vim.log.levels.INFO
+          )
+        end
+      end
+      if vim.api.nvim_buf_is_valid(buf) then
+        vim.b[buf].pubble_duplicate_check_running = false
+        if not approved then vim.b[buf].send_requested = false end
+        if approved and type(data) == "table" and data.performed ~= false then
+          vim.b[buf].pubble_duplicate_check_completed = true
+        end
+      end
+      finish_buffer_job(buf)
+      if done then done(approved == true) end
+    end,
+    {
+      is_current = is_current,
+      automatic = early,
+      approve_label = early and "doorgaan met bewerken" or "toch verzenden",
+      failure_continue_label = early
+          and "Doorgaan; later opnieuw controleren"
+        or "Toch verzenden",
+    }
+  )
+end
+M._check_duplicate_stage = check_duplicate_stage
+
 local function buffer_has_edition_control(buf)
   if not vim.api.nvim_buf_is_valid(buf) then return false end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -1272,34 +1362,61 @@ local function reconcile_editions_after_rewrite(buf, content, original_content, 
   end)
 end
 
-local function edition_autodetect(buf, content)
-  if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].edition_recognition_done then return end
+local function edition_autodetect(buf, content, done)
+  local function complete(ok)
+    if done then done(ok ~= false) end
+  end
+  if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].edition_recognition_done then
+    complete(false)
+    return
+  end
+  if editorial_body_text(vim.split(content, "\n", { plain = true })) == "" then
+    complete(true)
+    return
+  end
   vim.b[buf].edition_recognition_done = true
-  if content:find("=== AGENDAPAGINA ===", 1, true) or buffer_has_edition_control(buf) then
+  if content:find("=== AGENDAPAGINA ===", 1, true) then
+    complete(true)
     return
   end
 
-  resolve_editions_for_content(buf, content, function(resolved)
-    if not resolved
-      or resolved.has_explicit_editions == true
-      or not vim.api.nvim_buf_is_valid(buf)
-      or buffer_has_edition_control(buf)
-    then
-      return
-    end
-    local detection = high_confidence_detection(resolved)
-    if not detection then return end
-    set_edition_codes(buf, detection.editions)
-    ensure_detected_dateline(buf, detection)
-    adapt_editorial_address(buf, detection.editions[1])
-    notify_workflow(
-      "Bestemming herkend bij import: "
-        .. edition_names(detection.editions, detection.names)
-        .. " ("
-        .. (detection.source or "deterministische detectie")
-        .. ")."
-    )
-  end)
+  local function resolve_current(source, retry)
+    resolve_editions_for_content(buf, source, function(resolved)
+      if not resolved or not vim.api.nvim_buf_is_valid(buf) then
+        complete(false)
+        return
+      end
+      local current = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+      if current ~= source then
+        -- Onder meer vaste rubrieken kunnen tijdens de resolver hun e:-regel
+        -- toevoegen. Gebruik alleen een resultaat voor de actuele invoer.
+        if retry then resolve_current(current, false) else complete(false) end
+        return
+      end
+      if resolved.has_explicit_editions == true or buffer_has_edition_control(buf) then
+        adapt_editorial_address(buf, resolved.editions[1])
+        check_duplicate_stage(buf, resolved.editions, "importeren", complete)
+        return
+      end
+      local detection = high_confidence_detection(resolved)
+      if not detection then
+        check_duplicate_stage(buf, resolved.editions, "importeren", complete)
+        return
+      end
+      set_edition_codes(buf, detection.editions)
+      ensure_detected_dateline(buf, detection)
+      adapt_editorial_address(buf, detection.editions[1])
+      notify_workflow(
+        "Bestemming herkend bij import: "
+          .. edition_names(detection.editions, detection.names)
+          .. " ("
+          .. (detection.source or "deterministische detectie")
+          .. ")."
+      )
+      check_duplicate_stage(buf, detection.editions, "importeren", complete)
+    end)
+  end
+  resolve_current(content, true)
 end
 
 local function drop_edition_versions_block(sections)
@@ -1584,7 +1701,13 @@ function M.rewrite_article_buffer()
         original_for_edition_detection,
         function(ok, codes, names)
           if ok then
-            offer_and_generate_edition_versions(buf, rewritten_body_str, codes, names)
+            check_duplicate_stage(buf, codes, "herschrijven", function(checked)
+              if checked then
+                offer_and_generate_edition_versions(
+                  buf, rewritten_body_str, codes, names
+                )
+              end
+            end)
           end
         end
       )
@@ -2234,9 +2357,9 @@ end
 
 local function article_autodetect(buf)
   if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].article_recognition_done then return end
-  vim.b[buf].article_recognition_done = true
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  if #lines == 0 then return end
+  if editorial_body_text(lines) == "" then return end
+  vim.b[buf].article_recognition_done = true
   local text = table.concat(lines, "\n")
   edition_autodetect(buf, text)
   local evaluation = article_recognition.evaluate(text)
@@ -2253,8 +2376,8 @@ local function article_autodetect(buf)
     local current_text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
     rubric_autodetect(buf, current_text, article_recognition.evaluate(current_text))
   end)
-	-- Automatische bevestigingen mogen elkaar niet overlappen. Eventuele
-	-- rubriekherkenning volgt daarom pas na de datumbevestiging.
+  -- Automatische bevestigingen mogen elkaar niet overlappen. Eventuele
+  -- rubriekherkenning volgt daarom pas na de datumbevestiging.
   if not calendar_prompted then rubric_autodetect(buf, text, evaluation) end
 end
 
@@ -2995,18 +3118,42 @@ function M.pubble_send(target_buf)
       end, "Pubble · Verzenden")
     end
 
+    local function check_duplicates_then_send()
+      if vim.b[buf].pubble_duplicate_check_completed == true then
+        run_main_send()
+        return
+      end
+      check_duplicate_stage(
+        buf,
+        resolved_editions,
+        "verzenden",
+        function(approved)
+          if approved then
+            run_main_send()
+            return
+          end
+          if vim.api.nvim_buf_is_valid(buf) then
+            vim.b[buf].publication_in_progress = false
+          end
+          discard_unpublished_temp()
+          notify_workflow("Verzending geannuleerd na de doublurecontrole.", vim.log.levels.INFO)
+        end,
+        temp_file
+      )
+    end
+
     -- Bij een hervatbestand staan de secties al klaar; stel de vragen dan
     -- niet opnieuw. In een verse flow worden alle keuzes en AI-teksten eerst
     -- voorbereid, dus vóór de eerste Pubble-write.
     if event_preparation_complete or file_has_event_sections() then
-      run_main_send()
+      check_duplicates_then_send()
       return
     end
     -- Vervolgpublicaties bestaan uitsluitend voor een expliciete, zichtbare
     -- ## Kalender-sectie. Gewone artikelen starten dus geen overbodige
     -- pubble-event-subprocess en gaan meteen door naar de hoofdpublicatie.
     if not has_calendar then
-      run_main_send()
+      check_duplicates_then_send()
       return
     end
     event_prepare(
@@ -3040,7 +3187,7 @@ function M.pubble_send(target_buf)
           )
           return
         end
-        run_main_send()
+        check_duplicates_then_send()
       end
     )
   end

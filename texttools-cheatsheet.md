@@ -16,7 +16,7 @@ In Neovim:
   <leader>af    Facebook-post genereren — verschijnt als ## Facebook sectie
   <leader>aV    overzicht van bron en losse krantversiebuffers
   <leader>aG    huidige krantversie opslaan en goedkeuren
-  <leader>aw    onbewerkte-importcontrole, planning en versturen naar Pubble
+  <leader>aw    importcontrole, planning, Pubble-doublurecontrole en versturen
 ```
 
 Na volledig succes verhuist het artikel naar `Pubble Archief`; het werkbestand
@@ -51,7 +51,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie |
 | `<leader>aV` | Overzicht van bron en afzonderlijke krantversiebuffers |
 | `<leader>aG` | Huidige krantversie opslaan en expliciet goedkeuren |
-| `<leader>aw` | Publicatie voorbereiden en naar Pubble versturen; waarschuwt als de artikelbody nog nauwelijks afwijkt van de import, en laat een ontbrekende `e:` eerst bevestigen |
+| `<leader>aw` | Publicatie voorbereiden; vangnet voor de doublurecontrole volgens branchbeleid, en bevestiging van een vrijwel onbewerkte import of ontbrekende `e:` |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |
 | `<leader>ah` | Hiërarchisch hulpmenu voor codes, rubrieken, acties en cheatsheet |
@@ -97,6 +97,22 @@ herkend los slotblok wordt automatisch een aparte activiteit onder zijn
 primaire datum. Een duidelijk verkeerd geplaatst item verhuist mee, secundaire
 data niet. Dit maakt alleen
 het printconcept `!agendapagina`.
+
+De doublurecontrole volgt het beleid van de Texttools-branch:
+`codex/doublure-altijd` controleert ieder artikel, ook alleen De Brug;
+`codex/doublure-voorwaardelijk` zodra een andere krant is gekozen, ook alleen
+De Kop. Onbevestigde `SUGGESTIE`-codes zijn geen gekozen edities.
+De controle start na import/editieresolutie, anders na herschrijven, anders
+vóór verzenden. Een afgeronde controle wordt in deze
+buffersessie niet herhaald. Zij doorzoekt altijd alle zes sites, vanaf veertien
+dagen geleden en onbeperkt vooruit, ongeacht status.
+
+Mogelijke Pubble-doublure: bij één treffer staat de volledige tekst in het
+venster; bij meerdere eerst de leads. Zet de cursor op een resultaat: `t`/Enter
+toont de hele tekst, `o` opent de gekozen siteversie in Pubble, `v` gaat door
+(bij import/herschrijven: bewerken; bij verzenden: toch verzenden) en
+`q`/Escape annuleert. De melding toont alle betrokken kranten,
+publicatiedatum, aanmaakdatum en de persoon die het artikel aanmaakte.
 
 ---
 

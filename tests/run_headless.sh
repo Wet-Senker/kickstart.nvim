@@ -13,6 +13,8 @@ printf '%s\n' "${nvim_version%%$'\n'*}"
 for test_file in "$repo_root"/tests/*.lua; do
   printf 'Running %s\n' "${test_file#"$repo_root"/}"
   env \
+    PUBBLE_TOKEN= \
+    PUBBLE_DATADB= \
     XDG_STATE_HOME="$test_state_dir/state" \
     XDG_CACHE_HOME="$test_state_dir/cache" \
     "$nvim_bin" \
