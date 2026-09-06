@@ -108,11 +108,12 @@ vóór verzenden. Een afgeronde controle wordt in deze
 buffersessie niet herhaald. Zij doorzoekt altijd alle zes sites, vanaf veertien
 dagen geleden en onbeperkt vooruit, ongeacht status.
 
-Mogelijke Pubble-doublure: bij één treffer staat de volledige tekst in het
-venster; bij meerdere eerst de leads. Zet de cursor op een resultaat: `t`/Enter
-toont de hele tekst, `o` opent de gekozen siteversie in Pubble, `v` gaat door
-(bij import/herschrijven: bewerken; bij verzenden: toch verzenden) en
-`q`/Escape annuleert. De melding toont alle betrokken kranten,
+Mogelijke Pubble-doublure: het overzicht toont alleen koppen, gegroepeerd per
+krant. Zet de cursor op een kop en druk Enter, of dubbelklik, voor de volledige
+tekst en metadata van precies die krantversie. De onderste terugregel, `q` of
+Escape keert terug naar het overzicht. `o` opent de gekozen siteversie in
+Pubble, `v` gaat door (bij import/herschrijven: bewerken; bij verzenden: toch
+verzenden) en `q`/Escape annuleert vanuit het overzicht. In het detail staan
 publicatiedatum, aanmaakdatum en de persoon die het artikel aanmaakte.
 
 ---

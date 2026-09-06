@@ -7,66 +7,87 @@ local function trim_text(value, maximum)
   return text:sub(1, maximum - 1):gsub('%s+$', '') .. '…'
 end
 
-local function publications(candidate)
-  if type(candidate.publications) ~= 'table' then return 'onbekende krant' end
-  return table.concat(candidate.publications, ' + ')
-end
+local function grouped_entries(candidates)
+  local groups, order = {}, {}
+  local function add(publication, candidate, variant)
+    publication = publication or 'Onbekende krant'
+    if not groups[publication] then
+      groups[publication] = {}
+      table.insert(order, publication)
+    end
+    table.insert(groups[publication], { candidate = candidate, variant = variant })
+  end
 
-local function variant_lines(variant)
-  local created = variant.created_date_label or 'aanmaakdatum onbekend'
-  local creator = variant.created_by or 'maker onbekend'
-  return {
-    ('   %s'):format(variant.publication or variant.edition or 'Onbekende krant'),
-    ('     Publicatiedatum: %s'):format(variant.display_date_label or 'datum onbekend'),
-    ('     Aangemaakt: %s door %s'):format(created, creator),
-    ('     Pubble: %s'):format(variant.editor_url or 'link onbekend'),
-  }
+  for _, candidate in ipairs(candidates or {}) do
+    local seen = {}
+    for _, variant in ipairs(candidate.variants or {}) do
+      local publication = variant.publication or variant.edition or 'Onbekende krant'
+      if not seen[publication] then
+        add(publication, candidate, variant)
+        seen[publication] = true
+      end
+    end
+    if not next(seen) then
+      for _, publication in ipairs(candidate.publications or {}) do
+        if not seen[publication] then
+          add(publication, candidate, nil)
+          seen[publication] = true
+        end
+      end
+    end
+    if not next(seen) then add('Onbekende krant', candidate, nil) end
+  end
+  return groups, order
 end
+M._grouped_entries = grouped_entries
 
 function M.report_lines(result, options)
   options = options or {}
   local candidates = type(result) == 'table' and result.candidates or {}
-  local singular = #candidates == 1
   local lines = {
-    singular and 'MOGELIJKE DOUBLURE' or 'MOGELIJKE DOUBLURES',
+    #candidates == 1 and 'MOGELIJKE DOUBLURE' or 'MOGELIJKE DOUBLURES',
     '',
-    singular
+    #candidates == 1
         and 'Dit artikel lijkt op een bericht dat al in Pubble staat.'
       or ('Dit artikel lijkt op %d berichten die al in Pubble staan.'):format(#candidates),
     '',
   }
   local ranges = {}
-  for index, candidate in ipairs(candidates) do
-    local first = #lines + 1
-    table.insert(lines, ('%d. %s'):format(index, candidate.headline or 'Zonder kop'))
-    table.insert(lines, ('   Sites: %s'):format(publications(candidate)))
-    for _, variant in ipairs(candidate.variants or {}) do
-      vim.list_extend(lines, variant_lines(variant))
+  local groups, order = grouped_entries(candidates)
+  for _, publication in ipairs(order) do
+    table.insert(lines, publication)
+    for _, entry in ipairs(groups[publication]) do
+      local row = #lines + 1
+      local headline = entry.variant and entry.variant.headline
+        or entry.candidate.headline
+        or 'Zonder kop'
+      table.insert(lines, '  • ' .. headline)
+      ranges[#ranges + 1] = {
+        first = row,
+        last = row,
+        candidate = entry.candidate,
+        variant = entry.variant,
+      }
     end
     table.insert(lines, '')
-    if singular then
-      table.insert(lines, 'VOLLEDIGE TEKST')
-      table.insert(lines, '')
-      vim.list_extend(lines, vim.split(candidate.text or candidate.lead or '', '\n', { plain = true }))
-    else
-      table.insert(lines, '   Lead: ' .. trim_text(candidate.lead, 500))
-    end
-    table.insert(lines, '')
-    ranges[#ranges + 1] = { first = first, last = #lines, candidate = candidate }
   end
   local approve_label = options.approve_label or 'toch verzenden'
-  table.insert(lines, 'o = openen in Pubble  •  t/Enter = volledige tekst  •  v = '
+  table.insert(lines, 'Enter/dubbelklik = tekst  •  o = Pubble  •  v = '
     .. approve_label .. '  •  q = annuleren')
   return lines, ranges
 end
 
-local function candidate_at_cursor(ranges, row)
-  local nearest
+local function entry_at_cursor(ranges, row)
   for _, range in ipairs(ranges) do
-    if row >= range.first and row <= range.last then return range.candidate end
-    if row >= range.first then nearest = range.candidate end
+    if row >= range.first and row <= range.last then return range end
   end
-  return nearest or (ranges[1] and ranges[1].candidate)
+  return nil
+end
+M._entry_at_cursor = entry_at_cursor
+
+local function candidate_at_cursor(ranges, row)
+  local entry = entry_at_cursor(ranges, row)
+  return entry and entry.candidate or nil
 end
 M._candidate_at_cursor = candidate_at_cursor
 
@@ -88,7 +109,7 @@ function M.show(result, callback, options)
   local width = math.min(100, math.max(54, vim.o.columns - 8))
   local height = math.min(math.max(16, #report), math.max(16, vim.o.lines - 8))
   local buf = vim.api.nvim_create_buf(false, true)
-  local state = { done = false, mode = 'report' }
+  local state = { done = false, mode = 'report', back_line = nil }
   local win
 
   vim.bo[buf].buftype = 'nofile'
@@ -120,15 +141,17 @@ function M.show(result, callback, options)
   end
 
   local function selected_candidate()
-    if not win or not vim.api.nvim_win_is_valid(win) then return nil end
-    return candidate_at_cursor(ranges, vim.api.nvim_win_get_cursor(win)[1])
+    if not win or not vim.api.nvim_win_is_valid(win) then return nil, nil end
+    local entry = entry_at_cursor(ranges, vim.api.nvim_win_get_cursor(win)[1])
+    return entry and entry.candidate or nil, entry and entry.variant or nil
   end
 
-  local function show_variant_text(variant)
-    if not variant then return end
+  local function show_variant_text(variant, candidate)
+    if not variant and not candidate then return end
     state.mode = 'text'
+    variant = variant or candidate
     local lines = {
-      variant.headline or 'Zonder kop',
+      variant.headline or candidate.headline or 'Zonder kop',
       '',
       ('Krant: %s'):format(variant.publication or variant.edition or 'onbekend'),
       ('Publicatiedatum: %s'):format(variant.display_date_label or 'datum onbekend'),
@@ -139,30 +162,40 @@ function M.show(result, callback, options)
       ('Pubble: %s'):format(variant.editor_url or 'link onbekend'),
       '',
     }
-    vim.list_extend(lines, vim.split(variant.text or variant.lead or '', '\n', { plain = true }))
+    vim.list_extend(lines, vim.split(
+      variant.text or variant.lead or candidate.text or candidate.lead or '',
+      '\n',
+      { plain = true }
+    ))
     table.insert(lines, '')
-    table.insert(lines, 'q/Escape = terug naar het overzicht')
+    table.insert(lines, '← Terug naar overzicht')
+    state.back_line = #lines
     set_lines(lines)
     if win and vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_set_cursor(win, { 1, 0 }) end
   end
 
   local function inspect_text()
-    local candidate = selected_candidate()
+    local candidate, selected_variant = selected_candidate()
     if not candidate then return end
-    if candidate.variants_differ == true then
-      choose_variant(candidate, show_variant_text)
+    if selected_variant then
+      show_variant_text(selected_variant, candidate)
+    elseif candidate.variants_differ == true then
+      choose_variant(candidate, function(variant) show_variant_text(variant, candidate) end)
     else
-      show_variant_text((candidate.variants or {})[1] or {
-        headline = candidate.headline,
-        text = candidate.text,
-        lead = candidate.lead,
-      })
+      show_variant_text((candidate.variants or {})[1], candidate)
     end
   end
 
   local function open_article()
-    local candidate = selected_candidate()
+    local candidate, selected_variant = selected_candidate()
     if not candidate then return end
+    if selected_variant and selected_variant.editor_url then
+      local ok, _, err = pcall(vim.ui.open, selected_variant.editor_url)
+      if not ok or err then
+        vim.notify('Pubble-link openen mislukt: ' .. tostring(err or _), vim.log.levels.WARN)
+      end
+      return
+    end
     choose_variant(candidate, function(variant)
       if not variant or not variant.editor_url then return end
       local ok, _, err = pcall(vim.ui.open, variant.editor_url)
@@ -189,7 +222,23 @@ function M.show(result, callback, options)
 
   vim.keymap.set('n', 'o', open_article, { buffer = buf, silent = true, desc = 'Open in Pubble' })
   vim.keymap.set('n', 't', inspect_text, { buffer = buf, silent = true, desc = 'Toon volledige tekst' })
-  vim.keymap.set('n', '<CR>', inspect_text, { buffer = buf, silent = true, desc = 'Toon volledige tekst' })
+  vim.keymap.set('n', '<CR>', function()
+    if state.mode == 'text' then
+      if vim.api.nvim_win_get_cursor(win)[1] == state.back_line then render_report() end
+      return
+    end
+    inspect_text()
+  end, { buffer = buf, silent = true, desc = 'Open tekst of ga terug' })
+  vim.keymap.set('n', '<2-LeftMouse>', function()
+    local mouse = vim.fn.getmousepos()
+    if mouse.winid ~= win or not mouse.line then return end
+    vim.api.nvim_win_set_cursor(win, { mouse.line, math.max(0, (mouse.column or 1) - 1) })
+    if state.mode == 'text' then
+      if mouse.line == state.back_line then render_report() end
+    else
+      inspect_text()
+    end
+  end, { buffer = buf, silent = true, desc = 'Open doublure of ga terug' })
   vim.keymap.set('n', 'v', function() finish(true) end, {
     buffer = buf, silent = true, desc = (options or {}).approve_label or 'Toch verzenden',
   })

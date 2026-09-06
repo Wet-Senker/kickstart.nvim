@@ -34,20 +34,31 @@ local result = {
 
 local lines, ranges = duplicates.report_lines(result)
 local text = table.concat(lines, '\n')
-assert(text:find('De Brug + De Drontenaar', 1, true), 'sites ontbreken in rapport')
-assert(text:find('3 september 2026 om 10.42 uur door piet.deboer', 1, true), 'maker of aanmaakdatum ontbreekt')
-assert(text:find('Volledige tekst van het artikel.', 1, true), 'enkele kandidaat toont niet de volledige tekst')
+assert(text:find('De Brug', 1, true), 'De Brug ontbreekt als rubriek')
+assert(text:find('De Drontenaar', 1, true), 'De Drontenaar ontbreekt als rubriek')
+assert(not text:find('3 september 2026 om 10.42 uur', 1, true), 'overzicht toont detailmetadata')
+assert(not text:find('Volledige tekst van het artikel.', 1, true), 'overzicht toont volledige tekst')
+assert(#ranges == 2, 'één gekoppeld artikel hoort eenmaal per krant in het overzicht')
 assert(duplicates._candidate_at_cursor(ranges, ranges[1].first) == result.candidates[1], 'cursorselectie kiest verkeerde kandidaat')
+assert(duplicates._entry_at_cursor(ranges, ranges[1].first).variant.publication == 'De Brug', 'kop kiest niet de juiste krantversie')
+assert(duplicates._candidate_at_cursor(ranges, 1) == nil, 'rubriekkop kiest stil een artikel')
 local early_lines = duplicates.report_lines(result, { approve_label = 'doorgaan met bewerken' })
 assert(table.concat(early_lines, '\n'):find('doorgaan met bewerken', 1, true), 'vroege actietekst ontbreekt')
+
+local duplicate_site = vim.deepcopy(result)
+table.insert(duplicate_site.candidates[1].variants, vim.deepcopy(duplicate_site.candidates[1].variants[1]))
+local _, duplicate_site_ranges = duplicates.report_lines(duplicate_site)
+assert(#duplicate_site_ranges == 2, 'dezelfde kandidaat mag per krant maar één keer worden getoond')
 
 local many = vim.deepcopy(result)
 many.candidates[2] = vim.deepcopy(many.candidates[1])
 many.candidates[2].headline = 'Tweede mogelijke doublure'
 local multiple_lines = duplicates.report_lines(many)
 local multiple_text = table.concat(multiple_lines, '\n')
-assert(multiple_text:find('Lead: De Batavia', 1, true), 'meerdere kandidaten tonen geen leads')
+assert(not multiple_text:find('Lead: De Batavia', 1, true), 'overzicht toont een lead')
 assert(not multiple_text:find('Volledige tekst van het artikel.', 1, true), 'meerdere kandidaten mogen niet alle volledige teksten tonen')
+local _, heading_count = multiple_text:gsub('De Brug', '')
+assert(heading_count == 1, 'krantenrubriek wordt per kandidaat herhaald')
 
 local original_system = vim.system
 local original_show = duplicates.show

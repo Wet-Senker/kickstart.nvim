@@ -348,7 +348,7 @@ De 112-disclaimer in het 112-template is de enige bron — `ai_text.lua` leest h
 | `lua/krant.lua` | Rubriek-templates (`<leader>kt`), `apply_template_by_name()` |
 | `lua/layout_export.lua` | uniform exportplan, placeholdercontrole en definitieve vormgevingstekst |
 | `lua/agenda_page.lua` | papieren agendapagina voorbereiden, controleren, previewen en versturen (`<leader>ka`) |
-| `lua/pubble_duplicates.lua` | weergave en expliciete keuze bij mogelijke Pubble-doublures bij import, herschrijven of verzending |
+| `lua/pubble_duplicates.lua` | koppen per krant, detailweergave van de gekozen krantversie en expliciete keuze bij mogelijke Pubble-doublures |
 | `plugin/agenda_page.lua` | laadt de afzonderlijke agendapagina-UI |
 | `plugin/column_reminders.lua` | Rubriekplanning (`<leader>kp`): reminders en overzichten |
 | `lua/pubble_archive.lua` | Telescope-zoekingangen voor bestandsnaam en archiefinhoud |
