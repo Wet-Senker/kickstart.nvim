@@ -41,6 +41,23 @@ zaterdag 19 september om 20.00 uur. Kaarten zijn in de voorverkoop
 verkrijgbaar via info@crkvoices.nl voor 15 euro of aan de kerk voor 20 euro.
 ]]
 
+local vakantiebijbelclub = [[
+Vakantiebijbelclub houdt ochtend voor basisschoolkinderen
+
+ZWOLLE - De Vakantiebijbelclub houdt dinsdag 13 oktober een ochtend voor alle
+basisschoolkinderen. Het programma duurt van 10.00 tot 12.00 uur. Toneelstukjes,
+liederen en knutselactiviteiten staan op het programma. Kinderen van alle
+basisscholen zijn welkom.
+]]
+
+local schoolkoor = [[
+Greijdanus Schoolkoor geeft uitzwaaiconcert voor reis naar Canada
+
+ZWOLLE - Het Greijdanus Schoolkoor geeft op zaterdagavond 12 september om
+19.30 uur een uitzwaaiconcert in de Jeruzalemkerk. De toegang is gratis en er
+wordt een bijdrage gevraagd voor de kosten.
+]]
+
 assert(
   ai_text._calendar_signal_score(kunstweekend) >= threshold,
   "expliciet meerdaags kunstweekend werd niet als kalenderkandidaat herkend"
@@ -60,6 +77,24 @@ assert(
 assert(
   ai_text._calendar_signal_score(crk_voices) >= threshold,
   "CRK Voices-jubileumconcert werd inhoudelijk niet als kalenderkandidaat herkend"
+)
+assert(
+  ai_text._calendar_signal_score(vakantiebijbelclub) >= threshold,
+  "publiekssignaal 'zijn welkom' hief de veiligheidsbegrenzing niet op"
+)
+assert(
+  ai_text._calendar_signal_score(schoolkoor) >= threshold,
+  "uitzwaaiconcert met zaterdagavond werd niet herkend"
+)
+assert(
+  ai_text._calendar_signal_score('Nieuwe medewerkers zijn welkom bij de organisatie.') < threshold,
+  "een los welkom-signaal startte ten onrechte de kalenderdetectie"
+)
+assert(
+  ai_text._calendar_signal_score(
+    'De school hield zaterdagavond 12 september om 19.30 uur overleg over de kosten.'
+  ) < threshold,
+  "samengestelde weekdag maakte gewoon overleg tot kalenderkandidaat"
 )
 
 local veel_data = [[

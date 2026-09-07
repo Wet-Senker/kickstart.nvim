@@ -111,6 +111,31 @@ local function calendar_detection(text)
     end
   end
 
+  local event_action = false
+  local event_action_text = t:gsub('(%d%d?)%.(%d%d)', '%1:%2')
+  for _, action in ipairs({ 'geeft', 'houdt', 'organiseert', 'verzorgt', 'presenteert' }) do
+    local _, action_end = event_action_text:find('%f[%a]' .. action .. '%f[%A]')
+    if action_end then
+      local window = event_action_text:sub(action_end + 1, action_end + 101)
+        :match('^[^%.%!%?\n]*') or ''
+      for _, activity in ipairs({
+        'concert%f[%A]', '%f[%a]lezing%f[%A]', '%f[%a]workshop%f[%A]',
+        '%f[%a]voorstelling%f[%A]', '%f[%a]optreden%f[%A]',
+        '%f[%a]bijeenkomst%f[%A]', '%f[%a]open%s+dag%f[%A]',
+      }) do
+        if window:find(activity) then
+          event_action = true
+          break
+        end
+      end
+    end
+    if event_action then break end
+  end
+  if event_action then
+    score = score + 3
+    add_evidence(evidence, 'werkwoord met activiteit')
+  end
+
   if t:find('om%s+%d%d?[%.:]%d%d') or t:find('%d%d?[%.:]%d%d%s*uur') then
     score = score + 3
     add_evidence(evidence, 'kloktijd')
@@ -132,7 +157,11 @@ local function calendar_detection(text)
     'maandag', 'dinsdag', 'woensdag', 'donderdag',
     'vrijdag', 'zaterdag', 'zondag',
   }) do
-    if t:find(day .. '%s+%d') then
+    if t:find(day .. '%s+%d')
+        or t:find(day .. 'ochtend%s+%d')
+        or t:find(day .. 'middag%s+%d')
+        or t:find(day .. 'avond%s+%d')
+        or t:find(day .. 'nacht%s+%d') then
       score = score + 2
       add_evidence(evidence, 'weekdag met datum')
       break
@@ -203,6 +232,10 @@ local function calendar_detection(text)
     or t:find('belangstellend') ~= nil
     or t:find('publiek') ~= nil
     or t:find('iedereen kan', 1, true) ~= nil
+    or t:find('%f[%a]is%s+welkom%f[%A]') ~= nil
+    or t:find('%f[%a]zijn%s+welkom%f[%A]') ~= nil
+    or t:find('bedoeld voor', 1, true) ~= nil
+    or t:find('vrij toegankelijk', 1, true) ~= nil
   )
   if activity_count == 0 and access == 0 and not has_audience_signal then
     score = math.min(score, M.CALENDAR_THRESHOLD - 1)
