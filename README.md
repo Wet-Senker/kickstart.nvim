@@ -351,6 +351,10 @@ enzovoort). De tekst van de onderdelen zelf blijft ongewijzigd.
 
 Hondenhoek wordt doorgaans als lopende tekst met `Bert Nieuwenhuis.` onderaan
 aangeleverd. De template behoudt de volledige eerste alinea en auteursregel.
+
+De definitieve vormgevingstekst bevat één bijschrift, geen Facebook- of
+LinkedIn-bijlagen en gewone leesbare webadressen zonder Markdown-syntaxis. Deze
+opschoning gebeurt samen met de foto-export in de gedeelde Python-kern.
 Alleen een losse dubbele kop `Hondenhoek:` verdwijnt. De vaste
 `hondenhoek.jpg` wordt uit de stockfotomap naar Pubble Inbox en de weekmap
 gekopieerd.

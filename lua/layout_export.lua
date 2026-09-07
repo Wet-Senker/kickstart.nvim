@@ -196,7 +196,12 @@ function M.finalize_with_media(buf, article_path, done)
         done(nil, 'Artikel gewijzigd tijdens foto-export; tekstexport niet afgerond.')
         return
       end
-      done(M.finalize(buf))
+      -- Dezelfde asynchrone Python-actie heeft naast de gecontroleerde foto's
+      -- ook de schone plattetekstexport atomisch geschreven. Daarmee blijven
+      -- bijschriftontdubbeling, digitale secties en Markdownconversie gedeelde
+      -- corelogica voor iedere toekomstige client.
+      vim.b[buf].gn_export = nil
+      done(plan.dir .. '/' .. plan.txt_name)
     end)
   end)
   if not started then done(nil, 'Foto-export kon niet worden gestart.') end

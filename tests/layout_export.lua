@@ -68,7 +68,11 @@ vim.fn.writefile({
   '    ' .. vim.fn.sha256('actual uploaded bytes') .. ':',
   '      filename: actual.jpg', '      image_metadata_id: 42',
   '      stored_path: ' .. vim.json.encode(actual),
-  '---', 'Gepubliceerde tekst',
+  '  caption: "Gedeeld bijschrift"',
+  '---', '=== ARTIKEL ===', '',
+  'FOTOBIJSCHRIFT: Gedeeld bijschrift', '',
+  'Gepubliceerde [tekst](https://example.nl).', '',
+  '---', '', '## Facebook', '', 'Niet voor vormgeving.',
 }, state)
 assert(layout_export.prepare(buf, { dir = layout_dir, txt_name = 'nature.txt' }))
 local completed, error_result
@@ -79,6 +83,11 @@ end)
 assert(vim.wait(5000, function() return completed ~= nil end, 10), 'foto-export bleef hangen')
 assert(completed == layout_dir .. '/nature.txt', error_result or 'tekstexport ontbreekt')
 assert(table.concat(vim.fn.readfile(layout_dir .. '/nature.jpg', 'b'), '\n') == 'actual uploaded bytes', 'definitieve uploadfoto ontbreekt')
+local nature_text = table.concat(vim.fn.readfile(layout_dir .. '/nature.txt'), '\n')
+assert(nature_text:find('Bijschrift: Gedeeld bijschrift', 1, true), 'bijschrift ontbreekt')
+assert(not nature_text:find('FOTOBIJSCHRIFT', 1, true), 'dubbel zichtbaar bijschrift bleef staan')
+assert(nature_text:find('Gepubliceerde tekst.', 1, true), 'Markdownlink werd niet platte tekst')
+assert(not nature_text:find('Facebook', 1, true), 'Facebooksectie lekte naar vormgeving')
 
 -- Een foto die na upload verdwijnt blokkeert afronding en behoudt het plan.
 vim.fn.delete(actual)
