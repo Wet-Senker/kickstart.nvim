@@ -1241,6 +1241,34 @@ local function set_edition_codes(buf, codes)
   return replace_edition_control_lines(buf, { "e: " .. table.concat(codes, ", ") })
 end
 
+-- Vul de e:-regel aan met plaats-suggesties voor edities die niet gekozen zijn,
+-- zonder de gekozen kranten te wijzigen. Werkt óók bij een expliciete e:-regel:
+-- een in de tekst genoemde plaats uit een ander verspreidingsgebied (bijv. Zalk
+-- → De Brug) verschijnt dan als `SUGGESTIE, B` met een aparte redenregel. De
+-- SUGGESTIE-marker zorgt dat pubble-send die codes negeert tot de redacteur ze
+-- vóór SUGGESTIE zet. Zonder aanvullende suggestie blijft de bestaande e:-regel
+-- ongemoeid, zodat een handmatig getypte regel niet zonder reden verandert.
+local function apply_edition_suggestions(buf, chosen, resolved)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  if type(chosen) ~= "table" or #chosen == 0 then return end
+  if type(resolved) ~= "table" or type(resolved.suggestions) ~= "table" then return end
+  local lines = edition_control_lines({
+    editions = chosen,
+    suggestions = resolved.suggestions,
+    suggestion_reasons = resolved.suggestion_reasons,
+  })
+  local has_suggestion = false
+  for _, line in ipairs(lines) do
+    if line:find("SUGGESTIE", 1, true) then
+      has_suggestion = true
+      break
+    end
+  end
+  if not has_suggestion then return end
+  replace_edition_control_lines(buf, lines)
+end
+M._apply_edition_suggestions = apply_edition_suggestions
+
 -- De Python-kern bepaalt óf en welke dateline inhoudelijk gerechtvaardigd is;
 -- Lua past alleen het geretourneerde document op de zichtbare buffer toe.
 local function ensure_detected_dateline(buf, detection)
@@ -1350,6 +1378,7 @@ local function fill_detected_editions_line(buf, content, done)
     end
     if resolved.has_explicit_editions == true then
       adapt_editorial_address(buf, resolved.editions[1])
+      apply_edition_suggestions(buf, resolved.editions, resolved)
       if done then done(true) end
       return
     end
@@ -1358,6 +1387,7 @@ local function fill_detected_editions_line(buf, content, done)
       set_edition_codes(buf, detection.editions)
       ensure_detected_dateline(buf, detection)
       adapt_editorial_address(buf, detection.editions[1])
+      apply_edition_suggestions(buf, detection.editions, resolved)
     end
     if done then done(true) end
   end)
@@ -1374,9 +1404,18 @@ M._edition_rewrite_confirm = function(current_label, detected_label, source)
 end
 
 local function reconcile_editions_after_rewrite(buf, content, original_content, done)
+  local original_done = done
   resolve_editions_for_content(buf, content, function(resolved)
+    -- Elk done-pad krijgt automatisch de plaats-suggesties op de e:-regel:
+    -- schaduw done zodat de bestaande beslislogica hieronder ongewijzigd blijft.
+    local function done(ok, editions, names)
+      if ok and type(editions) == "table" and #editions > 0 then
+        apply_edition_suggestions(buf, editions, resolved)
+      end
+      if original_done then original_done(ok, editions, names) end
+    end
     if not resolved then
-      if done then done(false) end
+      done(false)
       return
     end
     local detection = high_confidence_detection(resolved)
@@ -1467,6 +1506,7 @@ local function edition_autodetect(buf, content, done)
       end
       if resolved.has_explicit_editions == true or buffer_has_edition_control(buf) then
         adapt_editorial_address(buf, resolved.editions[1])
+        apply_edition_suggestions(buf, resolved.editions, resolved)
         check_duplicate_stage(buf, resolved.editions, "importeren", complete)
         return
       end
@@ -1478,6 +1518,7 @@ local function edition_autodetect(buf, content, done)
       set_edition_codes(buf, detection.editions)
       ensure_detected_dateline(buf, detection)
       adapt_editorial_address(buf, detection.editions[1])
+      apply_edition_suggestions(buf, detection.editions, resolved)
       notify_workflow(
         "Bestemming herkend bij import: "
           .. edition_names(detection.editions, detection.names)

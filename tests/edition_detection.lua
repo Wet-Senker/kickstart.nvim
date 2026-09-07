@@ -91,7 +91,14 @@ ai._edition_autodetect(changed_while_resolving, buffer_text(changed_while_resolv
 end)
 vim.api.nvim_buf_set_lines(changed_while_resolving, 0, 0, false, { 'e: B', '' })
 assert(vim.wait(5000, function() return race_done end, 20), 'gewijzigde e:-keuze rondde niet af')
-assert(buffer_text(changed_while_resolving):find('e: B\n', 1, true), 'late resolutie overschreef eigen keuze')
+-- De late keuze B blijft de gekozen editie. Plaatsvermeldingen uit andere
+-- gebieden mogen er als `SUGGESTIE, …` achter komen, maar de verouderde
+-- multi-detectie mag B nooit als bestemming overschrijven (`e: B, SW, ST, K`).
+assert(
+  buffer_text(changed_while_resolving):match('e: B[,\n]')
+    and buffer_text(changed_while_resolving):find('e: B, SW, ST, K', 1, true) == nil,
+  'late resolutie overschreef eigen keuze'
+)
 assert(#duplicate_runs == 4, 'actuele editie ging niet naar het gedeelde beleid')
 assert(duplicate_runs[4].command[#duplicate_runs[4].command] == 'B', 'verouderde multi-detectie is doorgegeven')
 
