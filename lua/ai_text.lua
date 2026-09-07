@@ -90,6 +90,7 @@ local function is_cancellable_ai_command(cmd)
   return name == "aitext"
       or name == "aichat"
       or name == "articlemeta"
+      or name == "pubble-print-timing"
       or (name == "pubble-event" and cmd[2] == "teksten")
 end
 
@@ -263,6 +264,7 @@ local pubble_send = texttools_commands.bin("pubble-send")
 local pubble_schedule = texttools_commands.bin("pubble-schedule")
 local pubble_duplicates_command = texttools_commands.bin("pubble-duplicates")
 local pubble_event = texttools_commands.bin("pubble-event")
+local pubble_print_timing = texttools_commands.bin("pubble-print-timing")
 local texttools_python = texttools_commands.bin("python")
 local publication_links_module = "texttools.publication_links_cli"
 local ARTICLE_BOUNDARY = "=== ARTIKEL ==="
@@ -795,6 +797,48 @@ local _112_signal_score          -- forward declaration
 local _offer_112_template        -- forward declaration
 local _112_THRESHOLD = article_recognition.EMERGENCY_THRESHOLD
 
+-- Kalender-AI mag niet starten zolang de doublurecontrole nog geen besluit
+-- heeft. Automatische en handmatige verzoeken worden eenmaal onthouden en na
+-- een goedgekeurde controle hervat. Bij annuleren vervalt het verzoek: dan kan
+-- de redacteur later bewust opnieuw <leader>ac gebruiken.
+local function defer_calendar_for_duplicate(buf)
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then return false end
+  if vim.b[buf].pubble_duplicate_gate_pending ~= true
+      and vim.b[buf].pubble_duplicate_check_running ~= true then
+    return false
+  end
+  local first_wait = vim.b[buf].calendar_ai_waiting_for_duplicate ~= true
+  vim.b[buf].calendar_ai_waiting_for_duplicate = true
+  if first_wait then
+    notify_workflow(
+      "Kalenderanalyse wacht op afronding van de doublurecontrole.",
+      vim.log.levels.INFO
+    )
+  end
+  return true
+end
+
+M._start_calendar_analysis = function(buf)
+  _run_articlemeta_calendar(buf)
+end
+
+M._resume_deferred_calendar = function(buf)
+  M._start_calendar_analysis(buf)
+end
+
+local function settle_duplicate_calendar_gate(buf, approved)
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
+  vim.b[buf].pubble_duplicate_gate_pending = false
+  local waiting = vim.b[buf].calendar_ai_waiting_for_duplicate == true
+  vim.b[buf].calendar_ai_waiting_for_duplicate = false
+  if waiting and approved == true then
+    vim.schedule(function()
+      if vim.api.nvim_buf_is_valid(buf) then M._resume_deferred_calendar(buf) end
+    end)
+  end
+end
+M._defer_calendar_for_duplicate = defer_calendar_for_duplicate
+
 local _112_DISCLAIMER = (function()
   for _, t in ipairs(require("krant").templates) do
     if t.name == "112 nieuws" then return t.text[#t.text] end
@@ -1082,9 +1126,11 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file)
   end
   if type(codes) ~= "table" or #codes == 0
       or vim.b[buf].pubble_duplicate_check_completed == true then
+    settle_duplicate_calendar_gate(buf, true)
     if done then done(true) end
     return
   end
+  vim.b[buf].pubble_duplicate_gate_pending = true
   if vim.b[buf].pubble_duplicate_check_running == true then
     if done then done(false) end
     return
@@ -1097,13 +1143,14 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file)
     if not vim.api.nvim_buf_is_valid(buf) then return false end
     local current = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
     if stage == "verzenden" then return vim.deep_equal(snapshot, current) end
-    -- Kalender-/socialsecties mogen parallel worden aangevuld. Een wijziging
-    -- van de artikeltekst zelf maakt de lopende vergelijking wel verouderd.
+    -- Workflowsecties buiten de artikelbody mogen worden aangevuld. Een
+    -- wijziging van de artikeltekst zelf maakt de vergelijking wel verouderd.
     return editorial_body_text(snapshot) == editorial_body_text(current)
   end
   if temporary then
     if vim.fn.writefile(snapshot, file) ~= 0 then
       notify_workflow("Doublurecontrole kon geen tijdelijk artikel maken.", vim.log.levels.WARN)
+      settle_duplicate_calendar_gate(buf, false)
       if done then done(false) end
       return
     end
@@ -1137,6 +1184,7 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file)
         if approved and type(data) == "table" and data.performed ~= false then
           vim.b[buf].pubble_duplicate_check_completed = true
         end
+        settle_duplicate_calendar_gate(buf, approved == true)
       end
       finish_buffer_job(buf)
       if done then done(approved == true) end
@@ -1636,6 +1684,7 @@ function M.rewrite_article_buffer()
   local rewrite_cmd = { "bash", "-c",
     "set -o pipefail; " .. vim.fn.shellescape(aitext)
       .. " journalistiek_schrijven | " .. vim.fn.shellescape(kampen_fix) }
+  local function run_rewrite()
   ai_system(rewrite_cmd, { text = true, stdin = input }, function(result)
     vim.schedule(function()
       if result.code ~= 0 then
@@ -1716,26 +1765,6 @@ function M.rewrite_article_buffer()
       vim.b[buf].cached_calendar_metadata = nil
       vim.b[buf].cached_facebook_text = nil
 
-      -- Herken opnieuw op basis van de herschreven tekst. Een zichtbare
-      -- e:-keuze blijft stil leidend zolang de betrouwbare inhoudsdetectie
-      -- door de rewrite niet is veranderd.
-      reconcile_editions_after_rewrite(
-        buf,
-        rewritten_str,
-        original_for_edition_detection,
-        function(ok, codes, names)
-          if ok then
-            check_duplicate_stage(buf, codes, "herschrijven", function(checked)
-              if checked then
-                offer_and_generate_edition_versions(
-                  buf, rewritten_body_str, codes, names
-                )
-              end
-            end)
-          end
-        end
-      )
-
       -- Agenda-schakelaar (agenda:/cal:/calendar:) + facebook: x lezen.
       local agenda = _agenda_mode_from_lines(final_ctrl)
       local needs_calendar = agenda == "on"
@@ -1749,11 +1778,37 @@ function M.rewrite_article_buffer()
         end
       end
 
-      if needs_calendar then
+      local already_has_calendar_section = rewritten_str:find("\n## Kalender", 1, true) ~= nil
+        or rewritten_str:match("^## Kalender") ~= nil
+      local function start_calendar_after_duplicate()
+        if not vim.api.nvim_buf_is_valid(buf) then return end
+        if not needs_calendar then
+          -- calendar_ai_started: de import-detectie (BufReadPost) kan de
+          -- kalender-AI al gestart hebben; dan niet nog eens draaien.
+          if not agenda_denied and not already_has_calendar_section
+             and not vim.b[buf].calendar_ai_started
+             and not vim.b[buf].calendar_autodetect_suppressed then
+            local cal_score = _calendar_signal_score(rewritten_body_str)
+            if cal_score >= _CALENDAR_THRESHOLD then
+              notify_workflow(
+                string.format(
+                  "Kalenderdetectie (score %d) — kalendermetadata wordt opgehaald.",
+                  cal_score
+                ),
+                vim.log.levels.INFO
+              )
+              M._start_calendar_analysis(buf)
+            end
+          end
+          return
+        end
+
         -- articlemeta --calendar levert gewone metadata én kalenderdata. De
-        -- losse metadata-call daarnaast was volledig dubbel werk.
+        -- losse metadata-call daarnaast is volledig dubbel werk. Deze call
+        -- start bewust pas nadat een mogelijke doublure is beoordeeld.
         ai_system({ articlemeta, "--calendar" }, { text = true, stdin = rewritten_str }, function(cal_result)
           vim.schedule(function()
+            if not vim.api.nvim_buf_is_valid(buf) then return end
             if cal_result.code ~= 0 then
               vim.notify("Kalendermetadata ophalen mislukt: " .. (cal_result.stderr or ""), vim.log.levels.WARN)
               return
@@ -1766,9 +1821,12 @@ function M.rewrite_article_buffer()
             strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
           end)
         end, "AI · Kalender", buf)
-      else
+      end
+
+      if not needs_calendar then
         ai_system({ articlemeta }, { text = true, stdin = rewritten_str }, function(meta_result)
           vim.schedule(function()
+            if not vim.api.nvim_buf_is_valid(buf) then return end
             if meta_result.code ~= 0 then
               vim.notify("Metadata ophalen mislukt: " .. (meta_result.stderr or ""), vim.log.levels.WARN)
               return
@@ -1800,25 +1858,30 @@ function M.rewrite_article_buffer()
         end, "AI · Facebook", buf)
       end
 
-      -- Auto-detect kalenderberichten als er geen expliciete calendar: x aanwezig is.
-      -- Sla over als er al een ## Kalender-sectie is (behouden via trailing_sections
-      -- hierboven) — anders draait elke <leader>ar de kalender-AI onnodig opnieuw.
-      local already_has_calendar_section = rewritten_str:find("\n## Kalender", 1, true) ~= nil
-        or rewritten_str:match("^## Kalender") ~= nil
-      -- calendar_ai_started: de import-detectie (BufReadPost) kan de kalender-AI
-      -- al gestart hebben; dan niet nog eens draaien bij het herschrijven.
-      if not needs_calendar and not agenda_denied and not already_has_calendar_section
-         and not vim.b[buf].calendar_ai_started
-         and not vim.b[buf].calendar_autodetect_suppressed then
-        local cal_score = _calendar_signal_score(rewritten_body_str)
-        if cal_score >= _CALENDAR_THRESHOLD then
-          notify_workflow(
-            string.format("Kalenderdetectie (score %d) — kalendermetadata wordt opgehaald.", cal_score),
-            vim.log.levels.INFO
-          )
-          _run_articlemeta_calendar(buf)
+      -- Herken opnieuw op basis van de herschreven tekst. Een zichtbare
+      -- e:-keuze blijft stil leidend zolang de betrouwbare inhoudsdetectie
+      -- door de rewrite niet is veranderd. Kalender-AI begint pas vanuit de
+      -- callback van de afgeronde doublurecontrole.
+      vim.b[buf].pubble_duplicate_gate_pending = true
+      reconcile_editions_after_rewrite(
+        buf,
+        rewritten_str,
+        original_for_edition_detection,
+        function(ok, codes, names)
+          if not ok then
+            settle_duplicate_calendar_gate(buf, false)
+            return
+          end
+          check_duplicate_stage(buf, codes, "herschrijven", function(checked)
+            if checked then
+              offer_and_generate_edition_versions(
+                buf, rewritten_body_str, codes, names
+              )
+              start_calendar_after_duplicate()
+            end
+          end)
         end
-      end
+      )
 
       -- Als dit nog geen 112-templateartikel was maar de rewritten tekst wél
       -- als 112 scoort: opnieuw aanbieden als importdetectie dit niet al aan
@@ -1838,6 +1901,30 @@ function M.rewrite_article_buffer()
       end
     end)
   end, "AI · Herschrijven", buf)
+  end
+
+  -- Randgeval-poort vóór de dure rewrite. Een handgetypte of via <leader>av
+  -- voorbereide buffer ging niet door de importcontrole; draai dan éérst de
+  -- doublurecontrole, zodat de rewrite niet meer draait voor een artikel dat
+  -- toch niet meegaat. Is de controle al afgerond (bijv. bij import), dan slaat
+  -- check_duplicate_stage zichzelf over en start de rewrite meteen. Lukt
+  -- editieresolutie niet (bijv. geen artikelgrens), dan valt hij terug op het
+  -- bestaande gedrag; de controles ná de rewrite en vóór verzenden blijven dan
+  -- het vangnet.
+  if vim.b[buf].pubble_duplicate_check_completed == true then
+    run_rewrite()
+    return
+  end
+  resolve_editions_for_content(buf, original_for_edition_detection, function(resolved)
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    if not resolved or type(resolved.editions) ~= "table" or #resolved.editions == 0 then
+      run_rewrite()
+      return
+    end
+    check_duplicate_stage(buf, resolved.editions, "herschrijven", function(approved)
+      if approved then run_rewrite() end
+    end)
+  end)
 end
 
 function M.visual_rewrite()
@@ -2071,6 +2158,7 @@ end
 -- Interne implementatie: werkt op een specifieke buf zodat autocmds en
 -- leaders altijd de juiste buffer raken, ook als de focus elders is.
 function _run_articlemeta_calendar(buf)
+  if defer_calendar_for_duplicate(buf) then return end
   if buf and vim.api.nvim_buf_is_valid(buf) and vim.b[buf].calendar_ai_running then
     notify_workflow("Kalenderanalyse loopt al voor dit artikel.", vim.log.levels.INFO)
     return
@@ -2131,7 +2219,7 @@ function _run_articlemeta_calendar(buf)
 end
 
 function M.articlemeta_calendar_buffer()
-  _run_articlemeta_calendar(vim.api.nvim_get_current_buf())
+  M._start_calendar_analysis(vim.api.nvim_get_current_buf())
 end
 
 -- Weiger het voorgestelde agenda-item: verwijder de ## Kalender-sectie, wis de
@@ -2268,7 +2356,7 @@ local function _calendar_autodetect(buf, lines, text, evaluation, after_prompt)
           string.format("Kalenderdetectie bevestigd (score %d).", score),
           vim.log.levels.INFO
         )
-        _run_articlemeta_calendar(buf)
+        M._start_calendar_analysis(buf)
       elseif choice == 2 then
         M.reject_calendar(buf)
       else
@@ -2287,7 +2375,7 @@ local function _calendar_autodetect(buf, lines, text, evaluation, after_prompt)
       string.format("Kalenderdetectie (score %d) — kalendermetadata wordt opgehaald.", score),
       vim.log.levels.INFO
     )
-    _run_articlemeta_calendar(buf)
+    M._start_calendar_analysis(buf)
   end
 end
 
@@ -2385,24 +2473,34 @@ local function article_autodetect(buf)
   if editorial_body_text(lines) == "" then return end
   vim.b[buf].article_recognition_done = true
   local text = table.concat(lines, "\n")
-  edition_autodetect(buf, text)
-  local evaluation = article_recognition.evaluate(text)
-  -- Reeds toegepaste vaste templates hoeven niet opnieuw te worden toegepast,
-  -- maar oudere buffers krijgen hier wel hun inmiddels vaste editiecode.
-  local existing_rubric = article_recognition.rubric_decision(evaluation).existing
-  if existing_rubric then
-    require("krant").ensure_detected_rubric_edition(existing_rubric.id, buf)
-    vim.b[buf].recognized_rubric = existing_rubric.id
-    vim.b[buf].recognized_rubric_score = existing_rubric.confidence
-  end
-  local calendar_prompted = _calendar_autodetect(buf, lines, text, evaluation, function()
+  vim.b[buf].pubble_duplicate_gate_pending = true
+  edition_autodetect(buf, text, function(approved)
     if not vim.api.nvim_buf_is_valid(buf) then return end
-    local current_text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
-    rubric_autodetect(buf, current_text, article_recognition.evaluate(current_text))
+    settle_duplicate_calendar_gate(buf, approved == true)
+    if not approved then return end
+
+    -- Editie-/dateline-aanpassingen zijn inmiddels toegepast en een mogelijke
+    -- doublure is beoordeeld. Pas nu mag kalender-AI worden aangeboden.
+    lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    text = table.concat(lines, "\n")
+    local evaluation = article_recognition.evaluate(text)
+    -- Reeds toegepaste vaste templates hoeven niet opnieuw te worden toegepast,
+    -- maar oudere buffers krijgen hier wel hun inmiddels vaste editiecode.
+    local existing_rubric = article_recognition.rubric_decision(evaluation).existing
+    if existing_rubric then
+      require("krant").ensure_detected_rubric_edition(existing_rubric.id, buf)
+      vim.b[buf].recognized_rubric = existing_rubric.id
+      vim.b[buf].recognized_rubric_score = existing_rubric.confidence
+    end
+    local calendar_prompted = _calendar_autodetect(buf, lines, text, evaluation, function()
+      if not vim.api.nvim_buf_is_valid(buf) then return end
+      local current_text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+      rubric_autodetect(buf, current_text, article_recognition.evaluate(current_text))
+    end)
+    -- Automatische bevestigingen mogen elkaar niet overlappen. Eventuele
+    -- rubriekherkenning volgt daarom pas na de datumbevestiging.
+    if not calendar_prompted then rubric_autodetect(buf, text, evaluation) end
   end)
-  -- Automatische bevestigingen mogen elkaar niet overlappen. Eventuele
-  -- rubriekherkenning volgt daarom pas na de datumbevestiging.
-  if not calendar_prompted then rubric_autodetect(buf, text, evaluation) end
 end
 
 -- Inspecteerbare testpunten; productie gebruikt dezelfde lokale functies.
@@ -2458,6 +2556,47 @@ vim.keymap.set("n", "<leader>av", M.prepare_article, {
 -- moduletabel nog in een callback leven. De lokale closure blijft na volledige
 -- moduleload aan precies de bijbehorende implementatie gekoppeld.
 local event_prepare
+local temporal_print_prepare
+
+local function drop_timing_versions_block(sections)
+  local result = {}
+  local skipping = false
+  for _, line in ipairs(sections or {}) do
+    if line:match("^## Kranttijdsversies%s*$") then
+      skipping = true
+    elseif skipping and line:match("^## %S") then
+      skipping = false
+      table.insert(result, line)
+    elseif not skipping then
+      table.insert(result, line)
+    end
+  end
+  while #result > 0 and vim.trim(result[1]) == "" do table.remove(result, 1) end
+  return result
+end
+
+local function apply_timing_versions_section(buf, section)
+  if not vim.api.nvim_buf_is_valid(buf) then return false end
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
+  sections = drop_timing_versions_block(sections)
+  if type(section) == "string" and vim.trim(section) ~= "" then
+    if #sections > 0 and vim.trim(sections[#sections]) ~= "" then
+      table.insert(sections, "")
+    end
+    for _, line in ipairs(vim.split(vim.trim(section), "\n", { plain = true })) do
+      table.insert(sections, line)
+    end
+  end
+  vim.api.nvim_buf_set_lines(
+    buf,
+    0,
+    -1,
+    false,
+    reassemble_article(fm, ctrl, body, sections, has_boundary)
+  )
+  return true
+end
 
 M._edition_send_confirm = function(resolved)
   local destination = edition_names(resolved.editions, resolved.names)
@@ -3090,6 +3229,7 @@ function M.pubble_send(target_buf)
           end
           temp_file = archive_data.path
           vim.b[buf].failed_send_file = nil
+          vim.b[buf].publication_review_state = nil
           vim.b[buf].event_review_state = nil
 
           local sent_marker = "**Verstuurd naar Pubble op " .. os.date("%d-%m-%Y %H:%M") .. "**"
@@ -3158,9 +3298,9 @@ function M.pubble_send(target_buf)
       end, "Pubble · Verzenden")
     end
 
-    local function check_duplicates_then_send()
+    local function after_duplicate_check(next_step)
       if vim.b[buf].pubble_duplicate_check_completed == true then
-        run_main_send()
+        next_step()
         return
       end
       check_duplicate_stage(
@@ -3169,7 +3309,7 @@ function M.pubble_send(target_buf)
         "verzenden",
         function(approved)
           if approved then
-            run_main_send()
+            next_step()
             return
           end
           if vim.api.nvim_buf_is_valid(buf) then
@@ -3182,60 +3322,150 @@ function M.pubble_send(target_buf)
       )
     end
 
-    -- Bij een hervatbestand staan de secties al klaar; stel de vragen dan
-    -- niet opnieuw. In een verse flow worden alle keuzes en AI-teksten eerst
-    -- voorbereid, dus vóór de eerste Pubble-write.
-    if event_preparation_complete or file_has_event_sections() then
-      check_duplicates_then_send()
+    -- Na de expliciete review staan alle voorbereidende teksten al klaar. De
+    -- lichte lokale timingcontrole draait nog één keer: een tussentijdse edit
+    -- van bron of gekozen datums mag nooit met een verouderde kranttekst naar
+    -- Pubble. Alleen bij zo'n wijziging volgt opnieuw AI + review.
+    if event_preparation_complete then
+      after_duplicate_check(function()
+        temporal_print_prepare(
+          buf,
+          temp_file,
+          display_dates,
+          resolved_editions,
+          function(ok, err, timing_prepared)
+            if not ok then
+              vim.b[buf].publication_in_progress = false
+              discard_unpublished_temp()
+              if err == AI_CANCELLED then
+                notify_workflow(
+                  "Controleren van kranttijdversies geannuleerd.",
+                  vim.log.levels.INFO
+                )
+              else
+                vim.notify(err or "Kranttijdcontrole mislukt", vim.log.levels.ERROR)
+              end
+              return
+            end
+            if timing_prepared then
+              vim.b[buf].publication_in_progress = false
+              vim.b[buf].publication_review_state = {
+                display_dates = display_dates,
+                editions = resolved_editions,
+              }
+              discard_unpublished_temp()
+              notify_workflow(
+                "De bron of planning veranderde. Controleer de vernieuwde "
+                  .. "kranttijdsversie en druk daarna opnieuw <leader>aw."
+              )
+              return
+            end
+            run_main_send()
+          end
+        )
+      end)
       return
     end
     -- Vervolgpublicaties bestaan uitsluitend voor een expliciete, zichtbare
     -- ## Kalender-sectie. Gewone artikelen starten dus geen overbodige
     -- pubble-event-subprocess en gaan meteen door naar de hoofdpublicatie.
     if not has_calendar then
-      check_duplicates_then_send()
+      after_duplicate_check(run_main_send)
       return
     end
-    event_prepare(
-      buf,
-      temp_file,
-      display_dates,
-      resolved_editions,
-      function(ok, err, prepared)
-        if not ok then
-          vim.b[buf].publication_in_progress = false
-          discard_unpublished_temp()
-          if err == AI_CANCELLED then
-            notify_workflow(
-              "Genereren van evenementvervolgteksten geannuleerd.",
-              vim.log.levels.INFO
-            )
-          else
-            vim.notify(err or "Evenementvoorbereiding mislukt", vim.log.levels.ERROR)
+    -- Ook de AI voor kranttijd- en kalendervervolgteksten mag pas starten
+    -- nadat een mogelijke doublure is beoordeeld. Er is dan nog geen
+    -- Pubble-write. De kranttijdselectie zelf is deterministisch; AI wijzigt
+    -- alleen de grammaticale tijdsvorm van de geselecteerde edities.
+    after_duplicate_check(function()
+      temporal_print_prepare(
+        buf,
+        temp_file,
+        display_dates,
+        resolved_editions,
+        function(ok, err, timing_prepared)
+          if not ok then
+            vim.b[buf].publication_in_progress = false
+            discard_unpublished_temp()
+            if err == AI_CANCELLED then
+              notify_workflow(
+                "Genereren van kranttijdversies geannuleerd.",
+                vim.log.levels.INFO
+              )
+            else
+              vim.notify(err or "Kranttijdvoorbereiding mislukt", vim.log.levels.ERROR)
+            end
+            return
           end
-          return
-        end
-        if prepared then
-          vim.b[buf].publication_in_progress = false
-          vim.b[buf].event_review_state = {
-            display_dates = display_dates,
-            editions = resolved_editions,
-          }
-          discard_unpublished_temp()
-          notify_workflow(
-            "Controleer of bewerk de vervolgteksten; druk daarna opnieuw <leader>aw om alles samen te publiceren."
+
+          local function finish_preparation(event_prepared)
+            if timing_prepared or event_prepared then
+              vim.b[buf].publication_in_progress = false
+              vim.b[buf].publication_review_state = {
+                display_dates = display_dates,
+                editions = resolved_editions,
+              }
+              discard_unpublished_temp()
+              local what
+              if timing_prepared and event_prepared then
+                what = "de kranttijdversies en vervolgteksten"
+              elseif timing_prepared then
+                what = "de kranttijdversies"
+              else
+                what = "de vervolgteksten"
+              end
+              notify_workflow(
+                "Controleer of bewerk " .. what
+                  .. "; druk daarna opnieuw <leader>aw om alles samen te publiceren."
+              )
+              return
+            end
+            run_main_send()
+          end
+
+          -- Een hervatbestand met reeds beoordeelde eventsecties stelt de
+          -- oude vragen niet opnieuw. Een eventueel nieuw gemaakte
+          -- kranttijdversie krijgt wel eerst haar eigen reviewmoment.
+          if file_has_event_sections() then
+            finish_preparation(false)
+            return
+          end
+
+          event_prepare(
+            buf,
+            temp_file,
+            display_dates,
+            resolved_editions,
+            function(event_ok, event_err, event_prepared)
+              if not event_ok then
+                vim.b[buf].publication_in_progress = false
+                discard_unpublished_temp()
+                if event_err == AI_CANCELLED then
+                  notify_workflow(
+                    "Genereren van evenementvervolgteksten geannuleerd.",
+                    vim.log.levels.INFO
+                  )
+                else
+                  vim.notify(
+                    event_err or "Evenementvoorbereiding mislukt",
+                    vim.log.levels.ERROR
+                  )
+                end
+                return
+              end
+              finish_preparation(event_prepared)
+            end
           )
-          return
         end
-        check_duplicates_then_send()
-      end
-    )
+      )
+    end)
   end
 
   -- Na de eerste eventvoorbereiding is de zichtbare buffer de reviewbron.
   -- De tweede <leader>aw maakt daar een vers tempbestand van en hergebruikt de
   -- eerder gekozen datums; alle Pubble-writes gebeuren pas vanaf dit punt.
-  local review_state = vim.b[buf].event_review_state
+  local review_state = vim.b[buf].publication_review_state
+      or vim.b[buf].event_review_state
   if type(review_state) == "table" then
     resolved_editions = review_state.editions or {}
     editie = table.concat(resolved_editions, ", ")
@@ -3613,6 +3843,61 @@ vim.api.nvim_create_user_command("PubbleSend", M.pubble_send, {
 vim.keymap.set("n", "<leader>aw", M.pubble_send, {
   desc = "Artikel naar Pubble verzenden",
 })
+
+-- ---------------------------------------------------------------------------
+-- Kranttijdsversies: alleen wanneer kalenderdatums aantonen dat website en
+-- eerstvolgende krant in een andere evenementfase vallen. Het Python-contract
+-- kiest de edities en bewaakt bron-/planhashes; deze functie toont uitsluitend
+-- de gegenereerde reviewsectie in de bestaande buffer.
+-- ---------------------------------------------------------------------------
+
+temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
+  local display_dates_json = "{}"
+  if type(display_dates) == "table" and next(display_dates) ~= nil then
+    display_dates_json = vim.fn.json_encode(display_dates)
+  end
+  local command = {
+    pubble_print_timing,
+    file,
+    "--display-dates",
+    display_dates_json,
+    "--editions",
+    vim.fn.json_encode(edition_codes or {}),
+    "--json",
+  }
+  ai_system(command, { text = true }, function(result)
+    vim.schedule(function()
+      local ok, payload = pcall(vim.fn.json_decode, result.stdout or "")
+      if result.code ~= 0 or not ok or type(payload) ~= "table" then
+        local err = vim.trim(result.stderr or result.stdout or "")
+        done(false, "Kranttijdvoorbereiding mislukt" .. (err ~= "" and (": " .. err) or ""))
+        return
+      end
+      if type(payload.markdown) ~= "string" then
+        done(false, "Kranttijdvoorbereiding gaf geen geldig werkdocument terug")
+        return
+      end
+
+      if payload.changed == true then
+        vim.fn.writefile(
+          vim.split(payload.markdown:gsub("\n$", ""), "\n", { plain = true }),
+          file
+        )
+        local section = type(payload.section) == "string" and payload.section or nil
+        if not apply_timing_versions_section(buf, section) then
+          done(false, "Kranttijdversie kon niet veilig in de buffer worden gezet")
+          return
+        end
+      end
+      done(true, nil, payload.requires_review == true)
+    end)
+  end, "Krant · Tijdsvorm controleren", buf, function()
+    vim.schedule(function() done(false, AI_CANCELLED) end)
+  end)
+end
+
+M._temporal_print_prepare = temporal_print_prepare
+M._apply_timing_versions_section = apply_timing_versions_section
 
 -- ---------------------------------------------------------------------------
 -- Evenement-vervolgplaatsingen: korte versie op T-10 en dagreminder(s).

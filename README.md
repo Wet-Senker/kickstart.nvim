@@ -17,7 +17,8 @@ daarna de terminal en Neovim. De twee doublure-testbranches blijven beschikbaar.
 Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 
 <leader>ar    Herschrijven naar krantenartikel (AI)
-              ↳ start background jobs (metadata, kalender, Facebook) op basis van controlecodes
+              ↳ start metadata/Facebook op basis van controlecodes
+              ↳ start kalender pas na afronding van de doublurecontrole
               ↳ detecteert 112 en kalender automatisch
 <leader>ac    Kalendermetadata + ## Kalender sectie
 <leader>ao    Tekstcheck: spelling/grammatica + ## Suggesties
@@ -37,15 +38,15 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 
 | Leader | Actie |
 |---|---|
-| `<leader>ar` | Herschrijven naar krantenartikel (AI). Vraagt bij meerdere gekozen edities of aparte krantversies gewenst zijn. Start background jobs voor metadata, kalender en/of Facebook op basis van controlecodes. Detecteert 112 en agendaberichten automatisch. |
-| `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. Een herkend maar onvolledig item toont `<!-- Ontbreekt: … -->` inclusief invoerformaat, bijvoorbeeld `Tijd: HH:MM`. |
+| `<leader>ar` | Herschrijven naar krantenartikel (AI). Vraagt bij meerdere gekozen edities of aparte krantversies gewenst zijn. Metadata en Facebook kunnen op de achtergrond starten; kalender-AI wacht eerst op de doublurecontrole. Detecteert 112 en agendaberichten automatisch. |
+| `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. Tijdens een doublurecontrole wordt deze actie eenmaal uitgesteld en alleen na doorgaan hervat. Een herkend maar onvolledig item toont `<!-- Ontbreekt: … -->` inclusief invoerformaat, bijvoorbeeld `Tijd: HH:MM`. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
 | `<leader>an` | Minimaal publicatieklaar maken: herstelt waar nodig kop en nieuwsgerichte lead; neutraliseert de rest met minimale wijzigingen. |
 | `<leader>at` | Tussenkopjes, een streamer (als er nog geen eigen `>` staat) en twee kopopties. Een gekozen kop vervangt alleen een bestaande korte kop; bij een dateline, auteursregel of eerste alinea van meer dan tien woorden wordt zij vóór de lead ingevoegd. |
 | `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
 | `<leader>aV` / `:Krantversies` | Overzicht van de gedeelde bron en alle afzonderlijke krantversiebuffers openen. |
 | `<leader>aG` / `:KrantversieGoedkeuren` | Huidige krantversie terugschrijven en de exacte tekst expliciet goedkeuren. |
-| `<leader>aw` | Versturen naar Pubble. Bij een import vraagt een extra safeguard alleen om bevestiging wanneer de body nog nauwelijks afwijkt van de import. Een substantiële handmatige bewerking is dus voldoende; AI is niet verplicht. Vóór de eerste Pubble-write volgt zo nodig de doublurecontrole volgens het Python-branchbeleid, tenzij die al bij import of herschrijven is afgerond. `codex/doublure-altijd` controleert ook alleen De Brug; `codex/doublure-voorwaardelijk` controleert zodra een andere krant is gekozen, ook alleen De Kop. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Bij gekozen eventvervolgen toont de eerste druk de teksten; de tweede publiceert alles samen. |
+| `<leader>aw` | Versturen naar Pubble. Bij een import vraagt een extra safeguard alleen om bevestiging wanneer de body nog nauwelijks afwijkt van de import. Een substantiële handmatige bewerking is dus voldoende; AI is niet verplicht. Vóór de eerste Pubble-write volgt zo nodig de doublurecontrole volgens het Python-branchbeleid, tenzij die al bij import of herschrijven is afgerond. `codex/doublure-altijd` controleert ook alleen De Brug; `codex/doublure-voorwaardelijk` controleert zodra een andere krant is gekozen, ook alleen De Kop. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Wanneer de eerstvolgende krant in een andere evenementfase valt, toont de eerste druk alleen voor die editie een `## Kranttijdsversies`-tekst. Eventvervolgen verschijnen in dezelfde reviewstap; de tweede druk publiceert alles samen. |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen. |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder. |
 | `<leader>ah` | Hiërarchisch hulpmenu: kies onder meer Edities, Rubrieken, Publicatieplanning, Acties of de volledige cheatsheet. |
@@ -63,6 +64,13 @@ fotokeuzes gebruiken alleen Escape om de wizard te annuleren.
 De extra waarschuwing voor een vrijwel onbewerkte import vraagt
 `Toch publiceren?`: druk `j` voor ja of `n` voor nee. Nee is de veilige
 standaard.
+
+De doublurecontrole is een poort voor kalender-AI. Zolang een mogelijke
+doublure nog in beeld staat, starten automatische kalenderanalyse, handmatig
+`<leader>ac` en AI voor evenementvervolgteksten niet. Kies je **doorgaan**, dan
+wordt één uitgestelde kalenderactie hervat. Kies je **annuleren**, dan vervalt
+die actie en worden er geen kalender-AI-kosten gemaakt. Gewone metadata- en
+Facebooktaken mogen wel parallel blijven lopen.
 
 `<leader>an` is bedoeld voor een tekst waarvan de inhoud grotendeels goed staat,
 maar die nog niet helemaal plaatsbaar is. Een goede kop en lead blijven staan;
@@ -193,6 +201,13 @@ goedgekeurd. Voor print en web gaat alleen de passende tekst mee. Bij een
 ontbrekende, dubbele, verouderde, niet-goedgekeurde of verkeerde code stopt de
 verzending vóór Pubble. Staat er geen `## Editieversies`, dan blijft de
 gezamenlijke tekst voor alle kranten gelden.
+
+Bij een kalenderartikel vergelijkt `<leader>aw` na de webdatumkeuze ook de
+toestand op de eerstvolgende krantdatum. Alleen als het evenement dan inmiddels
+is begonnen of afgelopen, verschijnt een aparte `## Kranttijdsversies`-tekst
+voor de getroffen krant. De website houdt de oorspronkelijke tekst. Controleer
+de tijdsvorm en druk opnieuw `<leader>aw`; feiten, absolute data, tijden,
+getallen en citaten mogen niet veranderen.
 
 **112-detectie** — scoort tekst op signaalwoorden (politie, brandweer, ambulance, incident, etc.). De combinatie van minimaal één hulpdienst en één concreet incident krijgt één extra punt. Bij score ≥ 6 verschijnt een bevestigingsvraag. Bij "Ja": 112-template toegepast, `rubriek: 112` en `prio: 1` bovenaan gezet. Bij "Nee" blijft die keuze voor de huidige buffer staan en mag detectie na `<leader>ar` het template niet alsnog toepassen. De kop gebruikt via `pubble-places` de eerste bekende plaats uit de centrale verspreidingsgebiedentabel; zonder treffer wordt het `112:`.
 

@@ -180,6 +180,63 @@ assert(recorded and recorded.editions[1] == 'B', 'dateline wordt niet als bestem
 
 assert(not ai._needs_edition_send_confirmation { has_explicit_editions = true }, 'expliciete aw-bestemming vraagt onnodig bevestiging')
 
+-- Importkalender-AI mag pas starten nadat een mogelijke doublure is
+-- beoordeeld. De zoekactie zelf blijft asynchroon; alleen de AI-start wacht.
+local normal_test_runner = ai._duplicate_stage_runner
+local original_calendar_start = ai._start_calendar_analysis
+local held_duplicate_callback
+local calendar_starts = 0
+ai._duplicate_stage_runner = function(_, callback)
+  held_duplicate_callback = callback
+end
+ai._start_calendar_analysis = function(target)
+  assert(vim.api.nvim_buf_is_valid(target), 'kalender kreeg een ongeldige buffer')
+  calendar_starts = calendar_starts + 1
+end
+local calendar_event = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(calendar_event, 0, -1, false, {
+  'e: B', '', '=== ARTIKEL ===', '',
+  'Jubileumconcert in de Bovenkerk', '',
+  'KAMPEN - CRK Voices geeft zaterdag 19 september 2026 om 20.00 uur een concert.',
+  'Bezoekers zijn welkom en kaarten zijn verkrijgbaar.',
+})
+ai._article_autodetect(calendar_event)
+assert(
+  vim.wait(5000, function() return held_duplicate_callback ~= nil end, 20),
+  'import bereikte de doublurecontrole niet'
+)
+assert(calendar_starts == 0, 'kalender-AI startte vóór het doublurebesluit')
+held_duplicate_callback(true, {
+  performed = true,
+  candidates = { { headline = 'Mogelijke bestaande versie' } },
+})
+assert(
+  vim.wait(1000, function() return calendar_starts == 1 end, 20),
+  'kalender-AI startte niet na het doublurebesluit'
+)
+
+held_duplicate_callback = nil
+local rejected_calendar_event = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(rejected_calendar_event, 0, -1, false, {
+  'e: B', '', '=== ARTIKEL ===', '',
+  'Tweede jubileumconcert in de Bovenkerk', '',
+  'KAMPEN - Het concert begint zondag 20 september 2026 om 15.00 uur.',
+  'Bezoekers zijn welkom en kaarten zijn verkrijgbaar.',
+})
+ai._article_autodetect(rejected_calendar_event)
+assert(
+  vim.wait(5000, function() return held_duplicate_callback ~= nil end, 20),
+  'afwijsbaar importartikel bereikte de doublurecontrole niet'
+)
+held_duplicate_callback(false, {
+  performed = true,
+  candidates = { { headline = 'Bestaande versie' } },
+})
+vim.wait(100, function() return calendar_starts > 1 end, 20)
+assert(calendar_starts == 1, 'afgewezen doublure startte alsnog kalender-AI')
+ai._duplicate_stage_runner = normal_test_runner
+ai._start_calendar_analysis = original_calendar_start
+
 ai._duplicate_stage_runner = original_duplicate_runner
 
 print 'edition detection: OK'

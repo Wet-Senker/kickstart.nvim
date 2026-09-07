@@ -16,7 +16,8 @@ In Neovim:
   <leader>af    Facebook-post genereren — verschijnt als ## Facebook sectie
   <leader>aV    overzicht van bron en losse krantversiebuffers
   <leader>aG    huidige krantversie opslaan en goedkeuren
-  <leader>aw    importcontrole, planning, Pubble-doublurecontrole en versturen
+  <leader>aw    importcontrole, planning, doublures en versturen
+                ↳ zo nodig eerst kranttijd-/vervolgteksten controleren
 ```
 
 Na volledig succes verhuist het artikel naar `Pubble Archief`; het werkbestand
@@ -51,7 +52,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie |
 | `<leader>aV` | Overzicht van bron en afzonderlijke krantversiebuffers |
 | `<leader>aG` | Huidige krantversie opslaan en expliciet goedkeuren |
-| `<leader>aw` | Publicatie voorbereiden; vangnet voor de doublurecontrole volgens branchbeleid, en bevestiging van een vrijwel onbewerkte import of ontbrekende `e:` |
+| `<leader>aw` | Publicatie voorbereiden; vangnet voor doublures en onbewerkte import; toont zo nodig eerst `## Kranttijdsversies` en eventvervolgen |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |
 | `<leader>ah` | Hiërarchisch hulpmenu voor codes, rubrieken, acties en cheatsheet |
@@ -218,6 +219,12 @@ edit op met `:w`, keur haar goed met `<leader>aG` en gebruik `<leader>aV` voor
 het overzicht. `<leader>aw` verstuurt per krant de passende print- én webversie
 en blokkeert bij ontbrekende, verouderde of nog niet goedgekeurde teksten. Kies
 **Nee** om één gezamenlijke tekst te behouden.
+
+Bij kalenderartikelen bepaalt `<leader>aw` per krant of het evenement op de
+eerstvolgende verschijningsdag nog toekomstig, inmiddels lopend of afgelopen
+is. Alleen bij verschil met de webdatum verschijnt `## Kranttijdsversies`.
+Controleer die printtekst en druk opnieuw `<leader>aw`; de webtekst blijft
+ongewijzigd.
 
 ---
 

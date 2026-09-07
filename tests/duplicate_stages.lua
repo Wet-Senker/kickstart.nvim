@@ -68,6 +68,34 @@ pending(false, success)
 settled(cancelled)
 assert(not approved and not vim.b[cancelled].pubble_duplicate_check_completed, 'annuleren werd onthouden als goedkeuring')
 
+-- Een handmatige kalenderstart tijdens de controle wordt uitgesteld. Alleen
+-- doorgaan na de doubluremelding hervat hem; annuleren maakt geen AI-kosten.
+local original_resume = ai._resume_deferred_calendar
+local resumed = 0
+ai._resume_deferred_calendar = function(target)
+  assert(vim.api.nvim_buf_is_valid(target), 'ongeldige buffer hervat')
+  resumed = resumed + 1
+end
+local waiting_calendar = buffer()
+ai._check_duplicate_stage(waiting_calendar, { 'B', 'D' }, 'importeren', function(ok) approved = ok end)
+vim.api.nvim_set_current_buf(waiting_calendar)
+ai.articlemeta_calendar_buffer()
+assert(vim.b[waiting_calendar].calendar_ai_waiting_for_duplicate == true, 'kalender-AI wacht niet op doublurebesluit')
+assert(vim.b[waiting_calendar].calendar_ai_running ~= true, 'kalender-AI startte tijdens doublurecontrole')
+pending(true, success)
+settled(waiting_calendar)
+assert(resumed == 1, 'goedgekeurde doublurecontrole hervatte kalender-AI niet')
+
+local abandoned_calendar = buffer()
+ai._check_duplicate_stage(abandoned_calendar, { 'B', 'D' }, 'importeren', function(ok) approved = ok end)
+vim.api.nvim_set_current_buf(abandoned_calendar)
+ai.articlemeta_calendar_buffer()
+pending(false, success)
+settled(abandoned_calendar)
+assert(resumed == 1, 'geannuleerde doublurecontrole startte alsnog kalender-AI')
+assert(vim.b[abandoned_calendar].calendar_ai_waiting_for_duplicate ~= true, 'geannuleerd kalenderverzoek bleef hangen')
+ai._resume_deferred_calendar = original_resume
+
 local removed = buffer()
 ai._check_duplicate_stage(removed, { 'B', 'D' }, 'verzenden', function(ok) approved = ok end)
 vim.api.nvim_buf_delete(removed, { force = true })

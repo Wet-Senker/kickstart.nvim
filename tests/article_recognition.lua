@@ -122,6 +122,13 @@ local original_select = vim.ui.select
 vim.ui.select = function() error('zekere Kamper Kiek opende onverwacht een bevestigingsmenu') end
 
 local ai_text = require('ai_text')
+-- Deze suite test rubriekherkenning, niet de externe doublurezoeker. Rond de
+-- nieuwe doublurepoort daarom deterministisch af, zodat de asynchrone CLI de
+-- rubriekasserties niet kan beïnvloeden.
+local original_duplicate_runner = ai_text._duplicate_stage_runner
+ai_text._duplicate_stage_runner = function(_, callback)
+  callback(true, { performed = false, candidates = {} })
+end
 local krant = require('krant')
 krant.config.desktop = desktop
 krant.config.stock_images = stock
@@ -141,6 +148,12 @@ vim.api.nvim_buf_set_lines(missing_photo_buf, 0, -1, false, {
 local before_missing_photo = table.concat(vim.api.nvim_buf_get_lines(missing_photo_buf, 0, -1, false), '\n')
 ai_text._article_autodetect(missing_photo_buf)
 assert(
+  vim.wait(5000, function()
+    return vim.b[missing_photo_buf].rubric_recognition_pending ~= nil
+  end, 20),
+  'Kamper-Kiekherkenning zonder foto werd niet afgerond'
+)
+assert(
   table.concat(vim.api.nvim_buf_get_lines(missing_photo_buf, 0, -1, false), '\n') == before_missing_photo,
   'Kamper-Kiekherkenning zonder foto wijzigde het artikel gedeeltelijk'
 )
@@ -158,6 +171,10 @@ vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
   'De Kamper kiek op de wîêk: 1). Eerste punt. 2). Tweede punt. 3). Derde punt.',
 })
 ai_text._article_autodetect(buf)
+assert(
+  vim.wait(5000, function() return vim.b[buf].recognized_rubric == 'kamper_kiek' end, 20),
+  'automatische Kamper-Kiekherkenning werd niet afgerond'
+)
 
 local output = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
 assert(
@@ -191,6 +208,13 @@ vim.api.nvim_buf_set_lines(legacy_kiek, 0, -1, false, {
 })
 ai_text._article_autodetect(legacy_kiek)
 assert(
+  vim.wait(5000, function()
+    local current = table.concat(vim.api.nvim_buf_get_lines(legacy_kiek, 0, -1, false), '\n')
+    return current:find('e: B\n', 1, true) == 1
+  end, 20),
+  'bestaande Kamper Kiek zonder editie werd niet tijdig gemigreerd'
+)
+assert(
   table.concat(vim.api.nvim_buf_get_lines(legacy_kiek, 0, -1, false), '\n'):find('e: B\n', 1, true) == 1,
   'bestaande Kamper Kiek zonder editie werd niet naar B gemigreerd'
 )
@@ -216,6 +240,10 @@ local sentinel_buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(sentinel_buf, 0, -1, false, { 'niet wijzigen' })
 vim.api.nvim_set_current_buf(sentinel_buf)
 ai_text._article_autodetect(honden_buf)
+assert(
+  vim.wait(5000, function() return vim.b[honden_buf].recognized_rubric == 'hondenhoek' end, 20),
+  'automatische Hondenhoekherkenning werd niet afgerond'
+)
 
 local honden_output = table.concat(vim.api.nvim_buf_get_lines(honden_buf, 0, -1, false), '\n')
 assert(honden_output:find('newspaper:\n  working_title: "z - 1 Hondenhoek"', 1, true), 'Hondenhoekfrontmatter ontbreekt')
@@ -235,6 +263,7 @@ ai_text._article_autodetect(honden_buf)
 assert(table.concat(vim.api.nvim_buf_get_lines(honden_buf, 0, -1, false), '\n') == honden_once, 'Hondenhoekherkenning draaide tweemaal')
 
 vim.ui.select = original_select
+ai_text._duplicate_stage_runner = original_duplicate_runner
 
 vim.fn.delete(tmp, 'rf')
 print(string.format('article recognition: OK (%.3f ms gemiddeld)', average_ms))

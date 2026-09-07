@@ -1,4 +1,8 @@
 local ai = require 'ai_text'
+local original_duplicate_runner = ai._duplicate_stage_runner
+ai._duplicate_stage_runner = function(_, callback)
+  callback(true, { performed = false, candidates = {} })
+end
 
 local original_select = vim.ui.select
 vim.ui.select = function() error 'automatische bevestiging opende onverwacht fzf-lua' end
@@ -31,10 +35,18 @@ ai._rubric_confirm = function(decision)
 end
 local conflict = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(conflict, 0, -1, false, {
+  'e: B',
+  '',
+  '=== ARTIKEL ===',
+  '',
   'De Kamper kiek op de wîêk: 1). Eerste punt. 2). Tweede punt. 3). Derde punt.',
   'Politie, brandweer en ambulance kwamen na een aanrijding ter plaatse.',
 })
 ai._article_autodetect(conflict)
+assert(
+  vim.wait(5000, function() return candidates_seen ~= nil end, 20),
+  'conflicterende rubriekherkenning werd niet afgerond'
+)
 assert(candidates_seen == 2, 'conflicterende rubrieken kwamen niet in confirm')
 assert(vim.b[conflict]._112_rejected == true, 'conflictafwijzing onthield 112 niet')
 assert(vim.b[conflict].rubric_recognition_prompt_pending == false, 'rubriekprompt bleef hangen')
@@ -54,4 +66,5 @@ vim.wait(500, function() return asked_mail ~= nil end)
 assert(asked_mail == 'Testpersoon', 'Mail-terugkeervraag gebruikte confirm niet')
 
 vim.ui.select = original_select
+ai._duplicate_stage_runner = original_duplicate_runner
 print 'automatic confirms: OK'
