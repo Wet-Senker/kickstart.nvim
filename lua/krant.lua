@@ -39,6 +39,7 @@ M.templates = {
   -- TIER 1 — plain stock text
   {
     name = 'Column Natuurvereniging',
+    id = 'natuurvereniging',
     column = true,
     text = {
   'Column Natuurvereniging: {{title}}',
@@ -433,7 +434,36 @@ local function partij_in_bijschrift(party)
   return 'de ' .. party .. '-fractie'
 end
 
-function M.raadspraat_menu()
+-- Importkeuzes gebruiken confirm; handmatige wizards blijven vim.ui.select.
+M._choose_detected_person = function(items, prompt)
+  local index = vim.fn.confirm(prompt, table.concat(items, '\n'), 0)
+  return items[index]
+end
+
+local function choose_person(items, prompt, context, preferred, callback)
+  if context then
+    if preferred and vim.tbl_contains(items, preferred) then
+      callback(preferred)
+    else
+      callback(M._choose_detected_person(items, prompt))
+    end
+  else
+    vim.ui.select(items, { prompt = prompt }, callback)
+  end
+end
+
+local function selection_is_current(buf, tick)
+  if not vim.api.nvim_buf_is_valid(buf) then return false end
+  if vim.api.nvim_buf_get_changedtick(buf) ~= tick then
+    vim.notify('Artikel gewijzigd tijdens persoonskeuze; template niet toegepast.', vim.log.levels.WARN)
+    return false
+  end
+  return true
+end
+
+function M.raadspraat_menu(target_buf, context, done)
+  target_buf = target_buf or vim.api.nvim_get_current_buf()
+  local tick = vim.api.nvim_buf_get_changedtick(target_buf)
   local base = M.config.photo_root .. '/raadspraat'
   local parties = scan_dir(base, 'directory')
   if #parties == 0 then
@@ -441,7 +471,7 @@ function M.raadspraat_menu()
     return
   end
 
-  vim.ui.select(parties, { prompt = 'Partij:' }, function(party)
+  choose_person(parties, 'Partij:', context, context and context.photo and vim.fn.fnamemodify(context.photo, ':h:t'), function(party)
     if not party then return end
 
     local party_dir = base .. '/' .. party
@@ -452,8 +482,8 @@ function M.raadspraat_menu()
       return
     end
 
-    vim.ui.select(photos, { prompt = 'Persoon (' .. party .. '):' }, function(photo_file)
-      if not photo_file then return end
+    choose_person(photos, 'Persoon (' .. party .. '):', context, context and context.photo and vim.fn.fnamemodify(context.photo, ':t'), function(photo_file)
+      if not photo_file or not selection_is_current(target_buf, tick) then return end
 
       local naam = vim.fn.fnamemodify(photo_file, ':r')
       local photo_src = party_dir .. '/' .. photo_file
@@ -490,8 +520,9 @@ function M.raadspraat_menu()
           .. 'of in de volgende krant.',
       }
 
-      local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+      local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
       local existing_header, article_lines = split_visible_article(buf_lines)
+      if context and context.normalized_body then article_lines = vim.split(context.normalized_body, '\n', { plain = true }) end
       local new_lines = {}
       for _, l in ipairs(fm_lines) do table.insert(new_lines, l) end
       local article = render_template(template, article_lines, {
@@ -501,7 +532,7 @@ function M.raadspraat_menu()
       })
       append_visible_article(new_lines, with_default_edition(existing_header, 'B'), article)
 
-      vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
+      vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, new_lines)
 
       local week_prefix = publication_week()
 
@@ -512,7 +543,7 @@ function M.raadspraat_menu()
 
       -- Copy photo to Pubble Inbox dropzone so <leader>aw picks it up automatically.
       if not copy_to_inbox(photo_src, inbox .. '/' .. photo_file) then return end
-      if not prepare_layout_export(vim.api.nvim_get_current_buf(), {
+      if not prepare_layout_export(target_buf, {
         dir = gn_dir,
         txt_name = '1.raadspraatFOTO.txt',
         img_name = '1.raadspraatFOTO.' .. photo_ext,
@@ -520,6 +551,7 @@ function M.raadspraat_menu()
         label = 'Raadspraat',
       }) then return end
 
+      if done then done() end
       notifications.workflow(
         'Raadspraat: ' .. naam .. ' (' .. party .. ')\n'
         .. '→ ' .. week_prefix .. '_gemeentenieuws/1.raadspraatFOTO.txt\n'
@@ -594,7 +626,9 @@ local function parse_personen_md(path)
   return result
 end
 
-function M.ondernemen_menu()
+function M.ondernemen_menu(target_buf, context, done)
+  target_buf = target_buf or vim.api.nvim_get_current_buf()
+  local tick = vim.api.nvim_buf_get_changedtick(target_buf)
   local base = M.config.photo_root .. '/ondernemen_in_kampen'
   local photos = image_files(base)
   if #photos == 0 then
@@ -604,8 +638,8 @@ function M.ondernemen_menu()
 
   local personen = parse_personen_md(base .. '/personen.md')
 
-  vim.ui.select(photos, { prompt = 'Ondernemen in Kampen — persoon:' }, function(photo_file)
-    if not photo_file then return end
+  choose_person(photos, 'Ondernemen in Kampen — persoon:', context, context and context.photo and vim.fn.fnamemodify(context.photo, ':t'), function(photo_file)
+    if not photo_file or not selection_is_current(target_buf, tick) then return end
 
     local naam_raw = vim.fn.fnamemodify(photo_file, ':r')  -- bestandsnaam zonder extensie
     local photo_src = base .. '/' .. photo_file
@@ -653,13 +687,14 @@ function M.ondernemen_menu()
     local inbox = require('texttools_paths').inbox()
     if not require_empty_inbox(inbox) then return end
 
-    local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
     local existing_header, article_lines = split_visible_article(buf_lines)
+    if context and context.normalized_body then article_lines = vim.split(context.normalized_body, '\n', { plain = true }) end
     local new_lines = {}
     for _, l in ipairs(fm_lines) do table.insert(new_lines, l) end
     local article = render_template(template, article_lines)
     append_visible_article(new_lines, with_default_edition(existing_header, 'B'), article)
-    vim.api.nvim_buf_set_lines(0, 0, -1, false, new_lines)
+    vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, new_lines)
 
     -- Kopieer foto naar Pubble Inbox.
     if not copy_to_inbox(photo_src, inbox .. '/' .. photo_file) then return end
@@ -668,7 +703,7 @@ function M.ondernemen_menu()
     -- zodat de volledig ingevulde buffer (inclusief columntekst) wordt geëxporteerd.
     local week_prefix = publication_week()
     local gn_dir = M.config.desktop .. '/' .. week_prefix .. '_ondernemen_in_kampen'
-    if not prepare_layout_export(vim.api.nvim_get_current_buf(), {
+    if not prepare_layout_export(target_buf, {
       dir = gn_dir,
       txt_name = '1.ondernemen_in_kampenFOTO.txt',
       img_name = '1.ondernemen_in_kampenFOTO.' .. photo_ext,
@@ -676,6 +711,7 @@ function M.ondernemen_menu()
       label = 'Ondernemen in Kampen',
     }) then return end
 
+    if done then done() end
     notifications.workflow(
       'Ondernemen in Kampen: ' .. naam .. '\n'
       .. '→ Pubble Inbox/' .. photo_file .. '\n'
@@ -694,6 +730,7 @@ local function apply(t, vars, target_buf)
   local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
   local existing_fm = visible_frontmatter(buf_lines)
   local existing_header, content = split_visible_article(buf_lines)
+  if vars.source_body then content = vim.split(vars.source_body, '\n', { plain = true }) end
   existing_header = with_default_edition(
     existing_header,
     t.edition or (t.column and 'B' or nil)
@@ -825,7 +862,7 @@ local function normalize_hondenhoek(content)
 end
 M._normalize_hondenhoek = normalize_hondenhoek
 
-function M.kamperkiek_flow(template, target_buf)
+function M.kamperkiek_flow(template, target_buf, candidate)
   target_buf = target_buf or vim.api.nvim_get_current_buf()
   local inbox = require('texttools_paths').inbox()
   local images = image_files(inbox)
@@ -848,6 +885,9 @@ function M.kamperkiek_flow(template, target_buf)
   -- vervolgens de vaste rubriekkop en intro erboven.
   local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
   local _, article_lines = split_visible_article(buf_lines)
+  if candidate and candidate.normalized_body then
+    article_lines = vim.split(candidate.normalized_body, '\n', { plain = true })
+  end
   local normalized = normalize_kamper_kiek(article_lines)
   apply(template, { body = table.concat(normalized, '\n') }, target_buf)
 
@@ -876,11 +916,23 @@ end
 
 local stock_rubrieken
 
-function M.apply_detected_rubric(id, buf)
+function M.apply_detected_rubric(id, buf, candidate, done)
+  candidate = candidate or {}
+  if id == 'raadspraat' or id == 'ondernemen' then
+    local applied = false
+    local on_applied = function() applied = true; if done then done() end end
+    if id == 'raadspraat' then M.raadspraat_menu(buf, candidate, on_applied)
+    else M.ondernemen_menu(buf, candidate, on_applied) end
+    if applied then return true end
+    return false, 'person_cancelled'
+  end
+  if id == 'natuurvereniging' then
+    return M.apply_template_by_name('Column Natuurvereniging', { source_body = candidate.normalized_body }, buf)
+  end
   if id == 'kamper_kiek' then
     for _, template in ipairs(M.templates) do
       if template.name == 'Kiek op de wiek (Sander de Rouwe)' then
-        return M.kamperkiek_flow(template, buf)
+        return M.kamperkiek_flow(template, buf, candidate)
       end
     end
     return false, 'template_missing'
@@ -888,10 +940,18 @@ function M.apply_detected_rubric(id, buf)
   if id == 'hondenhoek' then
     for _, config in ipairs(stock_rubrieken or {}) do
       if config.name == 'Hondenhoek' then
-        return M.stock_rubriek_flow(config, buf)
+        return M.stock_rubriek_flow(config, buf, candidate)
       end
     end
     return false, 'template_missing'
+  end
+  for _, config in ipairs(stock_rubrieken or {}) do
+    if config.name == candidate.template_name then
+      return M.stock_rubriek_flow(config, buf, candidate)
+    end
+  end
+  if candidate.template_name then
+    return M.apply_template_by_name(candidate.template_name, { source_body = candidate.normalized_body }, buf)
   end
   return false, 'unknown_rubric'
 end
@@ -952,7 +1012,7 @@ for _, r in ipairs(stock_rubrieken) do
   stock_rubriek_names[r.name] = true
 end
 
-function M.stock_rubriek_flow(config, target_buf)
+function M.stock_rubriek_flow(config, target_buf, candidate)
   target_buf = target_buf or vim.api.nvim_get_current_buf()
   local stock_src = M.config.stock_images .. '/' .. config.stock_image
   local inbox = require('texttools_paths').inbox()
@@ -976,6 +1036,7 @@ function M.stock_rubriek_flow(config, target_buf)
 
   local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
   local existing_header, article_lines = split_visible_article(buf_lines)
+  if candidate and candidate.normalized_body then article_lines = vim.split(candidate.normalized_body, '\n', { plain = true }) end
   if config.normalize then article_lines = config.normalize(article_lines) end
   local new_lines = {}
   for _, l in ipairs(fm_lines)  do table.insert(new_lines, l) end

@@ -171,4 +171,35 @@ function M.finalize(buf)
   return path
 end
 
+-- Kopieer definitieve uploadbestanden asynchroon vóór de tekst wordt afgerond.
+-- De Python-core resolveert verplaatste foto's en controleert hun inhoudshash.
+function M.finalize_with_media(buf, article_path, done)
+  local plan = plan_for(buf)
+  if not plan then done(nil); return end
+  local tick = vim.api.nvim_buf_get_changedtick(buf)
+  local command = {
+    require('texttools_commands').bin('python'), '-m', 'texttools.layout_media',
+    article_path, plan.dir, plan.txt_name,
+  }
+  if plan.img_name then
+    table.insert(command, '--image-name')
+    table.insert(command, plan.img_name)
+  end
+  local started = pcall(vim.system, command, { text = true }, function(result)
+    vim.schedule(function()
+      if not vim.api.nvim_buf_is_valid(buf) then return end
+      if result.code ~= 0 then
+        done(nil, vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or 'Foto-export mislukt.')
+        return
+      end
+      if vim.api.nvim_buf_get_changedtick(buf) ~= tick or not vim.deep_equal(plan_for(buf), plan) then
+        done(nil, 'Artikel gewijzigd tijdens foto-export; tekstexport niet afgerond.')
+        return
+      end
+      done(M.finalize(buf))
+    end)
+  end)
+  if not started then done(nil, 'Foto-export kon niet worden gestart.') end
+end
+
 return M

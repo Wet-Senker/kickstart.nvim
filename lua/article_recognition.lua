@@ -443,7 +443,7 @@ local function sort_by_confidence(results)
   return results
 end
 
-function M.evaluate(text)
+function M.evaluate(text, column_candidates)
   text = type(text) == 'string' and text or ''
   local all, by_id, rubrics, workflows = {}, {}, {}, {}
   for _, detector in ipairs(DETECTORS) do
@@ -456,6 +456,16 @@ function M.evaluate(text)
       table.insert(workflows, detected)
     end
   end
+  -- De Python-core bezit de nieuwe columnregels; Lua combineert uitsluitend
+  -- de getypeerde uitkomst met de bestaande detectorresultaten.
+  for _, detected in ipairs(column_candidates or {}) do
+    for index = #rubrics, 1, -1 do
+      if rubrics[index].id == detected.id then table.remove(rubrics, index) end
+    end
+    table.insert(all, detected)
+    by_id[detected.id] = detected
+    table.insert(rubrics, detected)
+  end
   return {
     all = all,
     by_id = by_id,
@@ -465,6 +475,12 @@ function M.evaluate(text)
 end
 
 function M.rubric_decision(evaluation)
+  for _, detected in ipairs((evaluation or {}).rubrics or {}) do
+    if detected.explicit then
+      return { action = detected.policy == 'auto' and 'auto' or 'confirm',
+        candidate = detected, candidates = { detected } }
+    end
+  end
   local candidates = {}
   for _, detected in ipairs((evaluation or {}).rubrics or {}) do
     -- Een al aanwezige vaste templatevorm is sterker bewijs dan losse

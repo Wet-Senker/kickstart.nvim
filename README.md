@@ -232,14 +232,30 @@ Pubble Inbox moet daarvoor leeg zijn. Een losse aangeleverde regel
 Kalender en 112 worden ook na `<leader>ar` op de herschreven tekst beoordeeld. 112 vraagt daar
 alleen opnieuw om bevestiging als bij import nog geen keuze is gemaakt.
 
-**Andere vaste rubrieken worden niet automatisch herkend.** Raadspraat,
-Ondernemen in Kampen en alle hierboven niet genoemde vaste rubrieken zijn een handmatige
-redactionele keuze via `<leader>kt`. Wanneer toekomstige detectors minder dan
-volledige zekerheid geven of elkaar tegenspreken, volgt eveneens een
-keuzemenu; er wordt dan nooit stil een template toegepast. `<leader>kp` leest de artikeltekst niet;
-het gebruikt alleen de rotatie- en planningsgegevens van Raadspraat en
-Ondernemen. Namen, partijen en foto's worden pas na de gekozen rubriek uit
-mappen en configuratie ingevuld.
+**Column Natuurvereniging IJsseldelta** — een auteursregel met Suzanne Beurmanjer of een afsluitend mailadres op `natuurverenigingijsseldelta.nl` geeft een voorstel. Ook bij beide signalen vraagt NeoVim altijd bevestiging. Een losse vermelding van de vereniging of haar website is onvoldoende. Na akkoord wordt het bestaande column-template toegepast; tekst en auteursregel blijven behouden. Een al toegepaste rubriekkop wordt niet opnieuw ingepakt. De nieuwe regels staan configureerbaar in de Python-core (`column_recognition.json`); per import komt er één asynchrone lokale Python-call bij, zonder AI; Raadspraat en Ondernemen gebruiken daarnaast hun eigen fotomappen.
+
+**Rubrieknaam boven de tekst** — een losse rubrieknaam of `Rubrieknaam: Titel`
+start de bijbehorende templateflow. Dit geldt voor alle huidige templates,
+waaronder Raadspraat, Ondernemen in Kampen, de natuurcolumn, Hondenhoek,
+Kamper Kiek, Open Hof en de andere vaste columns. Een vermelding in een
+gewone tekstzin geldt niet als opdracht. Natuurvereniging en 112 behouden
+hun bevestigingsvraag. Een al volledig toegepast template wordt niet herhaald.
+
+**Persoonsherkenning** — Raadspraat en Ondernemen vergelijken de importtekst
+ook met namen uit hun fotomappen. Zonder expliciete rubriekkop vraagt zo'n
+match bevestiging. Eén passende persoon kan meteen worden ingevuld; bij een
+ontbrekende of onduidelijke match kies je de persoon. Een geannuleerde keuze
+wijzigt de tekst niet. `<leader>kp` blijft uitsluitend planning gebruiken.
+De herkenning gebeurt in één asynchroon Python-proces per import; alleen de
+twee relevante fotomappen worden bekeken, zonder AI of netwerkverkeer.
+
+**Foto bij de vormgevingstekst** — bij succesvolle verzending worden alle
+geüploade foto's naast de definitieve tekst gezet, ook voor de generieke
+natuurcolumn in de lezersnieuwsmap. De uploadgegevens en inhoudshash bepalen
+welke foto erbij hoort, ook nadat die naar `used` is verplaatst. Bij een
+ontbrekende of gewijzigde foto blijft het exportplan staan en meldt NeoVim de
+fout; `<leader>aw` kan de ontbrekende stap hervatten. Dit kost alleen bij een
+vormgevingsexport één extra asynchroon Python-proces plus lokale fotokopieën.
 
 ---
 
@@ -303,7 +319,7 @@ Gedefinieerd in `~/.config/nvim/lua/krant.lua`. De gewone templates staan in
 `M.templates`. Raadspraat, Ondernemen in Kampen en Kamper Kiek staan bovenaan
 hetzelfde menu. De eerste twee gebruiken een dynamische flow voor persoon,
 foto, bijschrift en template; Kamper Kiek gebruikt de ene foto uit Pubble
-Inbox. Raadspraat en Ondernemen worden niet automatisch geclassificeerd.
+Inbox. Raadspraat en Ondernemen worden herkend aan een expliciete rubriekkop of voorgesteld op basis van een naam uit hun fotomappen.
 De huidige columns en gespecialiseerde rubrieken zijn voor De Brug en krijgen
 daarom bij de templatebewerking zichtbaar `e: B`. Een bestaande handmatige
 editiekeuze wordt niet overschreven.

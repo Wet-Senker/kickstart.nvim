@@ -2455,14 +2455,24 @@ end
 local function apply_recognized_rubric(buf, candidate)
   if candidate.id == "112" then
     vim.b[buf]._112_rejected = false
-    local ok = require("krant").apply_template_by_name("112 nieuws", {}, buf)
+    local ok = require("krant").apply_template_by_name("112 nieuws", { source_body = candidate.normalized_body }, buf)
     if ok then
       vim.b[buf].recognized_rubric = candidate.id
       vim.b[buf].recognized_rubric_score = candidate.confidence
     end
     return ok
   end
-  local ok, reason = require("krant").apply_detected_rubric(candidate.id, buf)
+  local function applied()
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    vim.b[buf].recognized_rubric = candidate.id
+    vim.b[buf].recognized_rubric_score = candidate.confidence
+    vim.b[buf].rubric_recognition_pending = nil
+  end
+  local ok, reason = require("krant").apply_detected_rubric(candidate.id, buf, candidate, applied)
+  if reason == "pending" then
+    vim.b[buf].rubric_recognition_pending = candidate.id .. ":person"
+    return true
+  end
   if ok then
     vim.b[buf].recognized_rubric = candidate.id
     vim.b[buf].recognized_rubric_score = candidate.confidence
@@ -2474,16 +2484,21 @@ local function apply_recognized_rubric(buf, candidate)
 end
 
 local function offer_rubric_candidates(buf, decision)
-  if #decision.candidates == 1 and decision.candidate.id == "112" then
+  if #decision.candidates == 1 and decision.candidate.id == "112" and not decision.candidate.explicit then
     _offer_112_template(buf, decision.candidate.points, "bij import")
     return
   end
   if vim.b[buf].rubric_recognition_prompt_pending then return end
 
   vim.b[buf].rubric_recognition_prompt_pending = true
+  local prompt_tick = vim.api.nvim_buf_get_changedtick(buf)
   local choice = M._rubric_confirm(decision)
   if not vim.api.nvim_buf_is_valid(buf) then return end
   vim.b[buf].rubric_recognition_prompt_pending = false
+  if vim.api.nvim_buf_get_changedtick(buf) ~= prompt_tick then
+    notify_workflow("Artikel gewijzigd tijdens rubriekkeuze; template niet toegepast.", vim.log.levels.WARN)
+    return
+  end
   if not choice then
     for _, candidate in ipairs(decision.candidates) do
       if candidate.id == "112" then vim.b[buf]._112_rejected = true end
@@ -2508,6 +2523,35 @@ local function rubric_autodetect(buf, text, evaluation)
   end
 end
 
+-- Eén asynchrone lokale Python-call; auteurs- en contactregels blijven in de
+-- core en kunnen zo ook door een andere client worden gebruikt.
+M._column_recognition_runner = function(buf, body, done)
+  start_buffer_job(buf)
+  local started = pcall(vim.system,
+    { texttools_commands.bin("python"), "-m", "texttools.column_recognition",
+      "--photo-root", require("krant").config.photo_root },
+    { text = true, stdin = body, timeout = 5000 },
+    function(result)
+      vim.schedule(function()
+        finish_buffer_job(buf)
+        local ok, payload = pcall(vim.json.decode, result.stdout or "", { luanil = { object = true, array = true } })
+        if result.code ~= 0 or not ok or type(payload) ~= "table"
+            or payload.schema_version ~= 1 or type(payload.candidates) ~= "table" then
+          notify_workflow("Columnherkenning mislukt; kies zo nodig het template via <leader>kt.", vim.log.levels.WARN)
+          done({})
+          return
+        end
+        done(payload.candidates)
+      end)
+    end
+  )
+  if not started then
+    finish_buffer_job(buf)
+    notify_workflow("Columnherkenning kon niet starten; kies zo nodig via <leader>kt.", vim.log.levels.WARN)
+    done({})
+  end
+end
+
 local function article_autodetect(buf)
   if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].article_recognition_done then return end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -2524,23 +2568,42 @@ local function article_autodetect(buf)
     -- doublure is beoordeeld. Pas nu mag kalender-AI worden aangeboden.
     lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
     text = table.concat(lines, "\n")
-    local evaluation = article_recognition.evaluate(text)
-    -- Reeds toegepaste vaste templates hoeven niet opnieuw te worden toegepast,
-    -- maar oudere buffers krijgen hier wel hun inmiddels vaste editiecode.
-    local existing_rubric = article_recognition.rubric_decision(evaluation).existing
-    if existing_rubric then
-      require("krant").ensure_detected_rubric_edition(existing_rubric.id, buf)
-      vim.b[buf].recognized_rubric = existing_rubric.id
-      vim.b[buf].recognized_rubric_score = existing_rubric.confidence
-    end
-    local calendar_prompted = _calendar_autodetect(buf, lines, text, evaluation, function()
+    local recognition_tick = vim.api.nvim_buf_get_changedtick(buf)
+    M._column_recognition_runner(buf, editorial_body_text(lines), function(column_candidates)
       if not vim.api.nvim_buf_is_valid(buf) then return end
-      local current_text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
-      rubric_autodetect(buf, current_text, article_recognition.evaluate(current_text))
+      if vim.api.nvim_buf_get_changedtick(buf) ~= recognition_tick then
+        vim.b[buf].article_recognition_done = nil
+        notify_workflow("Artikel gewijzigd tijdens columnherkenning; herkenning overgeslagen. Kies zo nodig via <leader>kt.", vim.log.levels.INFO)
+        return
+      end
+      local evaluation = article_recognition.evaluate(text, column_candidates)
+      -- Reeds toegepaste vaste templates hoeven niet opnieuw te worden toegepast,
+      -- maar oudere buffers krijgen hier wel hun inmiddels vaste editiecode.
+      local existing_rubric = article_recognition.rubric_decision(evaluation).existing
+      if existing_rubric then
+        require("krant").ensure_detected_rubric_edition(existing_rubric.id, buf)
+        vim.b[buf].recognized_rubric = existing_rubric.id
+        vim.b[buf].recognized_rubric_score = existing_rubric.confidence
+      end
+      -- Een mogelijke natuurcolumn eerst laten bevestigen: evenementwoorden in
+      -- de column mogen niet alvast een kalender-AI-call starten.
+      if #column_candidates > 0 then
+        rubric_autodetect(buf, text, evaluation)
+        local selected = evaluation.by_id[vim.b[buf].recognized_rubric or ""]
+        if selected and selected.suppress_calendar then return end
+        if vim.b[buf].rubric_recognition_pending then return end
+        lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        text = table.concat(lines, "\n")
+      end
+      local calendar_prompted = _calendar_autodetect(buf, lines, text, evaluation, function()
+        if not vim.api.nvim_buf_is_valid(buf) then return end
+        local current_text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+        rubric_autodetect(buf, current_text, article_recognition.evaluate(current_text))
+      end)
+      -- Automatische bevestigingen mogen elkaar niet overlappen. Eventuele
+      -- rubriekherkenning volgt daarom pas na de datumbevestiging.
+      if not calendar_prompted then rubric_autodetect(buf, text, evaluation) end
     end)
-    -- Automatische bevestigingen mogen elkaar niet overlappen. Eventuele
-    -- rubriekherkenning volgt daarom pas na de datumbevestiging.
-    if not calendar_prompted then rubric_autodetect(buf, text, evaluation) end
   end)
 end
 
@@ -3232,74 +3295,75 @@ function M.pubble_send(target_buf)
           -- Schrijf voor iedere rubriek precies één actuele vormgevingstekst.
           -- Bij een fout blijft het plan staan en hervat <leader>aw via het
           -- Pubble-tempbestand zonder dubbele artikelen.
-          local export_path, export_error = layout_export.finalize(buf)
-          if export_error then
-            vim.b[buf].publication_in_progress = false
-            vim.b[buf].failed_send_file = temp_file
-            vim.notify(
-              "Artikel is gepubliceerd, maar de vormgevingsexport mislukte: "
-                .. export_error
-                .. ". <leader>aw probeert alleen de ontbrekende stappen opnieuw.",
-              vim.log.levels.ERROR
-            )
-            return
-          end
-          if export_path then msg = msg .. " | vormgeving" end
-          -- Verplaats pas na hoofd- én vervolgpublicatie het volledige
-          -- statusbestand naar het operationele publicatiearchief.
-          local archive_result = vim.system(
-            { texttools_python, "-m", "texttools.pubble_archive", temp_file, "--json" },
-            { text = true }
-          ):wait()
-          local archive_ok, archive_data = pcall(vim.fn.json_decode, archive_result.stdout or "")
-          if archive_result.code ~= 0 or not archive_ok or type(archive_data) ~= "table"
-              or type(archive_data.path) ~= "string" then
-            vim.b[buf].publication_in_progress = false
-            vim.b[buf].failed_send_file = temp_file
-            if vim.fn.filereadable(temp_file) == 1 then
-              vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(temp_file))
+          layout_export.finalize_with_media(buf, temp_file, function(export_path, export_error)
+            if export_error then
+              vim.b[buf].publication_in_progress = false
+              vim.b[buf].failed_send_file = temp_file
+              vim.notify(
+                "Artikel is gepubliceerd, maar de vormgevingsexport mislukte: "
+                  .. export_error
+                  .. ". <leader>aw probeert alleen de ontbrekende stappen opnieuw.",
+                vim.log.levels.ERROR
+              )
+              return
             end
-            local archive_err = vim.trim(archive_result.stderr or archive_result.stdout or "")
-            vim.notify(
-              "Artikel is gepubliceerd, maar archiveren mislukte"
-                .. (archive_err ~= "" and (": " .. archive_err) or "")
-                .. ". Bron en tempbestand zijn behouden.",
-              vim.log.levels.ERROR
+            if export_path then msg = msg .. " | vormgeving" end
+            -- Verplaats pas na hoofd- én vervolgpublicatie het volledige
+            -- statusbestand naar het operationele publicatiearchief.
+            local archive_result = vim.system(
+              { texttools_python, "-m", "texttools.pubble_archive", temp_file, "--json" },
+              { text = true }
+            ):wait()
+            local archive_ok, archive_data = pcall(vim.fn.json_decode, archive_result.stdout or "")
+            if archive_result.code ~= 0 or not archive_ok or type(archive_data) ~= "table"
+                or type(archive_data.path) ~= "string" then
+              vim.b[buf].publication_in_progress = false
+              vim.b[buf].failed_send_file = temp_file
+              if vim.fn.filereadable(temp_file) == 1 then
+                vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(temp_file))
+              end
+              local archive_err = vim.trim(archive_result.stderr or archive_result.stdout or "")
+              vim.notify(
+                "Artikel is gepubliceerd, maar archiveren mislukte"
+                  .. (archive_err ~= "" and (": " .. archive_err) or "")
+                  .. ". Bron en tempbestand zijn behouden.",
+                vim.log.levels.ERROR
+              )
+              return
+            end
+            temp_file = archive_data.path
+            vim.b[buf].failed_send_file = nil
+            vim.b[buf].publication_review_state = nil
+            vim.b[buf].event_review_state = nil
+
+            local sent_marker = "**Verstuurd naar Pubble op " .. os.date("%d-%m-%Y %H:%M") .. "**"
+            local marker_block = { sent_marker }
+            if article_url then table.insert(marker_block, article_url) end
+            local cleanup_ok, cleanup_error = finalize_published_buffer(
+              buf,
+              file_path,
+              marker_block,
+              archive_data.path
             )
-            return
-          end
-          temp_file = archive_data.path
-          vim.b[buf].failed_send_file = nil
-          vim.b[buf].publication_review_state = nil
-          vim.b[buf].event_review_state = nil
+            if not cleanup_ok then
+              message_level = vim.log.levels.WARN
+              msg = msg .. " | LET OP: werkbestand bleef staan"
+              vim.notify(
+                cleanup_error .. ". Het artikel is wel gepubliceerd en gearchiveerd; verwijder dit bestand handmatig.",
+                vim.log.levels.WARN
+              )
+            end
 
-          local sent_marker = "**Verstuurd naar Pubble op " .. os.date("%d-%m-%Y %H:%M") .. "**"
-          local marker_block = { sent_marker }
-          if article_url then table.insert(marker_block, article_url) end
-          local cleanup_ok, cleanup_error = finalize_published_buffer(
-            buf,
-            file_path,
-            marker_block,
-            archive_data.path
-          )
-          if not cleanup_ok then
-            message_level = vim.log.levels.WARN
-            msg = msg .. " | LET OP: werkbestand bleef staan"
-            vim.notify(
-              cleanup_error .. ". Het artikel is wel gepubliceerd en gearchiveerd; verwijder dit bestand handmatig.",
-              vim.log.levels.WARN
-            )
-          end
+            -- Het browsermoment is het eindsignaal: hoofdartikel, media,
+            -- eventuele vervolgen en archivering zijn nu allemaal gereed.
+            if article_url then
+              open_published_url(article_url)
+            end
 
-          -- Het browsermoment is het eindsignaal: hoofdartikel, media,
-          -- eventuele vervolgen en archivering zijn nu allemaal gereed.
-          if article_url then
-            open_published_url(article_url)
-          end
+            notify_workflow(msg, message_level)
 
-          notify_workflow(msg, message_level)
-
-          vim.b[buf].publication_in_progress = false
+            vim.b[buf].publication_in_progress = false
+          end)
 
         else
           vim.b[buf].publication_in_progress = false
@@ -4815,7 +4879,7 @@ function M.tussenkopjes_streamer()
     local items = {}
     for _, kop in ipairs(kop_options) do table.insert(items, kop) end
     table.insert(items, keep_label)
-    vim.ui.select(items, { prompt = "Kop kiezen (vult de streamer aan):" }, function(choice)
+    vim.ui.select(items, { prompt = "Kop kiezen:" }, function(choice)
       if choice and choice ~= keep_label then
         local with_headline = apply_selected_headline(new_body, choice)
         if not with_headline then return end
@@ -4825,8 +4889,8 @@ function M.tussenkopjes_streamer()
     end)
   end
 
-  -- De kop moet de streamer aanvullen; deze call start daarom pas zodra de
-  -- streamertekst bekend is (bestaand of net gegenereerd, eventueel leeg).
+  -- De streamer gaat mee als context; de kop blijft zelfstandig het hoofdnieuws
+  -- vertellen. Start zodra de streamertekst bekend is (eventueel leeg).
   local function launch_kopopties(streamer_text)
     local input = "Kopstatus: " .. headline_status .. "\n"
     if streamer_text and streamer_text ~= "" then
@@ -5149,10 +5213,11 @@ vim.keymap.set("n", "<leader>ag", M.ai_chat, {
 local function show_rubric_recognition_help()
   notify_workflow(
     table.concat({
-      "Deterministische herkenning: kalender, 112, Kamper Kiek en Hondenhoek.",
+      "Deterministische herkenning: kalender, 112, Kamper Kiek, Hondenhoek en Column Natuurvereniging.",
       "Kamper Kiek: vaste naam + nummering 1-3. Hondenhoek: Bert Nieuwenhuis + hond/honden (of Hondenhoek + tweede signaal).",
-      "Alleen zekere Kamper Kiek/Hondenhoek wordt automatisch toegepast; 112 vraagt altijd bevestiging.",
-      "Raadspraat, Ondernemen in Kampen en andere vaste rubrieken kies je zelf via <leader>kt.",
+      "Bij een expliciete rubriekkop wordt de templateflow automatisch toegepast; 112 en Natuurvereniging vragen altijd bevestiging.",
+      "Een rubrieknaam boven de tekst start de templateflow; Raadspraat/Ondernemen herkennen ook fotonamen (met bevestiging).",
+      "Handmatig kiezen kan altijd via <leader>kt.",
       "<leader>kp gebruikt alleen planning; namen en foto's worden pas na je keuze ingevuld.",
     }, "\n"),
     vim.log.levels.INFO,

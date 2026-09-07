@@ -59,5 +59,39 @@ assert(exported:find('Actuele tekst na de templatekeuze.', 1, true), 'latere tek
 assert(not exported:find('=== ARTIKEL ===', 1, true), 'artikelgrens lekte naar vormgeving')
 assert(not exported:find('prio: 1', 1, true), 'controlecode lekte naar vormgeving')
 
+-- Definitieve export haalt de werkelijk geüploade foto uit de Python-state.
+local actual = tmp .. '/actual.jpg'
+vim.fn.writefile({ 'actual uploaded bytes' }, actual, 'b')
+local state = tmp .. '/published.md'
+vim.fn.writefile({
+  '---', 'media:', '  uploads:',
+  '    ' .. vim.fn.sha256('actual uploaded bytes') .. ':',
+  '      filename: actual.jpg', '      image_metadata_id: 42',
+  '      stored_path: ' .. vim.json.encode(actual),
+  '---', 'Gepubliceerde tekst',
+}, state)
+assert(layout_export.prepare(buf, { dir = layout_dir, txt_name = 'nature.txt' }))
+local completed, error_result
+layout_export.finalize_with_media(buf, state, function(result, err)
+  completed = result or false
+  error_result = err
+end)
+assert(vim.wait(5000, function() return completed ~= nil end, 10), 'foto-export bleef hangen')
+assert(completed == layout_dir .. '/nature.txt', error_result or 'tekstexport ontbreekt')
+assert(table.concat(vim.fn.readfile(layout_dir .. '/nature.jpg', 'b'), '\n') == 'actual uploaded bytes', 'definitieve uploadfoto ontbreekt')
+
+-- Een foto die na upload verdwijnt blokkeert afronding en behoudt het plan.
+vim.fn.delete(actual)
+assert(layout_export.prepare(buf, { dir = layout_dir, txt_name = 'retry.txt' }))
+completed, error_result = nil, nil
+layout_export.finalize_with_media(buf, state, function(result, err)
+  completed = result or false
+  error_result = err
+end)
+assert(vim.wait(5000, function() return completed ~= nil end, 10), 'exportfout bleef hangen')
+assert(completed == false and error_result, 'ontbrekende foto werd genegeerd')
+assert(layout_export.pending(buf), 'exportplan ging bij fout verloren')
+assert(vim.fn.filereadable(layout_dir .. '/retry.txt') == 0, 'tekst werd ondanks ontbrekende foto afgerond')
+
 vim.fn.delete(tmp, 'rf')
 print('layout export: OK')

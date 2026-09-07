@@ -39,7 +39,9 @@ vim.api.nvim_buf_set_lines(conflict, 0, -1, false, {
   '',
   '=== ARTIKEL ===',
   '',
-  'De Kamper kiek op de wîêk: 1). Eerste punt. 2). Tweede punt. 3). Derde punt.',
+  'Een verslag over de Kamper Kiek',
+  '',
+  '1). Eerste punt. 2). Tweede punt. 3). Derde punt.',
   'Politie, brandweer en ambulance kwamen na een aanrijding ter plaatse.',
 })
 ai._article_autodetect(conflict)

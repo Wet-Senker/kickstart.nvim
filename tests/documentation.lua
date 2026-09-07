@@ -45,7 +45,8 @@ for _, rubric in ipairs({ "Raadspraat", "Ondernemen in Kampen", "Kamper Kiek" })
   assert(documentation:find(rubric, 1, true), rubric .. " ontbreekt in de rubriekdocumentatie")
 end
 assert(
-  documentation:find("niet automatisch herkend", 1, true),
+  documentation:find("Een vermelding in een", 1, true)
+    and documentation:find("gewone tekstzin geldt niet als opdracht", 1, true),
   "de grens tussen automatische detectie en handmatige rubriekkeuze ontbreekt"
 )
 assert(
