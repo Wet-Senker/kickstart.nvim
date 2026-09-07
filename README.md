@@ -242,8 +242,9 @@ gewone tekstzin geldt niet als opdracht. Natuurvereniging en 112 behouden
 hun bevestigingsvraag. Een al volledig toegepast template wordt niet herhaald.
 
 **Persoonsherkenning** — Raadspraat en Ondernemen vergelijken de importtekst
-ook met namen uit hun fotomappen. Zonder expliciete rubriekkop vraagt zo'n
-match bevestiging. Eén passende persoon kan meteen worden ingevuld; bij een
+ook met namen uit hun fotomappen. Alleen een zelfstandige auteursregel telt
+als persoonsmatch; een naam in een gewone zin bepaalt de auteur niet. Zonder
+expliciete rubriekkop vraagt zo'n match bevestiging. Eén passende persoon kan meteen worden ingevuld; bij een
 ontbrekende of onduidelijke match kies je de persoon. Een geannuleerde keuze
 wijzigt de tekst niet. `<leader>kp` blijft uitsluitend planning gebruiken.
 De herkenning gebeurt in één asynchroon Python-proces per import; alleen de
