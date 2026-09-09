@@ -27,6 +27,31 @@ end
 -- Meer dan drie datums mogen niet stilzwijgend kalender-AI starten. Gebruik
 -- dezelfde ingebouwde confirm-route als productie, maar injecteer de keuze.
 local original_confirm = ai._calendar_date_confirm
+local original_vim_confirm = vim.fn.confirm
+local confirm_prompt, confirm_buttons, confirm_default
+vim.fn.confirm = function(prompt, buttons, default)
+  confirm_prompt = prompt
+  confirm_buttons = buttons
+  confirm_default = default
+  return 2
+end
+assert(original_confirm(4) == 2, 'datumvraag gaf de gekozen optie niet terug')
+assert(confirm_prompt:find('4 verschillende datums', 1, true), 'datumvraag noemt het aantal datums niet')
+assert(
+  confirm_prompt:find('één item, meerdere losse items of een hoofditem', 1, true),
+  'datumvraag legt de opsplitsing niet uit'
+)
+assert(
+  confirm_prompt:find('niets uit deze tekst komt in de online agenda', 1, true),
+  'datumvraag legt de Nee-keuze niet uit'
+)
+assert(
+  confirm_buttons == '&Ja — één of meer agenda-items maken\n&Nee — niets naar de online agenda',
+  'datumvraag toont geen duidelijke keuzes'
+)
+assert(confirm_default == 2, 'Nee is niet de veilige standaardkeuze')
+vim.fn.confirm = original_vim_confirm
+
 local asked_count
 ai._calendar_date_confirm = function(date_count)
   asked_count = date_count

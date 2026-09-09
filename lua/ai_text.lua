@@ -909,11 +909,14 @@ M._calendar_signal_score = _calendar_signal_score
 -- synchroon en betrouwbaar. Dit testpunt is injecteerbaar in headless tests.
 M._calendar_date_confirm = function(date_count)
   return vim.fn.confirm(
-    string.format(
-      "Tekst bevat %d verschillende datums. Is dit één agenda-item voor de website?",
-      date_count
-    ),
-    "&Ja — online agenda-item maken\n&Nee — geen online agenda-item",
+    table.concat({
+      string.format("Tekst bevat %d verschillende datums.", date_count),
+      "",
+      "Bevat deze tekst evenementen voor de online agenda?",
+      "Ja: het systeem kiest één item, meerdere losse items of een hoofditem met aparte programmaonderdelen.",
+      "Nee: niets uit deze tekst komt in de online agenda.",
+    }, "\n"),
+    "&Ja — één of meer agenda-items maken\n&Nee — niets naar de online agenda",
     2
   )
 end
