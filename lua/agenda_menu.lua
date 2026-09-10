@@ -34,9 +34,19 @@ local function command(...)
   return result
 end
 
+-- nvim_buf_set_lines weigert regels met een newline erin; brontitels/teksten uit
+-- Pubble bevatten die soms. Sla elke ingebedde newline plat tot een spatie.
+local function sanitize_lines(lines)
+  local safe = {}
+  for _, line in ipairs(lines) do
+    table.insert(safe, (tostring(line):gsub('[\r\n]', ' ')))
+  end
+  return safe
+end
+
 local function open_scratch(name, lines)
   local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, sanitize_lines(lines))
   vim.bo[buf].filetype = 'markdown'
   vim.bo[buf].modifiable = false
   vim.bo[buf].bufhidden = 'wipe'
@@ -215,5 +225,6 @@ function M.setup()
 end
 
 M._command = command
+M._sanitize_lines = sanitize_lines
 
 return M

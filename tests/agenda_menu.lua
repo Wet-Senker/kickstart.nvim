@@ -45,4 +45,10 @@ assert(pblob:find('editie B', 1, true), 'editie ontbreekt in kop')
 assert(pblob:find('/articles/internet/a1', 1, true), 'bewerk-URL links ontbreekt')
 assert(pblob:find('/articles/internet/a2', 1, true), 'bewerk-URL rechts ontbreekt')
 
+-- Regels met een ingebedde newline (rommelige Pubble-titel) worden platgeslagen,
+-- anders weigert nvim_buf_set_lines ze.
+local sanitized = module._sanitize_lines { 'Alzheimer Café\nZwolle', 'gewoon' }
+assert(sanitized[1] == 'Alzheimer Café Zwolle', 'newline niet platgeslagen')
+assert(not sanitized[1]:find('\n', 1, true), 'er zit nog een newline in')
+
 print('agenda_menu: OK')
