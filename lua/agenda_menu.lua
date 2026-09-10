@@ -105,21 +105,25 @@ function M._render_import(decoded)
 end
 
 function M._render_pairs(decoded)
-  local paren = decoded.paren or {}
   local lines = {
-    string.format('Eigen doublures — editie %s (%s..%s)', decoded.editie or '?', decoded.van or '?', decoded.tot or '?'),
+    string.format('Eigen doublures (%s..%s)', decoded.van or '?', decoded.tot or '?'),
     string.rep('=', 40), '',
-    string.format('%d agenda-item(s) gelezen, %d mogelijk(e) doublure(s):', decoded.aantal_items or 0, #paren),
-    '',
   }
-  for _, p in ipairs(paren) do
-    table.insert(lines, string.format('  %s (%s) ↔ %s — %s (%d%%)',
-      p.left.title, p.left.date or '?', p.right.title, p.reason, p.score or 0))
-    table.insert(lines, '      ' .. tostring(p.left.editor_url))
-    table.insert(lines, '      ' .. tostring(p.right.editor_url))
-  end
-  if #paren == 0 then
-    table.insert(lines, '  (geen)')
+  for _, e in ipairs(decoded.edities or {}) do
+    if e.fout and e.fout ~= vim.NIL then
+      table.insert(lines, string.format('Editie %s: NIET gelezen — %s', e.editie, e.fout))
+    else
+      local paren = e.paren or {}
+      table.insert(lines, string.format('Editie %s: %d item(s), %d mogelijke doublure(s)%s',
+        e.editie, e.aantal_items or 0, #paren, #paren > 0 and ':' or '.'))
+      for _, p in ipairs(paren) do
+        table.insert(lines, string.format('  %s (%s) ↔ %s — %s (%d%%)',
+          p.left.title, p.left.date or '?', p.right.title, p.reason, p.score or 0))
+        table.insert(lines, '      ' .. tostring(p.left.editor_url))
+        table.insert(lines, '      ' .. tostring(p.right.editor_url))
+      end
+    end
+    table.insert(lines, '')
   end
   return lines
 end
@@ -170,15 +174,18 @@ function M.import_check(opts)
   end)
 end
 
-function M.eigen_doublures(editie)
-  workflow('Agenda · eigen doublures zoeken…', vim.log.levels.INFO)
-  run(command('eigen-doublures', '--editie', editie or 'B'), nil, function(decoded)
+function M.eigen_doublures()
+  -- Alle eigen sites in één run (per site, niet kruislings).
+  workflow('Agenda · eigen doublures zoeken (alle sites)…', vim.log.levels.INFO)
+  run(command('eigen-doublures'), nil, function(decoded)
     open_scratch('Eigen doublures', M._render_pairs(decoded))
     local urls = {}
-    for _, p in ipairs(decoded.paren or {}) do
-      for _, side in ipairs { p.left, p.right } do
-        if side.editor_url and not vim.tbl_contains(urls, side.editor_url) then
-          table.insert(urls, side.editor_url)
+    for _, e in ipairs(decoded.edities or {}) do
+      for _, p in ipairs(e.paren or {}) do
+        for _, side in ipairs { p.left, p.right } do
+          if side.editor_url and not vim.tbl_contains(urls, side.editor_url) then
+            table.insert(urls, side.editor_url)
+          end
         end
       end
     end
@@ -199,8 +206,8 @@ function M.menu()
       -- Altijd normaliseren naar agenda-stijl: dat is de kern van de import.
       pick_edition(function(e) M.import_check { editie = e, normaliseer = true } end)
     end },
-    { label = 'Eigen agenda: doublures zoeken (per site)', fn = function()
-      pick_edition(function(e) M.eigen_doublures(e) end)
+    { label = 'Eigen agenda: doublures zoeken (alle sites)', fn = function()
+      M.eigen_doublures()
     end },
   }
   vim.ui.select(items, {

@@ -31,19 +31,25 @@ assert(blob:find('✗ [event-2] Concert — ontbreekt: Stad', 1, true), 'ontbrek
 assert(blob:find('Mogelijke doublures (1)', 1, true), 'doublures ontbreken')
 assert(blob:find('Opgeschoonde tekst.', 1, true), 'genormaliseerde tekst ontbreekt')
 
--- Eigen-doublures-render met bewerk-URL's.
+-- Eigen-doublures-render: meerdere edities in één run, met bewerk-URL's en
+-- een leesfout per editie.
 local pair_lines = module._render_pairs {
-  editie = 'B', van = '2026-09-10', tot = '2026-10-22', aantal_items = 105,
-  paren = {
-    { left = { title = 'Nazomer Fair', date = '2026-09-11', editor_url = 'https://brugmedia.pubble.dev/articles/internet/a1' },
-      right = { title = 'Nazomer Fair Het 8ste Werk', editor_url = 'https://brugmedia.pubble.dev/articles/internet/a2' },
-      reason = 'zelfde datum; zelfde locatie en gelijkende titel', score = 88 },
+  van = '2026-09-10', tot = '2026-10-22',
+  edities = {
+    { editie = 'B', aantal_items = 104, fout = vim.NIL, paren = {} },
+    { editie = 'SW', aantal_items = 134, fout = vim.NIL, paren = {
+      { left = { title = 'Nazomer Fair', date = '2026-09-11', editor_url = 'https://brugmedia.pubble.dev/articles/internet/a1' },
+        right = { title = 'Nazomer Fair Het 8ste Werk', editor_url = 'https://brugmedia.pubble.dev/articles/internet/a2' },
+        reason = 'zelfde datum; zelfde locatie en gelijkende titel', score = 88 },
+    } },
+    { editie = 'ST', aantal_items = 0, fout = 'Kan Pubble niet bereiken', paren = {} },
   },
 }
 local pblob = table.concat(pair_lines, '\n')
-assert(pblob:find('editie B', 1, true), 'editie ontbreekt in kop')
+assert(pblob:find('Editie B: 104 item', 1, true), 'editie B-regel ontbreekt')
+assert(pblob:find('Editie SW: 134 item', 1, true), 'editie SW-regel ontbreekt')
 assert(pblob:find('/articles/internet/a1', 1, true), 'bewerk-URL links ontbreekt')
-assert(pblob:find('/articles/internet/a2', 1, true), 'bewerk-URL rechts ontbreekt')
+assert(pblob:find('Editie ST: NIET gelezen', 1, true), 'leesfout-regel ontbreekt')
 
 -- Regels met een ingebedde newline (rommelige Pubble-titel) worden platgeslagen,
 -- anders weigert nvim_buf_set_lines ze.
