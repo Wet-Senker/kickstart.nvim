@@ -195,10 +195,8 @@ function M.menu()
   local items = {
     { label = 'Bronnen: overzicht', fn = function() bron.overzicht() end },
     { label = 'Bronnen: toevoegen', fn = function() bron.toevoegen() end },
-    { label = 'Import: ontdubbelen (huidige buffer)', fn = function()
-      pick_edition(function(e) M.import_check { editie = e } end)
-    end },
-    { label = 'Import: ontdubbelen + AI-normaliseren', fn = function()
+    { label = 'Import: verwerken (huidige buffer)', fn = function()
+      -- Altijd normaliseren naar agenda-stijl: dat is de kern van de import.
       pick_edition(function(e) M.import_check { editie = e, normaliseer = true } end)
     end },
     { label = 'Eigen agenda: doublures zoeken (per site)', fn = function()
