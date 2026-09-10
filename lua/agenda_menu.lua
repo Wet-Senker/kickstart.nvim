@@ -211,7 +211,7 @@ function M.menu()
     end },
   }
   vim.ui.select(items, {
-    prompt = 'Agenda',
+    prompt = 'Agenda online',
     format_item = function(item) return item.label end,
   }, function(choice)
     if choice then choice.fn() end
@@ -225,7 +225,7 @@ function M.setup()
     desc = 'Agenda-importmenu (bronnen, import, eigen doublures)',
   })
   vim.keymap.set('n', '<leader>kg', M.menu, {
-    desc = '[K]rant a[g]enda-menu',
+    desc = '[K]rant a[g]enda online (bronnen, import, doublures)',
   })
 end
 

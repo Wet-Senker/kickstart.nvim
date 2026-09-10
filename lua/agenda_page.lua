@@ -312,7 +312,7 @@ function M.setup()
     desc = 'Agendapagina print-only naar Pubble versturen',
   })
   vim.keymap.set('n', '<leader>ka', M.prepare, {
-    desc = '[K]rant [A]gendapagina voorbereiden',
+    desc = '[K]rant [A]gendapagina (print) voorbereiden',
   })
 end
 

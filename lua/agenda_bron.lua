@@ -224,9 +224,9 @@ function M.setup()
   vim.api.nvim_create_user_command('AgendaBronToevoegen', function() M.toevoegen() end, {
     desc = 'Voeg handmatig een agendabron toe',
   })
-  vim.keymap.set('n', '<leader>kb', M.overzicht, {
-    desc = '[K]rant agenda[b]ronnen tonen',
-  })
+  -- Geen eigen <leader>-mapping meer: de agenda-onlinemodule heeft één ingang,
+  -- het menu op <leader>kg (dat bevat "Bronnen: overzicht/toevoegen" al). De
+  -- commando's hierboven blijven als directe route beschikbaar.
 end
 
 M._command = command
