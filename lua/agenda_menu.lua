@@ -165,11 +165,24 @@ function M.import_check(opts)
     vim.notify('De huidige buffer is leeg.', vim.log.levels.ERROR)
     return
   end
-  local cmd = opts.normaliseer
-      and command('import', '--editie', opts.editie or 'B', '--normaliseer')
-    or command('import', '--editie', opts.editie or 'B')
-  workflow('Agenda · import controleren…', vim.log.levels.INFO)
+  local cmd = command('import', '--editie', opts.editie or 'B', '--normaliseer')
+  local changedtick = vim.api.nvim_buf_get_changedtick(buf)
+  workflow('Agenda · verwerken (herschrijven, controleren, ontdubbelen)…', vim.log.levels.INFO)
   run(cmd, text, function(decoded)
+    -- Werk de buffer bij met de herschreven agenda-teksten, mits de buffer intussen
+    -- niet is gewijzigd (anders zou een late callback jouw bewerking overschrijven).
+    local doc = decoded.rewritten_document
+    if type(doc) == 'string' and doc ~= '' and vim.api.nvim_buf_is_valid(buf) then
+      if vim.api.nvim_buf_get_changedtick(buf) == changedtick then
+        local lines = sanitize_lines(vim.split(doc, '\n', { plain = true }))
+        if lines[#lines] == '' then table.remove(lines) end
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+        vim.bo[buf].modified = true
+      else
+        vim.notify('Buffer veranderde tijdens verwerken; herschreven tekst niet toegepast.',
+          vim.log.levels.WARN)
+      end
+    end
     open_scratch('Agenda-import', M._render_import(decoded))
   end)
 end
