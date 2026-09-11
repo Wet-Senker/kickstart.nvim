@@ -4912,6 +4912,18 @@ function M.tussenkopjes_streamer(options)
   local has_headline = headline.has_headline == true
   local paras = scan_paragraphs(body)
 
+  -- De herschrijf-AI mag zelf al tussenkopjes hebben geleverd. Binnen het
+  -- artikelcontract is een losse vetregel na kop en lead een tussenkop; stuur
+  -- de body dan niet nogmaals naar dezelfde tussenkopjesprompt.
+  local has_subheadings = false
+  local first_subheading = has_headline and 3 or 2
+  for index = first_subheading, #paras do
+    if paras[index].heading then
+      has_subheadings = true
+      break
+    end
+  end
+
   local existing_streamer = nil
   for _, l in ipairs(body) do
     local s = l:match("^>%s*(.+)$")
@@ -4933,8 +4945,16 @@ function M.tussenkopjes_streamer(options)
   local numbered_text = "Kopstatus: " .. headline_status .. "\n" .. table.concat(numbered, "\n")
 
   local results = { koppen = nil, streamer = nil, kopopties = nil }
-  -- Slots: tussenkopjes + kopopties, plus de streamer-call als die nog moet.
-  local pending = (has_streamer and 2 or 3) - (automatic and 1 or 0)
+  -- Slots voor uitsluitend ontbrekende structuuronderdelen. In de handmatige
+  -- route blijven kopopties beschikbaar, ook als de body al tussenkopjes heeft.
+  local pending = (has_subheadings and 0 or 1)
+    + (has_streamer and 0 or 1)
+    + (automatic and 0 or 1)
+
+  if pending == 0 then
+    vim.b[buf].article_structure_running = false
+    return
+  end
 
   local function finish()
     if pending > 0 then return end
@@ -4956,8 +4976,10 @@ function M.tussenkopjes_streamer(options)
       end
     end
 
-    local new_body = insert_headings(body, koppen, paras, has_headline)
-    if #koppen == 0 then
+    local new_body = has_subheadings
+        and vim.deepcopy(body)
+        or insert_headings(body, koppen, paras, has_headline)
+    if not has_subheadings and #koppen == 0 then
       notify_workflow(
         "Geen tussenkopjes toegevoegd (artikel te kort of AI gaf niets terug).",
         vim.log.levels.INFO
@@ -5055,23 +5077,25 @@ function M.tussenkopjes_streamer(options)
     launch_kopopties(existing_streamer)
   end
 
-  ai_system(
-    { aitext, "tussenkopjes" },
-    { text = true, stdin = numbered_text },
-    function(result)
-      vim.schedule(function()
-        if result.code == 0 then
-          results.koppen = result.stdout
-        else
-          vim.notify("Tussenkopjes mislukt: " .. (result.stderr or ""), vim.log.levels.WARN)
-        end
-        pending = pending - 1
-        finish()
-      end)
-    end,
-    "AI · Tussenkopjes",
-    buf
-  )
+  if not has_subheadings then
+    ai_system(
+      { aitext, "tussenkopjes" },
+      { text = true, stdin = numbered_text },
+      function(result)
+        vim.schedule(function()
+          if result.code == 0 then
+            results.koppen = result.stdout
+          else
+            vim.notify("Tussenkopjes mislukt: " .. (result.stderr or ""), vim.log.levels.WARN)
+          end
+          pending = pending - 1
+          finish()
+        end)
+      end,
+      "AI · Tussenkopjes",
+      buf
+    )
+  end
 
   if not has_streamer then
     ai_system(

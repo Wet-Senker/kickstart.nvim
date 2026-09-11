@@ -52,6 +52,23 @@ assert(vim.wait(1000, function() return not vim.b[buf].article_structure_running
 result = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
 assert(result:find('> Eigen streamer', 1, true), 'eigen streamer werd overschreven')
 
+-- Tussenkopjes die de eerste herschrijf-AI zelf al oplevert blijven staan. De
+-- automatische vervolgstap vraagt dan alleen nog om een ontbrekende streamer.
+calls = {}
+callbacks = {}
+local with_heading = vim.deepcopy(body)
+table.insert(with_heading, 9, '**Bestaand onderwerp**')
+table.insert(with_heading, 10, '')
+vim.api.nvim_buf_set_lines(buf, 0, -1, false, with_heading)
+ai.tussenkopjes_streamer({ automatic = true, buf = buf })
+assert(#calls == 1 and calls[1] == 'streamer', 'bestaand tussenkopje startte toch de tussenkopjes-AI')
+callbacks.streamer({ code = 0, stdout = 'Aanvullende streamer' })
+assert(vim.wait(1000, function() return not vim.b[buf].article_structure_running end))
+result = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+local _, heading_count = result:gsub('%*%*Bestaand onderwerp%*%*', '')
+assert(heading_count == 1, 'bestaand tussenkopje werd verdubbeld')
+assert(result:find('> Aanvullende streamer', 1, true), 'ontbrekende streamer werd niet toegevoegd')
+
 -- Een late opmaakreactie mag tekst die de redacteur inmiddels wijzigde niet
 -- terugdraaien of aanvullen.
 calls = {}
