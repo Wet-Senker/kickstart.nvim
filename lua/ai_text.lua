@@ -1731,6 +1731,9 @@ function M.rewrite_article_buffer()
   local function run_rewrite()
   ai_system(rewrite_cmd, { text = true, stdin = input }, function(result)
     vim.schedule(function()
+      -- De importbuffer kan tijdens de AI-call door een templatekeuze, vensteractie
+      -- of handmatig sluiten verdwijnen. Een laat resultaat heeft dan geen doel.
+      if not vim.api.nvim_buf_is_valid(buf) then return end
       if result.code ~= 0 then
         vim.notify("AI rewrite mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
         return
