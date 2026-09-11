@@ -18,6 +18,7 @@ In Neovim:
   <leader>aG    huidige krantversie opslaan en goedkeuren
   <leader>aw    importcontrole, planning, doublures en versturen
                 ↳ zo nodig eerst kranttijd-/vervolgteksten controleren
+  <leader>kd    actieve webartikelen per site op doublures controleren
 ```
 
 Na volledig succes verhuist het artikel naar `Pubble Archief`; het werkbestand
@@ -59,6 +60,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen en Kamper Kiek |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten |
 | `<leader>ka` | Ruwe papieren agendapagina voorbereiden voor eigen tekstcontrole |
+| `<leader>kd` | Alle kranten of één krant intern controleren op actieve webdoublures; nooit kruislings tussen sites |
 
 ---
 

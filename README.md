@@ -30,6 +30,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 <leader>aw    Versturen — vangnet voor de doublurecontrole volgens branchbeleid
               bij agendapagina: krant kiezen, controleren en print-only versturen
 <leader>ka    Ruwe papieren agendapagina voorbereiden voor tekstcontrole
+<leader>kd    Actieve webartikelen per site op doublures controleren
 ```
 
 ---
@@ -54,6 +55,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen in Kampen en Kamper Kiek. |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten voor Raadspraat en Ondernemen in Kampen. |
 | `<leader>ka` | Ruwe papieren agendapagina structureren en gewone items redigeren; daarna zelf de tekst controleren. |
+| `<leader>kd` | Actieve webartikelen van alle kranten of één gekozen krant intern op doublures controleren. Kijkt standaard veertien dagen terug, vergelijkt alleen berichten die maximaal zeven dagen uiteen staan en opent kandidaten geordend in de browser. Sites worden nooit onderling vergeleken; agenda-schaduwartikelen tellen niet mee. |
 | `<leader>aq` | Annuleer alle actieve editor-AI-taken van de huidige buffer. |
 | `:AICancel` | Zelfde expliciete annulering als `<leader>aq`. |
 
@@ -385,6 +387,8 @@ De 112-disclaimer in het 112-template is de enige bron — `ai_text.lua` leest h
 | `lua/layout_export.lua` | uniform exportplan, placeholdercontrole en definitieve vormgevingstekst |
 | `lua/agenda_page.lua` | papieren agendapagina voorbereiden, controleren, previewen en versturen (`<leader>ka`) |
 | `lua/pubble_duplicates.lua` | koppen per krant, detailweergave van de gekozen krantversie en expliciete keuze bij mogelijke Pubble-doublures |
+| `lua/site_duplicates.lua` | dunne client en keuzemenu voor interne webartikel-doublures (`<leader>kd`) |
+| `lua/ordered_browser.lua` | opent gerelateerde Pubble-links in een stabiele, niet-blokkerende volgorde |
 | `plugin/agenda_page.lua` | laadt de afzonderlijke agendapagina-UI |
 | `plugin/column_reminders.lua` | Rubriekplanning (`<leader>kp`): reminders en overzichten |
 | `lua/pubble_archive.lua` | Telescope-zoekingangen voor bestandsnaam en archiefinhoud |

@@ -10,6 +10,7 @@ local ai_text = read("lua/ai_text.lua")
 local init = read("init.lua")
 local reminders = read("plugin/column_reminders.lua")
 local agenda_page = read("lua/agenda_page.lua")
+local site_duplicates = read("lua/site_duplicates.lua")
 local edition_review = read("lua/edition_review.lua")
 
 local documented_mappings = {
@@ -30,6 +31,7 @@ local documented_mappings = {
   { key = "<leader>kt", source = init, registration = "vim.keymap.set('n', '<leader>kt'" },
   { key = "<leader>kp", source = reminders, registration = "vim.keymap.set('n', '<leader>kp'" },
   { key = "<leader>ka", source = agenda_page, registration = "vim.keymap.set('n', '<leader>ka'" },
+  { key = "<leader>kd", source = site_duplicates, registration = "vim.keymap.set('n', '<leader>kd'" },
 }
 
 for _, mapping in ipairs(documented_mappings) do

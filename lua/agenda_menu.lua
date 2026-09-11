@@ -11,6 +11,7 @@ local M = {}
 
 local commands = require 'texttools_commands'
 local notifications = require 'texttools_notify'
+local browser = require 'ordered_browser'
 
 local python = commands.bin 'python'
 local module = 'texttools.agenda_cli'
@@ -202,7 +203,7 @@ function M.eigen_doublures()
         end
       end
     end
-    for _, url in ipairs(urls) do pcall(vim.ui.open, url) end
+    browser.open_urls(urls)
     if #urls > 0 then
       workflow(#urls .. ' item(s) in de browser geopend; bekijk en verwijder zelf in Pubble.',
         vim.log.levels.INFO, { ttl = 10 })
