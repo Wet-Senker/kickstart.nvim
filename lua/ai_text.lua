@@ -3390,7 +3390,21 @@ function M.pubble_send(target_buf)
             local code = vim.trim(token)
             table.insert(verzonden, editie_namen[code] or code)
           end
-          local msg = "Verzonden naar: " .. table.concat(verzonden, " + ") .. " (krant + website)"
+          local skipped_newspapers = vim.b[buf].skip_newspaper_editions
+          local all_web_only = type(skipped_newspapers) == "table"
+              and #skipped_newspapers == #resolved_editions
+          local some_web_only = type(skipped_newspapers) == "table"
+              and #skipped_newspapers > 0
+          local channel_summary
+          if all_web_only then
+            channel_summary = "website; krant overgeslagen"
+          elseif some_web_only then
+            channel_summary = "website voor alle; krant voor overige edities"
+          else
+            channel_summary = "krant + website"
+          end
+          local msg = "Verzonden naar: " .. table.concat(verzonden, " + ")
+              .. " (" .. channel_summary .. ")"
           if has_calendar then msg = msg .. " | kalender" end
           if has_facebook then msg = msg .. " | Facebook" end
           if has_linkedin then msg = msg .. " | LinkedIn" end
@@ -3450,6 +3464,7 @@ function M.pubble_send(target_buf)
             vim.b[buf].failed_send_file = nil
             vim.b[buf].publication_review_state = nil
             vim.b[buf].event_review_state = nil
+            vim.b[buf].skip_newspaper_editions = nil
 
             local sent_marker = "**Verstuurd naar Pubble op " .. os.date("%d-%m-%Y %H:%M") .. "**"
             local marker_block = { sent_marker }
@@ -3487,7 +3502,8 @@ function M.pubble_send(target_buf)
             local newspaper_ok = false
             local web_ok = false
             for _, phase in ipairs(publication_status.phases) do
-              if phase.name == "newspaper" and phase.status == "succeeded" then
+              if phase.name == "newspaper"
+                  and (phase.status == "succeeded" or phase.status == "skipped") then
                 newspaper_ok = true
               elseif phase.name == "web" and phase.status == "succeeded" then
                 web_ok = true
@@ -3513,6 +3529,11 @@ function M.pubble_send(target_buf)
     end
 
     local function run_main_send()
+      local skipped = vim.b[buf].skip_newspaper_editions
+      if type(skipped) == "table" and #skipped > 0 then
+        table.insert(cmd, "--skip-newspaper-editions")
+        table.insert(cmd, vim.fn.json_encode(skipped))
+      end
       ai_system(cmd, { text = true }, function(result)
         handle_send_result(result, false, nil)
       end, "Pubble · Verzenden")
@@ -3553,7 +3574,7 @@ function M.pubble_send(target_buf)
           temp_file,
           display_dates,
           resolved_editions,
-          function(ok, err, timing_prepared)
+          function(ok, err, timing_prepared, skipped_newspapers)
             if not ok then
               vim.b[buf].publication_in_progress = false
               discard_unpublished_temp()
@@ -3580,6 +3601,9 @@ function M.pubble_send(target_buf)
               )
               return
             end
+            if type(skipped_newspapers) == "table" and #skipped_newspapers > 0 then
+              vim.b[buf].skip_newspaper_editions = skipped_newspapers
+            end
             run_main_send()
           end
         )
@@ -3603,7 +3627,7 @@ function M.pubble_send(target_buf)
         temp_file,
         display_dates,
         resolved_editions,
-        function(ok, err, timing_prepared)
+        function(ok, err, timing_prepared, skipped_newspapers)
           if not ok then
             vim.b[buf].publication_in_progress = false
             discard_unpublished_temp()
@@ -3617,6 +3641,9 @@ function M.pubble_send(target_buf)
             end
             return
           end
+          if type(skipped_newspapers) == "table" and #skipped_newspapers > 0 then
+            vim.b[buf].skip_newspaper_editions = skipped_newspapers
+          end
 
           local function finish_preparation(event_prepared)
             if timing_prepared or event_prepared then
@@ -3624,6 +3651,7 @@ function M.pubble_send(target_buf)
               vim.b[buf].publication_review_state = {
                 display_dates = display_dates,
                 editions = resolved_editions,
+                skip_newspaper_editions = vim.b[buf].skip_newspaper_editions,
               }
               discard_unpublished_temp()
               local what
@@ -3641,6 +3669,14 @@ function M.pubble_send(target_buf)
               return
             end
             run_main_send()
+          end
+
+          -- Zonder krantplaatsing zijn gekoppelde krantvervolgen niet aan de
+          -- orde. De hoofdwebsite en agenda kunnen direct worden geplaatst.
+          if type(skipped_newspapers) == "table"
+              and #skipped_newspapers == #resolved_editions then
+            finish_preparation(false)
+            return
           end
 
           -- Een hervatbestand met reeds beoordeelde eventsecties stelt de
@@ -3689,6 +3725,7 @@ function M.pubble_send(target_buf)
   if type(review_state) == "table" then
     resolved_editions = review_state.editions or {}
     editie = table.concat(resolved_editions, ", ")
+    vim.b[buf].skip_newspaper_editions = review_state.skip_newspaper_editions
     _do_pubble_send(review_state.display_dates or {}, true)
     return
   end
@@ -4071,7 +4108,7 @@ vim.keymap.set("n", "<leader>aw", M.pubble_send, {
 -- de gegenereerde reviewsectie in de bestaande buffer.
 -- ---------------------------------------------------------------------------
 
-local function temporal_print_command(file, display_dates, edition_codes, allow_past_rewrite)
+local function temporal_print_command(file, display_dates, edition_codes, allow_past_rewrite, skip_past_newspaper)
   local display_dates_json = "{}"
   if type(display_dates) == "table" and next(display_dates) ~= nil then
     display_dates_json = vim.fn.json_encode(display_dates)
@@ -4086,6 +4123,7 @@ local function temporal_print_command(file, display_dates, edition_codes, allow_
     "--json",
   }
   if allow_past_rewrite then table.insert(command, "--allow-past-rewrite") end
+  if skip_past_newspaper then table.insert(command, "--skip-past-newspaper") end
   return command
 end
 
@@ -4097,22 +4135,21 @@ M._past_timing_confirm = function(targets)
   end
   local suffix = #editions > 0 and (" (" .. table.concat(editions, ", ") .. ")") or ""
   return vim.fn.confirm(
-    "De krant verschijnt pas nadat minstens één evenement is afgelopen" .. suffix .. ".\n\n"
-      .. "Herschrijf alleen als het artikel daarna nog bruikbare, blijvende informatie bevat, "
-      .. "zoals een expositie die nog te bezoeken is. Een eenmalig optreden of bingo is dan "
-      .. "meestal niet meer relevant. Verlopen tijden, kaartverkoop en aanmeldinformatie worden verwijderd.",
-    "&Herschrijven voor krant\n&Verzending stoppen",
+    "De publicatiedatum van de krant ligt na minstens één evenement"
+      .. suffix .. ". Daarom is een aangepaste kranttekst nodig.",
+    "&Herschrijven voor krant\n&Niet in krant (web/agenda wel)",
     2
   )
 end
 
 temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
-  local function run(allow_past_rewrite)
+  local function run(allow_past_rewrite, skip_past_newspaper)
     local command = temporal_print_command(
       file,
       display_dates,
       edition_codes,
-      allow_past_rewrite
+      allow_past_rewrite,
+      skip_past_newspaper
     )
     ai_system(command, { text = true }, function(result)
       vim.schedule(function()
@@ -4132,8 +4169,11 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
         end
 
         if payload.decision_required == true then
-          if M._past_timing_confirm(payload.targets) == 1 then
-            run(true)
+          local choice = M._past_timing_confirm(payload.targets)
+          if choice == 1 then
+            run(true, false)
+          elseif choice == 2 then
+            run(false, true)
           else
             done(false, AI_CANCELLED)
           end
@@ -4151,13 +4191,16 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
             return
           end
         end
-        done(true, nil, payload.requires_review == true)
+        local skipped = type(payload.skipped_newspaper_editions) == "table"
+            and payload.skipped_newspaper_editions or {}
+        done(true, nil, payload.requires_review == true, skipped)
       end)
     end, "Krant · Tijdsvorm controleren", buf, function()
       vim.schedule(function() done(false, AI_CANCELLED) end)
     end)
   end
-  run(false)
+  local remembered_skip = vim.b[buf].skip_newspaper_editions
+  run(false, type(remembered_skip) == "table" and #remembered_skip > 0)
 end
 
 M._temporal_print_prepare = temporal_print_prepare

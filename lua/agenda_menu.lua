@@ -25,6 +25,16 @@ local editions = {
   { code = 'K', label = 'Nieuwsbode de Kop (K)' },
 }
 
+local weekend_editions = {
+  { code = 'B', label = 'De Brug (B)' },
+  { code = 'SW', label = 'De Swollenaer (SW)' },
+  { code = 'ST', label = 'De Stadskoerier (ST)' },
+  { code = 'D', label = 'De Drontenaar (D)' },
+  { code = 'Z', label = 'Zeewolde Actueel (Z)' },
+  { code = 'K', label = 'Nieuwsbode de Kop (K)' },
+  { code = 'all', label = 'Alle kranten (aparte buffers)' },
+}
+
 local function workflow(message, level, options) notifications.workflow(message, level, options) end
 
 local function command(...)
@@ -211,6 +221,31 @@ function M.eigen_doublures()
   end)
 end
 
+function M.weekendbericht()
+  vim.ui.select(weekend_editions, {
+    prompt = 'Weekendbericht maken voor welke krant?',
+    format_item = function(item) return item.label end,
+  }, function(choice)
+    if not choice then return end
+    workflow('Agenda · weekendbericht maken…', vim.log.levels.INFO)
+    run(command('weekendbericht', '--editie', choice.code), nil, function(decoded)
+      local results = decoded.results or {}
+      local opened = 0
+      for _, result in ipairs(results) do
+        if result.error and result.error ~= vim.NIL then
+          vim.notify(string.format('%s: agenda niet gelezen — %s', result.edition or '?', result.error), vim.log.levels.ERROR)
+        elseif type(result.message) == 'string' and result.message ~= '' then
+          open_scratch('Weekendbericht ' .. tostring(result.edition), vim.split(result.message, '\n', { plain = true }))
+          opened = opened + 1
+        end
+      end
+      if opened > 0 then
+        workflow(string.format('%d weekendbericht(en) geopend; controleer en bewerk ze vóór publicatie.', opened), vim.log.levels.INFO, { ttl = 8 })
+      end
+    end)
+  end)
+end
+
 function M.menu()
   local bron = require 'agenda_bron'
   local items = {
@@ -222,6 +257,9 @@ function M.menu()
     end },
     { label = 'Eigen agenda: doublures zoeken (alle sites)', fn = function()
       M.eigen_doublures()
+    end },
+    { label = 'Weekendbericht maken (vr t/m zo)', fn = function()
+      M.weekendbericht()
     end },
   }
   vim.ui.select(items, {
@@ -240,6 +278,9 @@ function M.setup()
   })
   vim.keymap.set('n', '<leader>kg', M.menu, {
     desc = '[K]rant a[g]enda online (bronnen, import, doublures)',
+  })
+  vim.keymap.set('n', '<leader>kw', M.weekendbericht, {
+    desc = '[K]rant [w]eekendbericht uit agenda',
   })
 end
 

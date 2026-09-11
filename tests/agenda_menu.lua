@@ -11,6 +11,11 @@ assert(cmd[4] == '--json')
 assert(cmd[5] == 'import')
 assert(cmd[8] == '--normaliseer')
 
+local weekend_cmd = module._command('weekendbericht', '--editie', 'all')
+assert(weekend_cmd[5] == 'weekendbericht')
+assert(weekend_cmd[6] == '--editie')
+assert(weekend_cmd[7] == 'all')
+
 -- Import-render: controle, doublures, nieuw, normalisatie.
 local import_lines = module._render_import {
   read_incomplete = false,

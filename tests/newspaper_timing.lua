@@ -66,5 +66,13 @@ local allowed_command = ai._temporal_print_command(
   true
 )
 assert(vim.tbl_contains(allowed_command, '--allow-past-rewrite'), 'toestemming ontbrak na keuze')
+local skipped_command = ai._temporal_print_command(
+  '/tmp/artikel.md',
+  { B = '2026-09-11' },
+  { 'B' },
+  false,
+  true
+)
+assert(vim.tbl_contains(skipped_command, '--skip-past-newspaper'), 'web-onlykeuze ontbrak')
 
 print 'newspaper timing: OK'
