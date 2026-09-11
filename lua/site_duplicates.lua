@@ -19,8 +19,14 @@ local choices = {
   { code = 'K', label = 'Nieuwsbode de Kop' },
 }
 
-local function command(edition)
-  return { python, '-m', module, '--json', '--editie', edition or 'all' }
+local function command(edition, include_reviewed)
+  local result = { python, '-m', module, '--json', '--editie', edition or 'all' }
+  if include_reviewed then table.insert(result, '--include-reviewed') end
+  return result
+end
+
+local function mark_command()
+  return { python, '-m', module, '--json', '--mark-reviewed' }
 end
 
 local function sanitize(value)
@@ -44,13 +50,18 @@ function M._render(result)
         site.publication or site.edition, site.article_count or 0, #pairs,
         #pairs > 0 and ':' or '.'))
       for _, pair in ipairs(pairs) do
-        table.insert(lines, string.format('  %s (%s) ↔ %s (%s)',
+        table.insert(lines, string.format('  %s%s (%s) ↔ %s (%s)',
+          pair.reviewed and '[gecontroleerd] ' or '',
           sanitize(pair.left.headline), pair.left.display_date_label or '?',
           sanitize(pair.right.headline), pair.right.display_date_label or '?'))
         table.insert(lines, string.format('      %s; %d dag(en) uiteen (%d%%)',
           sanitize(pair.reason), pair.days_apart or 0, pair.score or 0))
         table.insert(lines, '      ' .. tostring(pair.left.editor_url))
         table.insert(lines, '      ' .. tostring(pair.right.editor_url))
+      end
+      if (site.reviewed_hidden_count or 0) > 0 then
+        table.insert(lines, string.format('  %d eerder gecontroleerde kandidaatpaar(en) verborgen.',
+          site.reviewed_hidden_count))
       end
       if site.truncated then
         table.insert(lines, '  Let op: kandidaatlimiet bereikt; verklein zo nodig de periode.')
@@ -62,10 +73,51 @@ function M._render(result)
     end
     table.insert(lines, '')
   end
+  table.insert(lines, '<leader>km = getoonde lichting markeren als gecontroleerd')
+  table.insert(lines, '<leader>ka = eerder gecontroleerde kandidaatparen tonen/verbergen')
   return lines
 end
 
-local function show_report(result)
+local function review_keys(result)
+  local keys = {}
+  for _, site in ipairs(result.sites or {}) do
+    for _, pair in ipairs(site.pairs or {}) do
+      if pair.review_key then table.insert(keys, pair.review_key) end
+    end
+  end
+  return keys
+end
+
+local function mark_result(result, on_done)
+  local keys = review_keys(result)
+  if #keys == 0 then
+    vim.notify('Deze lichting bevat geen kandidaatparen om te markeren.', vim.log.levels.INFO)
+    return
+  end
+  vim.system(mark_command(), {
+    text = true,
+    stdin = vim.json.encode { review_keys = keys },
+  }, function(process)
+    vim.schedule(function()
+      if process.code ~= 0 then
+        vim.notify(vim.trim(process.stderr or '') ~= '' and vim.trim(process.stderr)
+          or 'Markeren als gecontroleerd mislukt.', vim.log.levels.ERROR)
+        return
+      end
+      local ok, response = pcall(vim.json.decode, vim.trim(process.stdout or ''))
+      if not ok or type(response) ~= 'table' then
+        vim.notify('Onleesbaar antwoord bij het markeren.', vim.log.levels.ERROR)
+        return
+      end
+      notifications.workflow(string.format(
+        '%d kandidaatpaar(en) gemarkeerd als gecontroleerd.', response.marked_count or #keys),
+        vim.log.levels.INFO, { ttl = 10 })
+      if on_done then on_done() end
+    end)
+  end)
+end
+
+local function show_report(result, edition, include_reviewed)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, M._render(result))
   vim.bo[buf].filetype = 'markdown'
@@ -74,12 +126,22 @@ local function show_report(result)
   pcall(vim.api.nvim_buf_set_name, buf, 'Webartikel-doublures')
   vim.cmd 'botright vsplit'
   vim.api.nvim_win_set_buf(0, buf)
+  vim.keymap.set('n', '<leader>km', function()
+    mark_result(result, function()
+      if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
+    end)
+  end, { buffer = buf, desc = 'Lichting als gecontroleerd markeren' })
+  vim.keymap.set('n', '<leader>ka', function()
+    if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
+    M.run(edition, { include_reviewed = not include_reviewed, open_browser = false })
+  end, { buffer = buf, desc = 'Gecontroleerde webdoublures tonen/verbergen' })
 end
 
-function M.run(edition)
+function M.run(edition, options)
   edition = edition or 'all'
+  options = options or {}
   notifications.workflow('Webartikelen · doublures zoeken…', vim.log.levels.INFO)
-  vim.system(command(edition), { text = true }, function(process)
+  vim.system(command(edition, options.include_reviewed), { text = true }, function(process)
     vim.schedule(function()
       if process.code ~= 0 then
         vim.notify(vim.trim(process.stderr or '') ~= '' and vim.trim(process.stderr)
@@ -91,14 +153,17 @@ function M.run(edition)
         vim.notify('Onleesbare JSON van de webdoublurecontrole.', vim.log.levels.ERROR)
         return
       end
-      show_report(result)
+      show_report(result, edition, options.include_reviewed == true)
       local urls = {}
       for _, site in ipairs(result.sites or {}) do
         vim.list_extend(urls, site.open_urls or {})
       end
-      browser.open_urls(urls)
+      if options.open_browser ~= false then browser.open_urls(urls) end
       notifications.workflow(string.format(
-        'Webdoublurecontrole klaar: %d artikel(en) geordend in de browser geopend.', #urls),
+        options.open_browser == false
+          and 'Webdoublurecontrole klaar: rapport bijgewerkt.'
+          or 'Webdoublurecontrole klaar: %d artikel(en) geordend in de browser geopend.',
+        #urls),
         vim.log.levels.INFO, { ttl = 10 })
     end)
   end)
@@ -129,5 +194,7 @@ function M.setup()
 end
 
 M._command = command
+M._mark_command = mark_command
+M._review_keys = review_keys
 
 return M

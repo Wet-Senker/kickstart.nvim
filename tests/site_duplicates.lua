@@ -7,6 +7,11 @@ assert(command[2] == '-m')
 assert(command[3] == 'texttools.site_duplicates_cli')
 assert(command[4] == '--json')
 assert(command[6] == 'SW')
+local reviewed_command = duplicates._command('SW', true)
+assert(reviewed_command[7] == '--include-reviewed')
+local mark_command = duplicates._mark_command()
+assert(mark_command[4] == '--json')
+assert(mark_command[5] == '--mark-reviewed')
 
 local lines = duplicates._render {
   from = '2026-09-01',
@@ -33,8 +38,11 @@ local lines = duplicates._render {
           reason = 'sterk gelijkende inhoud',
           days_apart = 4,
           score = 86,
+          review_key = 'abc',
+          reviewed = true,
         },
       },
+      reviewed_hidden_count = 2,
       truncated = false,
       detail_errors = 0,
     },
@@ -50,8 +58,15 @@ local lines = duplicates._render {
 local blob = table.concat(lines, '\n')
 assert(blob:find('De Brug: 31 actieve artikelen', 1, true))
 assert(blob:find('4 dag(en) uiteen (86%)', 1, true))
+assert(blob:find('[gecontroleerd] Dezelfde aankondiging', 1, true))
+assert(blob:find('2 eerder gecontroleerde kandidaatpaar(en) verborgen', 1, true))
+assert(blob:find('<leader>km = getoonde lichting markeren', 1, true))
 assert(blob:find('/articles/internet/1', 1, true))
 assert(blob:find('De Swollenaer: NIET gelezen — timeout', 1, true))
+local keys = duplicates._review_keys {
+  sites = { { pairs = { { review_key = 'first' }, { review_key = 'second' } } } },
+}
+assert(vim.deep_equal(keys, { 'first', 'second' }))
 
 duplicates.setup()
 local mapping = vim.fn.maparg('<leader>kd', 'n', false, true)
