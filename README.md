@@ -213,7 +213,15 @@ getallen en citaten mogen niet veranderen.
 
 **112-detectie** — scoort tekst op signaalwoorden (politie, brandweer, ambulance, incident, etc.). De combinatie van minimaal één hulpdienst en één concreet incident krijgt één extra punt. Bij score ≥ 6 verschijnt een bevestigingsvraag. Bij "Ja": 112-template toegepast, `rubriek: 112` en `prio: 1` bovenaan gezet. Bij "Nee" blijft die keuze voor de huidige buffer staan en mag detectie na `<leader>ar` het template niet alsnog toepassen. De kop gebruikt via `pubble-places` de eerste bekende plaats uit de centrale verspreidingsgebiedentabel; zonder treffer wordt het `112:`.
 
-**Kalenderdetectie** — scoort tekst op datum/tijd/deelname-signalen. Bij score ≥ 8: `articlemeta --calendar` gestart en `## Kalender` sectie toegevoegd (geen bevestiging nodig).
+**Kalenderdetectie** — scoort tekst op datum/tijd/deelname-signalen. Bij score
+≥ 8 wordt `articlemeta --calendar` gestart en een bewerkbare `## Kalender`-
+sectie toegevoegd. Wil je het agenda-item niet, verwijder dan het volledige
+blok vanaf `## Kalender`. Bij `<leader>aw` wordt dat als `agenda: nee`
+vastgelegd en de tijdelijke kalendercache gewist; de vroegere aparte
+hoofdletter-C-weigeractie is daarom vervallen. Was er nog nooit een
+Kalenderblok en ziet de
+laatste lokale controle bij verzenden alsnog een sterke kandidaat, dan vraagt
+Neovim eerst. Ja maakt en toont het blok; nee verzendt alleen web en print.
 
 **Kamper-Kiekdetectie** — de letterlijke rubrieknaam levert 70 punten op en de
 opeenvolgende nummers 1, 2 en 3 ieder 10. Alleen de ondubbelzinnige score 100
@@ -250,7 +258,9 @@ expliciete rubriekkop vraagt zo'n match bevestiging. Eén passende persoon kan m
 ontbrekende of onduidelijke match kies je de persoon. Een geannuleerde keuze
 wijzigt de tekst niet. `<leader>kp` blijft uitsluitend planning gebruiken.
 De herkenning gebeurt in één asynchroon Python-proces per import; alleen de
-twee relevante fotomappen worden bekeken, zonder AI of netwerkverkeer.
+twee relevante fotomappen worden bekeken, zonder AI of netwerkverkeer. Er
+wordt nooit stil een persoonsrubriek toegepast. Als één persoon in beide
+rubrieken voorkomt, zoals Nardus Koster, kies je expliciet de juiste rol.
 
 **Foto bij de vormgevingstekst** — bij succesvolle verzending worden alle
 geüploade foto's naast de definitieve tekst gezet, ook voor de generieke
@@ -322,7 +332,10 @@ Gedefinieerd in `~/.config/nvim/lua/krant.lua`. De gewone templates staan in
 `M.templates`. Raadspraat, Ondernemen in Kampen en Kamper Kiek staan bovenaan
 hetzelfde menu. De eerste twee gebruiken een dynamische flow voor persoon,
 foto, bijschrift en template; Kamper Kiek gebruikt de ene foto uit Pubble
-Inbox. Raadspraat en Ondernemen worden herkend aan een expliciete rubriekkop of voorgesteld op basis van een naam uit hun fotomappen.
+Inbox. Een expliciete rubriekkop start de flow voor Raadspraat of Ondernemen.
+Zonder zo'n kop kan een volledige naam uit de fotomap de rubriek alleen als
+bevestigingskeuze voorstellen; er wordt nooit stil geclassificeerd. Een unieke
+persoon wordt direct in dezelfde flow gebruikt, zonder een tweede personenmenu.
 De huidige columns en gespecialiseerde rubrieken zijn voor De Brug en krijgen
 daarom bij de templatebewerking zichtbaar `e: B`. Een bestaande handmatige
 editiekeuze wordt niet overschreven.

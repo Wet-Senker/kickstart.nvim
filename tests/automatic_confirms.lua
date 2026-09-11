@@ -3,6 +3,8 @@ local original_duplicate_runner = ai._duplicate_stage_runner
 ai._duplicate_stage_runner = function(_, callback)
   callback(true, { performed = false, candidates = {} })
 end
+local original_column_runner = ai._column_recognition_runner
+ai._column_recognition_runner = function(_, _, callback) callback({}) end
 
 local original_select = vim.ui.select
 vim.ui.select = function() error 'automatische bevestiging opende onverwacht fzf-lua' end
@@ -69,4 +71,5 @@ assert(asked_mail == 'Testpersoon', 'Mail-terugkeervraag gebruikte confirm niet'
 
 vim.ui.select = original_select
 ai._duplicate_stage_runner = original_duplicate_runner
+ai._column_recognition_runner = original_column_runner
 print 'automatic confirms: OK'

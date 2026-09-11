@@ -130,6 +130,7 @@ ai_text._duplicate_stage_runner = function(_, callback)
   callback(true, { performed = false, candidates = {} })
 end
 local krant = require('krant')
+ai_text._column_recognition_runner = function(_, _, callback) callback({}) end
 krant.config.desktop = desktop
 krant.config.stock_images = stock
 assert(

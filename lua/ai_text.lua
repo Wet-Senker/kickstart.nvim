@@ -2185,19 +2185,43 @@ M._build_calendar_section_lines = build_calendar_section_lines
 
 -- Strip an existing ## Kalender section (and preceding --- separator).
 local function strip_calendar_section(lines)
-  for i = #lines, 1, -1 do
-    if lines[i] == "## Kalender" then
-      local cut = i - 1
-      while cut >= 1 and (lines[cut] == "" or lines[cut] == "---") do
-        cut = cut - 1
-      end
-      local result = {}
-      for j = 1, cut do result[j] = lines[j] end
-      return result
+  local found = false
+  for _, line in ipairs(lines or {}) do
+    if vim.trim(line):match("^## Kalender%s*$") then
+      found = true
+      break
     end
   end
-  return lines
+  if not found then return lines end
+
+  local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
+  local kept, skipping = {}, false
+  for _, line in ipairs(sections) do
+    if vim.trim(line):match("^## Kalender%s*$") then
+      skipping = true
+    elseif skipping and line:match("^## %S") then
+      skipping = false
+      table.insert(kept, line)
+    elseif not skipping then
+      table.insert(kept, line)
+    end
+  end
+  while #kept > 0 and (vim.trim(kept[1]) == "" or vim.trim(kept[1]) == "---") do
+    table.remove(kept, 1)
+  end
+  while #kept > 0 and (vim.trim(kept[#kept]) == "" or vim.trim(kept[#kept]) == "---") do
+    table.remove(kept)
+  end
+  return reassemble_article(fm, ctrl, body, kept, has_boundary)
 end
+
+local function has_calendar_section(lines)
+  for _, line in ipairs(lines or {}) do
+    if vim.trim(line):match("^## Kalender%s*$") then return true end
+  end
+  return false
+end
+M._has_calendar_section = has_calendar_section
 
 -- Interne implementatie: werkt op een specifieke buf zodat autocmds en
 -- leaders altijd de juiste buffer raken, ook als de focus elders is.
@@ -2244,6 +2268,7 @@ function _run_articlemeta_calendar(buf)
       if section then
         for _, line in ipairs(section) do table.insert(base, line) end
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, base)
+        vim.b[buf].calendar_section_seen = true
         -- Een eventuele handmatige "cal: x"/"calendar: x" controleregel is nu
         -- overbodig (de kalenderdata staat al in de buffer) — anders blijft hij
         -- staan en laat pubble-send de kalender-AI bij <leader>aw ten onrechte
@@ -2251,7 +2276,7 @@ function _run_articlemeta_calendar(buf)
         strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
         notify_workflow(
           "Kalenderdata toegevoegd. Controleer en pas aan, dan <leader>aw. "
-            .. "Niet gewenst? <leader>aC weigert.",
+            .. "Niet gewenst? Verwijder het volledige blok vanaf ## Kalender.",
           vim.log.levels.INFO,
           { ttl = 10 }
         )
@@ -2270,11 +2295,24 @@ end
 -- gecachte kalenderdata en zet 'agenda: nee' als controleregel. Die persisteert
 -- via articlemeta → calendar_disabled → de send-backstop, dus ook als je het
 -- vergeet plaatst <leader>aw geen agenda-item. Web en print lopen door.
-function M.reject_calendar(buf)
+function M.reject_calendar(buf, message)
   buf = buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
 
-  local lines = strip_calendar_section(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+  local original_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local had_visible_section = has_calendar_section(original_lines)
+  local lines = strip_calendar_section(original_lines)
+  -- Wie het zichtbare blok handmatig verwijdert, laat soms alleen de ervoor
+  -- geplaatste `---` onderaan staan. Ruim uitsluitend in die bekende toestand
+  -- zo'n lege staartseparator op; een gewone artikel-HR blijft ongemoeid.
+  if not had_visible_section and vim.b[buf].calendar_section_seen then
+    local last = #lines
+    while last > 0 and vim.trim(lines[last]) == "" do last = last - 1 end
+    if last > 0 and vim.trim(lines[last]) == "---" then
+      for i = #lines, last, -1 do table.remove(lines, i) end
+      while #lines > 0 and vim.trim(lines[#lines]) == "" do table.remove(lines) end
+    end
+  end
   local _, body_start = split_frontmatter_lines(lines)
 
   -- Verwijder bestaande agenda-/cal-controleregels in het leidende controleblok
@@ -2304,11 +2342,69 @@ function M.reject_calendar(buf)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, out)
   vim.b[buf].cached_calendar_metadata = nil
   vim.b[buf].calendar_ai_started = true
+  vim.b[buf].calendar_section_seen = false
   notify_workflow(
-    "Agenda-item geweigerd (agenda: nee). Web en print gaan gewoon door.",
+    message or "Agenda-item geweigerd (agenda: nee). Web en print gaan gewoon door.",
     vim.log.levels.INFO
   )
 end
+
+M._calendar_send_confirm = function(score)
+  return vim.fn.confirm(
+    string.format(
+      "Dit artikel lijkt alsnog een agenda-item (score %d). Agenda-item maken en eerst tonen?",
+      score
+    ),
+    "&Ja — agenda-item maken\n&Nee — alleen web en print",
+    2
+  )
+end
+
+-- De zichtbare ## Kalender-sectie is in NeoVim de redactionele bron van
+-- waarheid. Was zij eerder zichtbaar en heeft de gebruiker haar verwijderd,
+-- dan leggen we dat bij verzenden vast als `agenda: nee`. Bestond zij nog
+-- nooit, dan krijgt een laat herkend evenement vóór die verzendpoging één
+-- expliciete vraag.
+local function calendar_decision_before_send(buf)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local agenda_mode = _agenda_mode_from_lines(lines)
+  local visible = has_calendar_section(lines)
+
+  if agenda_mode == "off" then
+    if visible then
+      M.reject_calendar(buf)
+    else
+      vim.b[buf].cached_calendar_metadata = nil
+    end
+    return "continue"
+  end
+  if visible then
+    vim.b[buf].calendar_section_seen = true
+    return "continue"
+  end
+  if agenda_mode == "on" then return "generate" end
+  if vim.b[buf].calendar_section_seen then
+    M.reject_calendar(
+      buf,
+      "Verwijderd Kalenderblok geldt als weigering; web en print gaan gewoon door."
+    )
+    return "continue"
+  end
+
+  local text = table.concat(lines, "\n")
+  if text:find("=== AGENDAPAGINA ===", 1, true) then return "continue" end
+  local score = _calendar_signal_score(editorial_body_text(lines))
+  if score < _CALENDAR_THRESHOLD then return "continue" end
+
+  local choice = M._calendar_send_confirm(score)
+  if choice == 1 then return "generate" end
+  if choice == 2 then
+    M.reject_calendar(buf)
+    return "continue"
+  end
+  return "cancel"
+end
+M._calendar_decision_before_send = calendar_decision_before_send
 
 -- Bereid een zelf getikt artikel voor op verzending ZONDER het te herschrijven:
 -- plaats de === ARTIKEL ===-grens, vul de editie-regel (dateline → e:) + het
@@ -2381,7 +2477,10 @@ local function _calendar_autodetect(buf, lines, text, evaluation, after_prompt)
   -- Een reeds voorbereide papieren agendapagina is per definitie geen
   -- website-agenda-item. Dit beschermt ook opnieuw geopende concepten.
   if text:find("=== AGENDAPAGINA ===", 1, true) then return end
-  if text:find("\n## Kalender", 1, true) or text:match("^## Kalender") then return end
+  if has_calendar_section(lines) then
+    vim.b[buf].calendar_section_seen = true
+    return
+  end
   if text:find("calendar_article_id:") and not text:find("calendar_article_id:%s*null") then return end
   local agenda_mode = _agenda_mode_from_lines(lines)
   if agenda_mode == "off" then return end
@@ -2650,10 +2749,6 @@ vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
   desc = "Kalendergegevens maken en ter controle tonen",
 })
 
-vim.keymap.set("n", "<leader>aC", M.reject_calendar, {
-  desc = "Voorgesteld agenda-item weigeren (agenda: nee)",
-})
-
 vim.keymap.set("n", "<leader>av", M.prepare_article, {
   desc = "Zelf getikt artikel voorbereiden voor verzending (geen rewrite)",
 })
@@ -2869,6 +2964,19 @@ function M.pubble_send(target_buf)
     if existing_rubric then
       require("krant").ensure_detected_rubric_edition(existing_rubric.id, buf)
     end
+  end
+
+  local calendar_action = calendar_decision_before_send(buf)
+  if calendar_action == "generate" then
+    notify_workflow(
+      "Agenda-item wordt eerst zichtbaar voorbereid; controleer het blok en druk daarna opnieuw <leader>aw.",
+      vim.log.levels.INFO
+    )
+    _run_articlemeta_calendar(buf)
+    return
+  elseif calendar_action == "cancel" then
+    notify_workflow("Verzending geannuleerd.", vim.log.levels.INFO)
+    return
   end
 
   -- Eénmalige keuze uit de agenda-waarschuwing. De buffer zelf blijft intact;
@@ -5216,10 +5324,10 @@ vim.keymap.set("n", "<leader>ag", M.ai_chat, {
 local function show_rubric_recognition_help()
   notify_workflow(
     table.concat({
-      "Deterministische herkenning: kalender, 112, Kamper Kiek, Hondenhoek en Column Natuurvereniging.",
+      "Deterministische herkenning: kalender, 112, Kamper Kiek, Hondenhoek, Column Natuurvereniging en persoonsnamen uit rubriekfotomappen.",
       "Kamper Kiek: vaste naam + nummering 1-3. Hondenhoek: Bert Nieuwenhuis + hond/honden (of Hondenhoek + tweede signaal).",
       "Bij een expliciete rubriekkop wordt de templateflow automatisch toegepast; 112 en Natuurvereniging vragen altijd bevestiging.",
-      "Een rubrieknaam boven de tekst start de templateflow; Raadspraat/Ondernemen herkennen ook fotonamen (met bevestiging).",
+      "Een volledige naam uit Raadspraat/Ondernemen vraagt altijd bevestiging en selecteert daarna direct de persoon.",
       "Handmatig kiezen kan altijd via <leader>kt.",
       "<leader>kp gebruikt alleen planning; namen en foto's worden pas na je keuze ingevuld.",
     }, "\n"),
@@ -5290,7 +5398,6 @@ local help_categories = {
       { label = "Agenda: forceer agenda-item", insert = "agenda: ja" },
       { label = "Agenda: weigeren (geen agenda-item)", insert = "agenda: nee" },
       { label = "Agenda: kalenderitem nu maken (<leader>ac)", action = function() M.articlemeta_calendar_buffer() end },
-      { label = "Agenda: voorgesteld item weigeren (<leader>aC)", action = function() M.reject_calendar() end },
       { label = "Facebooktekst door AI laten maken", insert = "facebook: x" },
       { label = "LinkedIn-tekst door AI laten maken", action = function() M.generate_linkedin() end },
       { label = "Eigen Facebooktekst schrijven", action = function() M.edit_facebook_text() end },

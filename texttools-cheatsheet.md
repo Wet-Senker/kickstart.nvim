@@ -70,14 +70,17 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
   Kiek met vaste naam plus nummering 1–3, en Hondenhoek bij Bert Nieuwenhuis +
   hond/honden (of `Hondenhoek` + een tweede signaal). Kamper Kiek vereist exact
   één foto; voor Hondenhoek moet Pubble Inbox leeg zijn.
-- **Altijd met bevestiging:** 112-detectie. Een onzekere rubriek of conflict
-  opent een keuzemenu.
-- **Niet automatisch uit de tekst herkend:** Raadspraat, Ondernemen in Kampen
-  en alle andere vaste rubrieken; kies die via `<leader>kt`.
+- **Altijd met bevestiging:** 112-detectie en een volledige persoonsnaam uit
+  de fotomap van Raadspraat of Ondernemen in Kampen. Eén persoon geeft een
+  gerichte ja/nee-vraag; meerdere personen of rubrieken staan in één menu. De
+  template wordt nooit stil toegepast.
+- **Niet automatisch uit de tekst herkend:** alle overige vaste rubrieken;
+  kies die via `<leader>kt`.
 - **`<leader>kp`:** leest de artikeltekst niet; toont alleen de planning voor
   Raadspraat en Ondernemen.
-- Namen, partijen en foto's worden pas na je rubriekkeuze uit mappen of
-  `personen.md` ingevuld.
+- Na bevestigde naamsherkenning wordt dezelfde `<leader>kt`-actie direct met
+  de gevonden persoon uitgevoerd. Namen, partijen en foto's komen uit de
+  actuele fotomappen of `personen.md`.
 
 Vaste volgorde voor rubrieken:
 
@@ -170,6 +173,11 @@ Locatie: Naam locatie
 
 Korte omschrijving. Geen datum/tijd/locatie herhalen.
 ```
+
+Agenda-item niet gewenst? Verwijder het hele blok vanaf `## Kalender`.
+`<leader>aw` onthoudt dit als `agenda: nee`. Ontbrak het blok altijd en wordt
+pas bij verzenden een sterke agendakandidaat gezien, dan volgt eerst een
+ja/nee-vraag.
 
 ---
 

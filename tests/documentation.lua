@@ -39,7 +39,7 @@ for _, mapping in ipairs(documented_mappings) do
   assert(mapping.source:find(mapping.registration, 1, true), mapping.key .. " is gedocumenteerd maar niet geregistreerd")
 end
 
-for _, removed_mapping in ipairs({ "<leader>am", "<leader>ak" }) do
+for _, removed_mapping in ipairs({ "<leader>am", "<leader>ak", "<leader>aC" }) do
   assert(not documentation:find(removed_mapping, 1, true), removed_mapping .. " zwerft nog rond in de documentatie")
 end
 
@@ -51,6 +51,12 @@ assert(
     and documentation:find("gewone tekstzin geldt niet als opdracht", 1, true),
   "de grens tussen automatische detectie en handmatige rubriekkeuze ontbreekt"
 )
+assert(
+  documentation:find("volledige naam", 1, true)
+    and documentation:find("nooit stil een persoonsrubriek", 1, true),
+  "de bevestigde naamsherkenning voor persoonsrubrieken ontbreekt"
+)
+assert(documentation:find("Nardus Koster", 1, true), "dubbele persoonsrol ontbreekt in de documentatie")
 assert(
   documentation:find("naam plus nummering 1–3", 1, true),
   "automatische Kamper-Kiekherkenning ontbreekt in de gebruikersdocumentatie"

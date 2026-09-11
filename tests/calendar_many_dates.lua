@@ -1,4 +1,5 @@
 local ai = require 'ai_text'
+ai._column_recognition_runner = function(_, _, callback) callback({}) end
 
 local function many_dates_text()
   return [[
