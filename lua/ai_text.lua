@@ -4071,7 +4071,7 @@ vim.keymap.set("n", "<leader>aw", M.pubble_send, {
 -- de gegenereerde reviewsectie in de bestaande buffer.
 -- ---------------------------------------------------------------------------
 
-temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
+local function temporal_print_command(file, display_dates, edition_codes, allow_past_rewrite)
   local display_dates_json = "{}"
   if type(display_dates) == "table" and next(display_dates) ~= nil then
     display_dates_json = vim.fn.json_encode(display_dates)
@@ -4085,38 +4085,83 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
     vim.fn.json_encode(edition_codes or {}),
     "--json",
   }
-  ai_system(command, { text = true }, function(result)
-    vim.schedule(function()
-      local ok, payload = pcall(vim.fn.json_decode, result.stdout or "")
-      if result.code ~= 0 or not ok or type(payload) ~= "table" then
-        local err = vim.trim(result.stderr or result.stdout or "")
-        done(false, "Kranttijdvoorbereiding mislukt" .. (err ~= "" and (": " .. err) or ""))
-        return
-      end
-      if type(payload.markdown) ~= "string" then
-        done(false, "Kranttijdvoorbereiding gaf geen geldig werkdocument terug")
-        return
-      end
+  if allow_past_rewrite then table.insert(command, "--allow-past-rewrite") end
+  return command
+end
 
-      if payload.changed == true then
-        vim.fn.writefile(
-          vim.split(payload.markdown:gsub("\n$", ""), "\n", { plain = true }),
-          file
-        )
-        local section = type(payload.section) == "string" and payload.section or nil
-        if not apply_timing_versions_section(buf, section) then
-          done(false, "Kranttijdversie kon niet veilig in de buffer worden gezet")
+M._past_timing_confirm = function(targets)
+  local editions = {}
+  for _, target in ipairs(targets or {}) do
+    local label = target.publication_name or target.edition
+    if type(label) == "string" and label ~= "" then table.insert(editions, label) end
+  end
+  local suffix = #editions > 0 and (" (" .. table.concat(editions, ", ") .. ")") or ""
+  return vim.fn.confirm(
+    "De krant verschijnt pas nadat minstens één evenement is afgelopen" .. suffix .. ".\n\n"
+      .. "Herschrijf alleen als het artikel daarna nog bruikbare, blijvende informatie bevat, "
+      .. "zoals een expositie die nog te bezoeken is. Een eenmalig optreden of bingo is dan "
+      .. "meestal niet meer relevant. Verlopen tijden, kaartverkoop en aanmeldinformatie worden verwijderd.",
+    "&Herschrijven voor krant\n&Verzending stoppen",
+    2
+  )
+end
+
+temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
+  local function run(allow_past_rewrite)
+    local command = temporal_print_command(
+      file,
+      display_dates,
+      edition_codes,
+      allow_past_rewrite
+    )
+    ai_system(command, { text = true }, function(result)
+      vim.schedule(function()
+        if not vim.api.nvim_buf_is_valid(buf) then
+          done(false, "Artikelbuffer bestaat niet meer")
           return
         end
-      end
-      done(true, nil, payload.requires_review == true)
+        local ok, payload = pcall(vim.fn.json_decode, result.stdout or "")
+        if result.code ~= 0 or not ok or type(payload) ~= "table" then
+          local err = vim.trim(result.stderr or result.stdout or "")
+          done(false, "Kranttijdvoorbereiding mislukt" .. (err ~= "" and (": " .. err) or ""))
+          return
+        end
+        if type(payload.markdown) ~= "string" then
+          done(false, "Kranttijdvoorbereiding gaf geen geldig werkdocument terug")
+          return
+        end
+
+        if payload.decision_required == true then
+          if M._past_timing_confirm(payload.targets) == 1 then
+            run(true)
+          else
+            done(false, AI_CANCELLED)
+          end
+          return
+        end
+
+        if payload.changed == true then
+          vim.fn.writefile(
+            vim.split(payload.markdown:gsub("\n$", ""), "\n", { plain = true }),
+            file
+          )
+          local section = type(payload.section) == "string" and payload.section or nil
+          if not apply_timing_versions_section(buf, section) then
+            done(false, "Kranttijdversie kon niet veilig in de buffer worden gezet")
+            return
+          end
+        end
+        done(true, nil, payload.requires_review == true)
+      end)
+    end, "Krant · Tijdsvorm controleren", buf, function()
+      vim.schedule(function() done(false, AI_CANCELLED) end)
     end)
-  end, "Krant · Tijdsvorm controleren", buf, function()
-    vim.schedule(function() done(false, AI_CANCELLED) end)
-  end)
+  end
+  run(false)
 end
 
 M._temporal_print_prepare = temporal_print_prepare
+M._temporal_print_command = temporal_print_command
 M._apply_timing_versions_section = apply_timing_versions_section
 
 -- ---------------------------------------------------------------------------

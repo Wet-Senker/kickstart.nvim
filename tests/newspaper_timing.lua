@@ -57,4 +57,14 @@ rendered = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
 assert(not rendered:find('## Kranttijdsversies', 1, true), 'kranttijdsectie bleef staan')
 assert(rendered:find('## Kalender', 1, true), 'kalender verdween bij opruimen')
 
+local command = ai._temporal_print_command('/tmp/artikel.md', { B = '2026-09-11' }, { 'B' }, false)
+assert(not vim.tbl_contains(command, '--allow-past-rewrite'), 'toestemming stond standaard aan')
+local allowed_command = ai._temporal_print_command(
+  '/tmp/artikel.md',
+  { B = '2026-09-11' },
+  { 'B' },
+  true
+)
+assert(vim.tbl_contains(allowed_command, '--allow-past-rewrite'), 'toestemming ontbrak na keuze')
+
 print 'newspaper timing: OK'
