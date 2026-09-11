@@ -1802,6 +1802,7 @@ function M.rewrite_article_buffer()
       local rewritten_str = table.concat(new_lines, "\n")
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
       mark_ai_rewrite_completed(buf)
+      M.tussenkopjes_streamer({ automatic = true, buf = buf })
       -- Een eerdere reviewworkspace is door deze expliciet bevestigde rewrite
       -- vervangen. Oude scratchbuffers mogen daarna niet meer terugschrijven.
       edition_review.close(buf, true)
@@ -4894,12 +4895,17 @@ end
 -- streamer gaat dan als context mee naar de kopopties, want kop en streamer
 -- moeten elkaar aanvullen. Uit de kopopties kies je via een menu; de huidige
 -- kop behouden kan altijd.
-function M.tussenkopjes_streamer()
-  local buf = vim.api.nvim_get_current_buf()
+function M.tussenkopjes_streamer(options)
+  options = options or {}
+  local automatic = options.automatic == true
+  local buf = options.buf or vim.api.nvim_get_current_buf()
+  if vim.b[buf].article_structure_running then return end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
   local headline = inspect_article_headline(body)
   if not headline then return end
+  if automatic and not headline.automatic_structure then return end
+  vim.b[buf].article_structure_running = true
   local has_headline = headline.has_headline == true
   local paras = scan_paragraphs(body)
 
@@ -4925,10 +4931,17 @@ function M.tussenkopjes_streamer()
 
   local results = { koppen = nil, streamer = nil, kopopties = nil }
   -- Slots: tussenkopjes + kopopties, plus de streamer-call als die nog moet.
-  local pending = has_streamer and 2 or 3
+  local pending = (has_streamer and 2 or 3) - (automatic and 1 or 0)
 
   local function finish()
     if pending > 0 then return end
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    vim.b[buf].article_structure_running = false
+    local _, _, current_body = split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+    if not vim.deep_equal(current_body, body) then
+      notify_workflow('Artikel gewijzigd tijdens opmaak; gebruik <leader>at om opnieuw op te maken.', vim.log.levels.WARN)
+      return
+    end
 
     -- Parse "N: Kopje"-regels; alles wat niet matcht (incl. GEEN) valt af.
     local koppen = {}
@@ -4961,9 +4974,13 @@ function M.tussenkopjes_streamer()
     end
 
     local function write_body(final_body)
+      if not vim.api.nvim_buf_is_valid(buf) then return end
+      local latest_fm, latest_ctrl, latest_body, latest_sections, latest_boundary =
+        split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+      if not vim.deep_equal(latest_body, body) then return end
       vim.api.nvim_buf_set_lines(
         buf, 0, -1, false,
-        reassemble_article(fm, ctrl, final_body, sections, has_boundary)
+        reassemble_article(latest_fm, latest_ctrl, final_body, latest_sections, latest_boundary)
       )
       if has_streamer then
         notify_workflow(
@@ -5003,6 +5020,7 @@ function M.tussenkopjes_streamer()
   -- De streamer gaat mee als context; de kop blijft zelfstandig het hoofdnieuws
   -- vertellen. Start zodra de streamertekst bekend is (eventueel leeg).
   local function launch_kopopties(streamer_text)
+    if automatic then return end
     local input = "Kopstatus: " .. headline_status .. "\n"
     if streamer_text and streamer_text ~= "" then
       input = input .. "Streamer: " .. streamer_text .. "\n"
@@ -5217,6 +5235,7 @@ function M.ai_prompt_rewrite()
           reassemble_article(fm, ctrl, new_body, sections, has_boundary)
         )
         mark_ai_rewrite_completed(buf)
+        M.tussenkopjes_streamer({ automatic = true, buf = buf })
         notify_workflow("Klaar. Gebruik u om ongedaan te maken.", vim.log.levels.INFO)
       end)
     end,
