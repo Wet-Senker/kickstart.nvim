@@ -55,6 +55,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen in Kampen en Kamper Kiek. |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten voor Raadspraat en Ondernemen in Kampen. |
 | `<leader>ka` | Ruwe papieren agendapagina structureren en gewone items redigeren; daarna zelf de tekst controleren. |
+| `<leader>kg` | Agenda-onlinemenu. Bij **Websiteartikelen zonder agenda-item zoeken** maakt Enter een bewerkbaar voorstel, opent `o` het bronartikel en markeert `x` een artikel duurzaam als geen agenda nodig. Afwijzingen synchroniseren via de gedeelde Texttools-map. |
 | `<leader>kd` | Actieve webartikelen van alle kranten of één gekozen krant intern op doublures controleren. Kijkt standaard veertien dagen terug, vergelijkt alleen berichten die maximaal zeven dagen uiteen staan en opent kandidaten geordend in de browser. Sites worden nooit onderling vergeleken; agenda-schaduwartikelen tellen niet mee. |
 | `<leader>aq` | Annuleer alle actieve editor-AI-taken van de huidige buffer. |
 | `:AICancel` | Zelfde expliciete annulering als `<leader>aq`. |

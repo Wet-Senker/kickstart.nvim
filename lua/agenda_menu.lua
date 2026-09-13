@@ -156,7 +156,7 @@ function M._render_website_candidates(decoded)
     string.format('Websiteartikelen zonder herkenbaar agenda-item (%s..%s)',
       decoded.date_from or '?', decoded.date_to or '?'),
     string.rep('=', 62),
-    'Enter: agenda-voorstel maken · o: webartikel in Pubble openen',
+    'Enter: agenda-voorstel maken · x: geen agenda nodig · o: webartikel in Pubble openen',
     '',
   }
   local by_line = {}
@@ -165,8 +165,9 @@ function M._render_website_candidates(decoded)
       table.insert(lines, string.format('Editie %s: NIET gelezen — %s', result.edition or '?', result.error))
     else
       local candidates = result.candidates or {}
-      table.insert(lines, string.format('Editie %s: %d webartikel(en), %d volledig gecontroleerd, %d kandidaat/kandidaten%s',
-        result.edition or '?', result.scanned or 0, result.details_checked or 0, #candidates,
+      table.insert(lines, string.format('Editie %s: %d webartikel(en), %d volledig gecontroleerd, %d afgewezen verborgen, %d kandidaat/kandidaten%s',
+        result.edition or '?', result.scanned or 0, result.details_checked or 0,
+        result.rejected_hidden_count or 0, #candidates,
         #candidates > 0 and ':' or '.'))
       for _, candidate in ipairs(candidates) do
         local day = tostring(candidate.display_date or ''):sub(1, 10)
@@ -302,6 +303,39 @@ function M.website_scan()
       local candidate = selected()
       if candidate and candidate.editor_url then browser.open_urls { candidate.editor_url } end
     end, { buffer = buf, desc = 'Webartikel in Pubble openen' })
+    vim.keymap.set('n', 'x', function()
+      local line = vim.api.nvim_win_get_cursor(0)[1]
+      local candidate = by_line[line]
+      if not candidate then
+        vim.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
+        return
+      end
+      local answer = vim.fn.confirm(
+        'Markeer "' .. tostring(candidate.headline or 'Zonder kop')
+          .. '" als geen agendabericht nodig?',
+        '&Ja\n&Nee',
+        2
+      )
+      if answer ~= 1 then return end
+      workflow('Agenda · afwijzing opslaan…', vim.log.levels.INFO)
+      run(command('website-afwijzen', '--editie', candidate.edition,
+        '--artikel-id', tostring(candidate.article_id),
+        '--titel', tostring(candidate.headline or '')), nil, function(decoded_reject)
+        if decoded_reject.status ~= 'rejected' then
+          vim.notify(tostring(decoded_reject.reason or 'Afwijzing is niet opgeslagen.'), vim.log.levels.ERROR)
+          return
+        end
+        if vim.api.nvim_buf_is_valid(buf) then
+          vim.bo[buf].modifiable = true
+          vim.api.nvim_buf_set_lines(buf, line - 1, line, false,
+            { '  ✓ Geen agenda nodig: ' .. tostring(candidate.headline or 'Zonder kop') })
+          vim.bo[buf].modifiable = false
+          vim.bo[buf].modified = false
+          by_line[line] = nil
+        end
+        workflow('Gemarkeerd als geen agendabericht nodig.', vim.log.levels.INFO)
+      end)
+    end, { buffer = buf, desc = 'Markeer webartikel als geen agenda nodig' })
   end)
 end
 
