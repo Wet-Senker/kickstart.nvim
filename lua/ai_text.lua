@@ -2558,7 +2558,13 @@ _offer_112_template = function(buf, score, context)
   end
 end
 
-local function apply_recognized_rubric(buf, candidate)
+local function apply_recognized_rubric(buf, candidate, done)
+  local settled = false
+  local function finish(ok)
+    if settled then return end
+    settled = true
+    if done then done(ok == true) end
+  end
   if candidate.id == "112" then
     vim.b[buf]._112_rejected = false
     local ok = require("krant").apply_template_by_name("112 nieuws", { source_body = candidate.normalized_body }, buf)
@@ -2566,6 +2572,7 @@ local function apply_recognized_rubric(buf, candidate)
       vim.b[buf].recognized_rubric = candidate.id
       vim.b[buf].recognized_rubric_score = candidate.confidence
     end
+    finish(ok)
     return ok
   end
   local function applied()
@@ -2573,6 +2580,7 @@ local function apply_recognized_rubric(buf, candidate)
     vim.b[buf].recognized_rubric = candidate.id
     vim.b[buf].recognized_rubric_score = candidate.confidence
     vim.b[buf].rubric_recognition_pending = nil
+    finish(true)
   end
   local ok, reason = require("krant").apply_detected_rubric(candidate.id, buf, candidate, applied)
   if reason == "pending" then
@@ -2586,15 +2594,20 @@ local function apply_recognized_rubric(buf, candidate)
   else
     vim.b[buf].rubric_recognition_pending = candidate.id .. ":" .. tostring(reason)
   end
+  if reason ~= "pending" then finish(ok) end
   return ok
 end
 
-local function offer_rubric_candidates(buf, decision)
+local function offer_rubric_candidates(buf, decision, done)
   if #decision.candidates == 1 and decision.candidate.id == "112" and not decision.candidate.explicit then
     _offer_112_template(buf, decision.candidate.points, "bij import")
+    if done then done(vim.b[buf].recognized_rubric == "112") end
     return
   end
-  if vim.b[buf].rubric_recognition_prompt_pending then return end
+  if vim.b[buf].rubric_recognition_prompt_pending then
+    if done then done(false) end
+    return
+  end
 
   vim.b[buf].rubric_recognition_prompt_pending = true
   local prompt_tick = vim.api.nvim_buf_get_changedtick(buf)
@@ -2603,6 +2616,7 @@ local function offer_rubric_candidates(buf, decision)
   vim.b[buf].rubric_recognition_prompt_pending = false
   if vim.api.nvim_buf_get_changedtick(buf) ~= prompt_tick then
     notify_workflow("Artikel gewijzigd tijdens rubriekkeuze; template niet toegepast.", vim.log.levels.WARN)
+    if done then done(false) end
     return
   end
   if not choice then
@@ -2610,22 +2624,31 @@ local function offer_rubric_candidates(buf, decision)
       if candidate.id == "112" then vim.b[buf]._112_rejected = true end
     end
     notify_workflow("Automatische rubriekherkenning niet toegepast.", vim.log.levels.INFO)
+    if done then done(false) end
     return
   end
-  apply_recognized_rubric(buf, choice)
+  apply_recognized_rubric(buf, choice, done)
 end
 
-local function rubric_autodetect(buf, text, evaluation)
-  if vim.b[buf].rubric_recognition_done then return end
+local function rubric_autodetect(buf, text, evaluation, done)
+  if vim.b[buf].rubric_recognition_done then
+    if done then done(false) end
+    return
+  end
   vim.b[buf].rubric_recognition_done = true
   vim.b[buf]._112_autodetect_done = true
-  if text:find("rubriek:%s*[%w_-]+") then return end
+  if text:find("rubriek:%s*[%w_-]+") then
+    if done then done(false) end
+    return
+  end
 
   local decision = article_recognition.rubric_decision(evaluation)
   if decision.action == "auto" then
-    apply_recognized_rubric(buf, decision.candidate)
+    apply_recognized_rubric(buf, decision.candidate, done)
   elseif decision.action == "confirm" then
-    offer_rubric_candidates(buf, decision)
+    offer_rubric_candidates(buf, decision, done)
+  elseif done then
+    done(false)
   end
 end
 
@@ -2665,50 +2688,41 @@ local function article_autodetect(buf)
   vim.b[buf].article_recognition_done = true
   local text = table.concat(lines, "\n")
   vim.b[buf].pubble_duplicate_gate_pending = true
-  edition_autodetect(buf, text, function(approved)
+  local recognition_tick = vim.api.nvim_buf_get_changedtick(buf)
+  M._column_recognition_runner(buf, editorial_body_text(lines), function(column_candidates)
     if not vim.api.nvim_buf_is_valid(buf) then return end
-    settle_duplicate_calendar_gate(buf, approved == true)
-    if not approved then return end
+    if vim.api.nvim_buf_get_changedtick(buf) ~= recognition_tick then
+      vim.b[buf].article_recognition_done = nil
+      settle_duplicate_calendar_gate(buf, false)
+      notify_workflow("Artikel gewijzigd tijdens columnherkenning; herkenning overgeslagen. Kies zo nodig via <leader>kt.", vim.log.levels.INFO)
+      return
+    end
+    local evaluation = article_recognition.evaluate(text, column_candidates)
+    local existing_rubric = article_recognition.rubric_decision(evaluation).existing
+    if existing_rubric then
+      require("krant").ensure_detected_rubric_edition(existing_rubric.id, buf)
+      vim.b[buf].recognized_rubric = existing_rubric.id
+      vim.b[buf].recognized_rubric_score = existing_rubric.confidence
+    end
 
-    -- Editie-/dateline-aanpassingen zijn inmiddels toegepast en een mogelijke
-    -- doublure is beoordeeld. Pas nu mag kalender-AI worden aangeboden.
-    lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    text = table.concat(lines, "\n")
-    local recognition_tick = vim.api.nvim_buf_get_changedtick(buf)
-    M._column_recognition_runner(buf, editorial_body_text(lines), function(column_candidates)
+    -- Rubriekkeuze en templatebewerking vormen de eerste importfase. Alle
+    -- volgende controles lezen daardoor de definitief opgemaakte artikeltekst.
+    rubric_autodetect(buf, text, evaluation, function()
       if not vim.api.nvim_buf_is_valid(buf) then return end
-      if vim.api.nvim_buf_get_changedtick(buf) ~= recognition_tick then
-        vim.b[buf].article_recognition_done = nil
-        notify_workflow("Artikel gewijzigd tijdens columnherkenning; herkenning overgeslagen. Kies zo nodig via <leader>kt.", vim.log.levels.INFO)
-        return
-      end
-      local evaluation = article_recognition.evaluate(text, column_candidates)
-      -- Reeds toegepaste vaste templates hoeven niet opnieuw te worden toegepast,
-      -- maar oudere buffers krijgen hier wel hun inmiddels vaste editiecode.
-      local existing_rubric = article_recognition.rubric_decision(evaluation).existing
-      if existing_rubric then
-        require("krant").ensure_detected_rubric_edition(existing_rubric.id, buf)
-        vim.b[buf].recognized_rubric = existing_rubric.id
-        vim.b[buf].recognized_rubric_score = existing_rubric.confidence
-      end
-      -- Een mogelijke natuurcolumn eerst laten bevestigen: evenementwoorden in
-      -- de column mogen niet alvast een kalender-AI-call starten.
-      if #column_candidates > 0 then
-        rubric_autodetect(buf, text, evaluation)
-        local selected = evaluation.by_id[vim.b[buf].recognized_rubric or ""]
+      lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      text = table.concat(lines, "\n")
+      local formatted_evaluation = article_recognition.evaluate(text)
+      local selected = formatted_evaluation.by_id[vim.b[buf].recognized_rubric or ""]
+
+      edition_autodetect(buf, text, function(approved)
+        if not vim.api.nvim_buf_is_valid(buf) then return end
+        settle_duplicate_calendar_gate(buf, approved == true)
+        if not approved then return end
         if selected and selected.suppress_calendar then return end
-        if vim.b[buf].rubric_recognition_pending then return end
         lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
         text = table.concat(lines, "\n")
-      end
-      local calendar_prompted = _calendar_autodetect(buf, lines, text, evaluation, function()
-        if not vim.api.nvim_buf_is_valid(buf) then return end
-        local current_text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
-        rubric_autodetect(buf, current_text, article_recognition.evaluate(current_text))
+        _calendar_autodetect(buf, lines, text, article_recognition.evaluate(text))
       end)
-      -- Automatische bevestigingen mogen elkaar niet overlappen. Eventuele
-      -- rubriekherkenning volgt daarom pas na de datumbevestiging.
-      if not calendar_prompted then rubric_autodetect(buf, text, evaluation) end
     end)
   end)
 end

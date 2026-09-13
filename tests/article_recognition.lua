@@ -126,7 +126,19 @@ local ai_text = require('ai_text')
 -- nieuwe doublurepoort daarom deterministisch af, zodat de asynchrone CLI de
 -- rubriekasserties niet kan beïnvloeden.
 local original_duplicate_runner = ai_text._duplicate_stage_runner
-ai_text._duplicate_stage_runner = function(_, callback)
+local expect_formatted_duplicate = false
+local formatted_duplicate_seen = false
+ai_text._duplicate_stage_runner = function(command, callback)
+  if expect_formatted_duplicate then
+    local compared = table.concat(vim.fn.readfile(command[2]), '\n')
+    assert(
+      compared:find('De Kamper Kiek op de wîêk', 1, true)
+        and compared:find('newspaper:\n  working_title: "z - 1 Kamper Kiek"', 1, true),
+      'doublurecontrole startte voordat de rubriekopmaak was toegepast'
+    )
+    formatted_duplicate_seen = true
+    expect_formatted_duplicate = false
+  end
   callback(true, { performed = false, candidates = {} })
 end
 local krant = require('krant')
@@ -162,6 +174,12 @@ assert(
   vim.b[missing_photo_buf].rubric_recognition_pending == 'kamper_kiek:photo_missing',
   'ontbrekende Kiek-foto is niet als herstelbare bufferstatus opgeslagen'
 )
+assert(
+  vim.wait(5000, function()
+    return vim.b[missing_photo_buf].pubble_duplicate_gate_pending == false
+  end, 20),
+  'vervolgcontroles na mislukte rubriekopmaak werden niet afgerond'
+)
 
 vim.fn.writefile({ 'foto' }, inbox .. '/kiek.jpg')
 local buf = vim.api.nvim_create_buf(false, true)
@@ -171,6 +189,7 @@ vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
   '',
   'De Kamper kiek op de wîêk: 1). Eerste punt. 2). Tweede punt. 3). Derde punt.',
 })
+expect_formatted_duplicate = true
 ai_text._article_autodetect(buf)
 assert(
   vim.wait(5000, function() return vim.b[buf].recognized_rubric == 'kamper_kiek' end, 20),
@@ -187,6 +206,10 @@ assert(output:find('\ne: B\n', 1, true), 'automatische Kamper Kiek kreeg niet ed
 assert(output:find('\n1. Eerste punt.\n2. Tweede punt.\n3. Derde punt.', 1, true), 'automatische nummering klopt niet')
 assert(vim.b[buf].recognized_rubric == 'kamper_kiek', 'herkende rubriek is niet in de bufferstatus opgeslagen')
 assert(vim.b[buf].recognized_rubric_score == 100, 'herkenningsscore is niet in de bufferstatus opgeslagen')
+assert(
+  vim.wait(5000, function() return formatted_duplicate_seen end, 20),
+  'doublurecontrole kreeg de opgemaakte rubriektekst niet te zien'
+)
 assert(require('layout_export').pending(buf), 'automatische Kamper Kiek verloor de vormgevingsexport')
 
 local once = output
