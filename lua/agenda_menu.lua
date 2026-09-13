@@ -64,6 +64,18 @@ local function open_scratch(name, lines)
   pcall(vim.api.nvim_buf_set_name, buf, name)
   vim.cmd 'botright vsplit'
   vim.api.nvim_win_set_buf(0, buf)
+  return buf
+end
+
+local function open_editable(name, text)
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, sanitize_lines(vim.split(text, '\n', { plain = true })))
+  vim.bo[buf].filetype = 'markdown'
+  vim.bo[buf].bufhidden = 'hide'
+  pcall(vim.api.nvim_buf_set_name, buf, name)
+  vim.cmd 'botright vsplit'
+  vim.api.nvim_win_set_buf(0, buf)
+  return buf
 end
 
 -- Pure renderers (headless testbaar).
@@ -137,6 +149,35 @@ function M._render_pairs(decoded)
     table.insert(lines, '')
   end
   return lines
+end
+
+function M._render_website_candidates(decoded)
+  local lines = {
+    string.format('Websiteartikelen zonder herkenbaar agenda-item (%s..%s)',
+      decoded.date_from or '?', decoded.date_to or '?'),
+    string.rep('=', 62),
+    'Enter: agenda-voorstel maken · o: webartikel in Pubble openen',
+    '',
+  }
+  local by_line = {}
+  for _, result in ipairs(decoded.results or {}) do
+    if result.error and result.error ~= vim.NIL then
+      table.insert(lines, string.format('Editie %s: NIET gelezen — %s', result.edition or '?', result.error))
+    else
+      local candidates = result.candidates or {}
+      table.insert(lines, string.format('Editie %s: %d webartikel(en), %d volledig gecontroleerd, %d kandidaat/kandidaten%s',
+        result.edition or '?', result.scanned or 0, result.details_checked or 0, #candidates,
+        #candidates > 0 and ':' or '.'))
+      for _, candidate in ipairs(candidates) do
+        local day = tostring(candidate.display_date or ''):sub(1, 10)
+        table.insert(lines, string.format('  [%s] %s — score %d', day ~= '' and day or '?',
+          candidate.headline or 'Zonder kop', candidate.score or 0))
+        by_line[#lines] = candidate
+      end
+    end
+    table.insert(lines, '')
+  end
+  return lines, by_line
 end
 
 local function run(cmd, stdin, on_json)
@@ -221,6 +262,86 @@ function M.eigen_doublures()
   end)
 end
 
+function M.website_voorstel(candidate)
+  workflow('Agenda · voorstel uit webartikel maken…', vim.log.levels.INFO)
+  run(command('website-voorstel', '--editie', candidate.edition,
+    '--artikel-id', tostring(candidate.article_id)), nil, function(decoded)
+    local document = decoded.document
+    if type(document) ~= 'string' or document == '' then
+      vim.notify('Agenda-analyse gaf geen bewerkbaar voorstel terug.', vim.log.levels.ERROR)
+      return
+    end
+    local buf = open_editable('Agenda aanvullen ' .. tostring(candidate.article_id), document)
+    vim.b[buf].website_agenda_proposal = true
+    vim.keymap.set('n', '<leader>kA', function() M.website_plaatsen(buf) end, {
+      buffer = buf,
+      desc = '[K]rant ontbrekende [A]genda-item plaatsen',
+    })
+    workflow('Agenda-voorstel geopend. Controleer alle velden en plaats met <leader>kA.',
+      vim.log.levels.INFO, { ttl = 10 })
+  end)
+end
+
+function M.website_scan()
+  workflow('Agenda · recente websiteartikelen controleren…', vim.log.levels.INFO)
+  run(command('website-scan', '--editie', 'all'), nil, function(decoded)
+    local lines, by_line = M._render_website_candidates(decoded)
+    local buf = open_scratch('Website zonder agenda', lines)
+    local function selected()
+      return by_line[vim.api.nvim_win_get_cursor(0)[1]]
+    end
+    vim.keymap.set('n', '<CR>', function()
+      local candidate = selected()
+      if candidate then
+        M.website_voorstel(candidate)
+      else
+        vim.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
+      end
+    end, { buffer = buf, desc = 'Agenda-voorstel voor webartikel maken' })
+    vim.keymap.set('n', 'o', function()
+      local candidate = selected()
+      if candidate and candidate.editor_url then browser.open_urls { candidate.editor_url } end
+    end, { buffer = buf, desc = 'Webartikel in Pubble openen' })
+  end)
+end
+
+function M.website_plaatsen(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+  local changedtick = vim.api.nvim_buf_get_changedtick(buf)
+  workflow('Agenda · gecontroleerd item plaatsen…', vim.log.levels.INFO)
+  run(command('website-plaatsen'), text, function(decoded)
+    if type(decoded.updated_document) == 'string'
+      and vim.api.nvim_buf_is_valid(buf)
+      and vim.api.nvim_buf_get_changedtick(buf) == changedtick then
+      vim.bo[buf].modifiable = true
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false,
+        sanitize_lines(vim.split(decoded.updated_document, '\n', { plain = true })))
+      vim.bo[buf].modified = true
+    end
+    local urls = {}
+    for _, item in ipairs(decoded.created or {}) do
+      if item.editor_url then table.insert(urls, item.editor_url) end
+    end
+    for _, item in ipairs(decoded.duplicates or {}) do
+      if item.editor_url then table.insert(urls, item.editor_url) end
+    end
+    if #urls > 0 then browser.open_urls(urls) end
+    if decoded.status == 'created' then
+      workflow(string.format('%d agenda-item(s) aangemaakt en gekoppeld.', #(decoded.created or {})),
+        vim.log.levels.INFO, { ttl = 10 })
+    elseif decoded.status == 'already-created' then
+      workflow(tostring(decoded.reason), vim.log.levels.INFO)
+    elseif decoded.status == 'partial' then
+      vim.notify('Een deel is geplaatst; herstelmarkeringen staan in de buffer. ' .. tostring(decoded.reason or ''),
+        vim.log.levels.WARN)
+    else
+      vim.notify(tostring(decoded.reason or 'Agenda-item is niet geplaatst.'), vim.log.levels.WARN)
+    end
+  end)
+end
+
 function M.weekendbericht()
   vim.ui.select(weekend_editions, {
     prompt = 'Weekendbericht maken voor welke krant?',
@@ -257,6 +378,9 @@ function M.menu()
     end },
     { label = 'Eigen agenda: doublures zoeken (alle sites)', fn = function()
       M.eigen_doublures()
+    end },
+    { label = 'Websiteartikelen zonder agenda-item zoeken', fn = function()
+      M.website_scan()
     end },
     { label = 'Weekendbericht maken (vr t/m zo)', fn = function()
       M.weekendbericht()

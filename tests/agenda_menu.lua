@@ -16,6 +16,10 @@ assert(weekend_cmd[5] == 'weekendbericht')
 assert(weekend_cmd[6] == '--editie')
 assert(weekend_cmd[7] == 'all')
 
+local scan_cmd = module._command('website-scan', '--editie', 'all')
+assert(scan_cmd[5] == 'website-scan')
+assert(scan_cmd[7] == 'all')
+
 -- Import-render: controle, doublures, nieuw, normalisatie.
 local import_lines = module._render_import {
   read_incomplete = false,
@@ -55,6 +59,25 @@ assert(pblob:find('Editie B: 104 item', 1, true), 'editie B-regel ontbreekt')
 assert(pblob:find('Editie SW: 134 item', 1, true), 'editie SW-regel ontbreekt')
 assert(pblob:find('/articles/internet/a1', 1, true), 'bewerk-URL links ontbreekt')
 assert(pblob:find('Editie ST: NIET gelezen', 1, true), 'leesfout-regel ontbreekt')
+
+local website_lines, website_by_line = module._render_website_candidates {
+  date_from = '2026-08-23', date_to = '2026-09-13',
+  results = {
+    { edition = 'B', scanned = 120, details_checked = 14, error = vim.NIL,
+      candidates = {
+        { edition = 'B', article_id = 321, headline = 'Concert in Kampen',
+          display_date = '2026-09-10T10:00:00+02:00', score = 11,
+          editor_url = 'https://brugmedia.pubble.dev/articles/internet/321' },
+      } },
+    { edition = 'D', scanned = 0, details_checked = 0, error = 'timeout', candidates = {} },
+  },
+}
+local wblob = table.concat(website_lines, '\n')
+assert(wblob:find('Concert in Kampen — score 11', 1, true), 'websitekandidaat ontbreekt')
+assert(wblob:find('Editie D: NIET gelezen', 1, true), 'websiteleesfout ontbreekt')
+local mapped
+for _, candidate in pairs(website_by_line) do mapped = candidate end
+assert(mapped and mapped.article_id == 321, 'artikelregel is niet selecteerbaar')
 
 -- Regels met een ingebedde newline (rommelige Pubble-titel) worden platgeslagen,
 -- anders weigert nvim_buf_set_lines ze.
