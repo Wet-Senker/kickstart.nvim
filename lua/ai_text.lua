@@ -2733,12 +2733,18 @@ M._rubriek_check_runner = function(body, callback)
   local started = pcall(vim.system, { rubriek_check }, { text = true, stdin = body, timeout = 5000 },
     function(result)
       vim.schedule(function()
-        local ok, payload = pcall(vim.json.decode, result.stdout or "")
+        -- luanil: JSON-null wordt Lua-nil i.p.v. vim.NIL (dat is 'truthy').
+        local ok, payload = pcall(vim.json.decode, result.stdout or "",
+          { luanil = { object = true, array = true } })
         if result.code ~= 0 or not ok or type(payload) ~= "table" then
           callback(nil); return
         end
+        local suggested = payload.suggested
+        if suggested == nil or suggested == vim.NIL or suggested == "" then
+          callback(nil); return
+        end
         local top = type(payload.candidates) == "table" and payload.candidates[1] or nil
-        callback(payload.suggested, top)
+        callback(suggested, top)
       end)
     end)
   if not started then callback(nil) end
@@ -2756,7 +2762,7 @@ local function offer_sport_rubriek(buf, text)
 
   local tick = vim.api.nvim_buf_get_changedtick(buf)
   M._rubriek_check_runner(text, function(suggested, top)
-    if not suggested or not vim.api.nvim_buf_is_valid(buf) then return end
+    if not suggested or suggested == vim.NIL or not vim.api.nvim_buf_is_valid(buf) then return end
     -- 112 houdt z'n eigen, rijkere importflow (template, disclaimer, prio 2).
     if suggested == "112" then return end
     if vim.api.nvim_buf_get_changedtick(buf) ~= tick then return end

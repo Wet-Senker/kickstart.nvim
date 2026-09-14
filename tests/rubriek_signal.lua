@@ -51,6 +51,15 @@ ai._rubriek_check_runner = function(_, cb) cb('112', { rubriek = '112', score = 
 ai._offer_sport_rubriek(buf4, body_of(buf4))
 assert(not body_of(buf4):find('rubriek: 112', 1, true), '112 werd via het generieke voorstel toegepast')
 
+-- 5. Geen voorstel (nil): geen prompt, geen wijziging.
+local buf5 = make_buffer()
+local prompted = false
+ai._rubriek_check_runner = function(_, cb) cb(nil) end
+ai._rubriek_confirm_simple = function() prompted = true; return 1 end
+ai._offer_sport_rubriek(buf5, body_of(buf5))
+assert(not prompted, 'zonder voorstel werd toch om bevestiging gevraagd')
+assert(not body_of(buf5):find('rubriek:', 1, true), 'zonder voorstel werd toch een rubriek gezet')
+
 ai._rubriek_check_runner = original_runner
 ai._rubriek_confirm_simple = original_confirm
 print 'rubriek signal: OK'
