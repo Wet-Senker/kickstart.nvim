@@ -61,7 +61,10 @@ function M.report_lines(result, options)
       local headline = entry.variant and entry.variant.headline
         or entry.candidate.headline
         or 'Zonder kop'
-      table.insert(lines, '  • ' .. headline)
+      local display_date = (entry.variant and entry.variant.display_date_label)
+        or entry.candidate.display_date_label
+        or 'datum onbekend'
+      table.insert(lines, ('  • %s  —  %s'):format(headline, display_date))
       ranges[#ranges + 1] = {
         first = row,
         last = row,
