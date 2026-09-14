@@ -61,6 +61,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen en Kamper Kiek |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten |
 | `<leader>ka` | Ruwe papieren agendapagina voorbereiden voor eigen tekstcontrole |
+| `<leader>kr` | Rubriekscan (read-only): online webartikelen die waarschijnlijk onder een rubriek vallen maar niet in die categorie staan. In het scherm: `Enter` details, `o` in browser (handmatig corrigeren), `m` afgehandeld, `r` afgehandelde tonen/verbergen, `q` sluiten |
 | `<leader>kd` | Alle kranten of één krant intern controleren op actieve webdoublures (nooit kruislings). Overzicht opent onder de buffer; in het scherm: `Enter` artikel in nvim, `o` in browser, `m` paar markeren (geen doublure), `r` gecontroleerde tonen/verbergen, `q` sluiten |
 
 ---
