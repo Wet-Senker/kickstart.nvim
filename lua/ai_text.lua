@@ -257,6 +257,7 @@ local kampen_fix = texttools_commands.bin("kampen-fix")
 local redactie_adres = texttools_commands.bin("redactie-adres")
 local article_dateline = texttools_commands.bin("article-dateline")
 local layout_designer = texttools_commands.bin("layout-designer")
+local rubriek_check = texttools_commands.bin("rubriek-check")
 local article_headline = texttools_commands.bin("article-headline")
 local teams_config_cli = texttools_commands.bin("teams-config")
 local aichat = texttools_commands.bin("aichat")
@@ -2699,6 +2700,86 @@ M._column_recognition_runner = function(buf, body, done)
   end
 end
 
+-- Heeft de buffer al een rubriek-controlecode (`rubriek:`/`r:`) boven de grens?
+local function buffer_has_rubriek_control(buf)
+  for _, line in ipairs(vim.api.nvim_buf_get_lines(buf, 0, 40, false)) do
+    if vim.trim(line) == ARTICLE_BOUNDARY then break end
+    if line:match("^%s*[Rr]ubriek%s*:%s*%S") or line:match("^%s*[Rr]%s*:%s*%S") then
+      return true
+    end
+  end
+  return false
+end
+
+-- Voeg `rubriek: <waarde>` toe in het controleblok bovenaan (na eventuele
+-- frontmatter, vóór de ARTIKEL-grens). Geen dubbele rubriekregel.
+local function insert_rubriek_control(buf, value)
+  if buffer_has_rubriek_control(buf) then return false end
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local insert_at = 0
+  if lines[1] == "---" then
+    for index = 2, #lines do
+      if lines[index] == "---" then insert_at = index; break end
+    end
+  end
+  vim.api.nvim_buf_set_lines(buf, insert_at, insert_at, false, { "rubriek: " .. value })
+  return true
+end
+
+-- Injecteerbaar testpunt: draait de deterministische rubriek-check (Python) en
+-- geeft de voorgestelde rubriek + score terug (of nil).
+M._rubriek_check_runner = function(body, callback)
+  start_buffer_job(nil)
+  local started = pcall(vim.system, { rubriek_check }, { text = true, stdin = body, timeout = 5000 },
+    function(result)
+      vim.schedule(function()
+        local ok, payload = pcall(vim.json.decode, result.stdout or "")
+        if result.code ~= 0 or not ok or type(payload) ~= "table" then
+          callback(nil); return
+        end
+        local top = type(payload.candidates) == "table" and payload.candidates[1] or nil
+        callback(payload.suggested, top)
+      end)
+    end)
+  if not started then callback(nil) end
+end
+
+-- Stel bij import een rubriek voor als de tekst er duidelijk onder valt
+-- (nu: sport). Akkoord zet de controlecode; die werkt bij het verzenden door
+-- naar elke editie + web/print. Eén keer per buffer; niet als er al een
+-- rubriek(template) is of de redacteur eerder weigerde.
+local function offer_sport_rubriek(buf, text)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  if vim.b[buf].rubriek_signal_done or vim.b[buf].rubriek_signal_rejected then return end
+  if vim.b[buf].recognized_rubric or buffer_has_rubriek_control(buf) then return end
+  vim.b[buf].rubriek_signal_done = true
+
+  local tick = vim.api.nvim_buf_get_changedtick(buf)
+  M._rubriek_check_runner(text, function(suggested, top)
+    if not suggested or not vim.api.nvim_buf_is_valid(buf) then return end
+    -- 112 houdt z'n eigen, rijkere importflow (template, disclaimer, prio 2).
+    if suggested == "112" then return end
+    if vim.api.nvim_buf_get_changedtick(buf) ~= tick then return end
+    if vim.b[buf].recognized_rubric or buffer_has_rubriek_control(buf) then return end
+    local score = type(top) == "table" and top.score or "?"
+    local choice = M._rubriek_confirm_simple(
+      string.format("Lijkt een %s-bericht (score %s). rubriek: %s toepassen?", suggested, tostring(score), suggested))
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    if choice == 1 then
+      if insert_rubriek_control(buf, suggested) then
+        notify_workflow("Rubriek toegepast: " .. suggested .. ".", vim.log.levels.INFO)
+      end
+    else
+      vim.b[buf].rubriek_signal_rejected = true
+    end
+  end)
+end
+
+M._rubriek_confirm_simple = function(prompt)
+  return vim.fn.confirm(prompt, "&Ja\n&Nee", 2)
+end
+M._offer_sport_rubriek = offer_sport_rubriek
+
 local function article_autodetect(buf)
   if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].article_recognition_done then return end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -2740,6 +2821,7 @@ local function article_autodetect(buf)
         lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
         text = table.concat(lines, "\n")
         _calendar_autodetect(buf, lines, text, article_recognition.evaluate(text))
+        offer_sport_rubriek(buf, text)
       end)
     end)
   end)
