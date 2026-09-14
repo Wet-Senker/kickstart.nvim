@@ -129,8 +129,9 @@ publicatiedatum, aanmaakdatum en de persoon die het artikel aanmaakte.
 Werken via **Neovim** (`<leader>ar`/`<leader>aw`) én via **pubble-batch**:
 
 ```
-editie: B          # of SW, ST, Z, D, K, all, overijssel, flevoland
-prio: 2            # 1=moet mee  2=mag mee  3=rest(standaard)  4=nood
+editie: B          # of SW, ST, Z, D, K, all, overijssel, flevoland (fuzzy)
+prio: 2            # 1=moet mee  2=mag mee  3=rest(standaard)  4=nood  (p: ook)
+rubriek: sport     # categorie (fuzzy: 'spo'→sport). r: is alias
 b: Bijschrift      # fotobijschrift
 c: Naam fotograaf  # fotocredit
 @John Boodschap    # alleen voor actuele Teams-ontvanger John
@@ -139,6 +140,10 @@ c: Naam fotograaf  # fotocredit
 @ Boodschap        # kale @ = alle ontvangers (gelijk aan @all)
 ```
 
+- **Rubriek** (`rubriek:` of `r:`, fuzzy): algemeen, sport, politiek, financieel,
+  ingezonden, verenigingen, cultuur, politie, toerisme, historie, gemeente, kerk,
+  nieuws, zorg en welzijn, provincie, zakelijk, 112. Prefix mag (`spo`→sport);
+  alleen bij twijfel (`politi` = Politiek óf Politie) een foutmelding.
 - **Naam of editie**: `@Saskia` mikt op de persoon, een editie op wie díe krant
   nú beheert (handig als het wisselt van persoon). De editie mag fuzzy, net als
   de `e:`-regel: code (`@ST`), naam(prefix) (`@stad`, `@swol`, `@br`) of
