@@ -67,4 +67,26 @@ assert(rendered(replaced):find("LinkedIn-tekst.", 1, true), "LinkedIntekst werd 
 local empty_linkedin = ai_text._upsert_tail_section(base, "LinkedIn", "")
 assert(count_heading(empty_linkedin, "## LinkedIn") == 1, "lege handmatige LinkedInsectie ontbreekt")
 
+local original_topics_runner = ai_text._kamper_kiek_topics_runner
+local kiek_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(kiek_buf, 0, -1, false, {
+  "=== ARTIKEL ===", "", "De Kamper Kiek op de wîêk", "", "1. Eerste onderwerp.",
+})
+local topic_calls = 0
+ai_text._kamper_kiek_topics_runner = function(buf, body, done)
+  topic_calls = topic_calls + 1
+  assert(buf == kiek_buf, "Kamper Kiek-socialtaak kreeg de verkeerde buffer")
+  assert(body == "1. Eerste onderwerp.", "Kamper Kiek-socialtaak kreeg niet de genormaliseerde onderdelen")
+  done({ code = 0, stdout = "pluche, Oranjefeest en Oogstfeest.\n", stderr = "" })
+end
+ai_text._generate_kamper_kiek_social(kiek_buf, "1. Eerste onderwerp.")
+local kiek_social = rendered(vim.api.nvim_buf_get_lines(kiek_buf, 0, -1, false))
+local expected_social = "In De Brug kijkt burgemeester Sander de Rouwe wekelijks in fotovorm "
+  .. "terug op de afgelopen week, deze week pluche, Oranjefeest en Oogstfeest. "
+  .. "Kijk snel op onze website."
+assert(topic_calls == 1, "Kamper Kiek startte meer dan één onderwerpextractie")
+assert(kiek_social:find("## Facebook\n\n" .. expected_social, 1, true), "vaste Facebooktekst ontbreekt")
+assert(kiek_social:find("## LinkedIn\n\n" .. expected_social, 1, true), "vaste LinkedIn-tekst ontbreekt")
+ai_text._kamper_kiek_topics_runner = original_topics_runner
+
 print("social sections: OK")

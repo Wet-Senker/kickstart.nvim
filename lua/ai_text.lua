@@ -4744,6 +4744,53 @@ local function generate_social_section(opts)
   )
 end
 
+M._kamper_kiek_topics_runner = function(buf, body, done)
+  ai_system(
+    { aitext, "kamper_kiek_onderwerpen" },
+    { text = true, stdin = body },
+    function(result) vim.schedule(function() done(result) end) end,
+    "AI · Kamper Kiek-onderwerpen",
+    buf
+  )
+end
+
+local function generate_kamper_kiek_social(buf, body)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  M._kamper_kiek_topics_runner(buf, body, function(result)
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    if result.code ~= 0 then
+      local err = vim.trim(result.stderr or result.stdout or "")
+      vim.notify(
+        "Kamper Kiek-socialtekst mislukt: " .. (err ~= "" and err or "onbekende fout"),
+        vim.log.levels.WARN
+      )
+      return
+    end
+    local topics = vim.trim(result.stdout or "")
+      :gsub("[\r\n]+", " ")
+      :gsub("^Onderwerpen%s*:%s*", "")
+      :gsub("[%.;:,]+%s*$", "")
+    if topics == "" or vim.fn.strchars(topics) > 180 then
+      vim.notify("Kamper Kiek-AI gaf geen bruikbare onderwerpen.", vim.log.levels.WARN)
+      return
+    end
+    local social = "In De Brug kijkt burgemeester Sander de Rouwe wekelijks in fotovorm "
+      .. "terug op de afgelopen week, deze week " .. topics
+      .. ". Kijk snel op onze website."
+    local current = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    current = upsert_tail_section(current, "Facebook", social)
+    current = upsert_tail_section(current, "LinkedIn", social)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, current)
+    notify_workflow(
+      "Facebook- en LinkedIn-tekst voor Kamper Kiek toegevoegd. Controleer de onderwerpen.",
+      vim.log.levels.INFO,
+      { ttl = 10 }
+    )
+  end)
+end
+M._generate_kamper_kiek_social = generate_kamper_kiek_social
+require("krant").on_kamper_kiek_applied = generate_kamper_kiek_social
+
 function M.generate_facebook()
   generate_social_section({
     title = "Facebook",

@@ -903,6 +903,12 @@ function M.kamperkiek_flow(template, target_buf, candidate)
     label = 'Kamper Kiek op de Wiek',
   }) then return false, 'layout_export_failed' end
 
+  -- De bestaande ai_text-orkestratie kan voor deze ene rubriek de vaste
+  -- socialtekst aanvullen. Krant blijft zelf vrij van AI- en proceslogica.
+  if type(M.on_kamper_kiek_applied) == 'function' then
+    M.on_kamper_kiek_applied(target_buf, table.concat(normalized, '\n'))
+  end
+
   notifications.workflow(
     'Kamper Kiek op de Wiek\n'
     .. '→ ' .. week_prefix .. '_gemeentenieuws/2.kamperkiekFOTO.txt\n'

@@ -126,6 +126,10 @@ local ai_text = require('ai_text')
 -- nieuwe doublurepoort daarom deterministisch af, zodat de asynchrone CLI de
 -- rubriekasserties niet kan beïnvloeden.
 local original_duplicate_runner = ai_text._duplicate_stage_runner
+local original_kiek_topics_runner = ai_text._kamper_kiek_topics_runner
+ai_text._kamper_kiek_topics_runner = function(_, _, callback)
+  callback({ code = 0, stdout = 'pluche, Oranjefeest en Oogstfeest', stderr = '' })
+end
 local expect_formatted_duplicate = false
 local formatted_duplicate_seen = false
 ai_text._duplicate_stage_runner = function(command, callback)
@@ -210,6 +214,8 @@ assert(
   vim.wait(5000, function() return formatted_duplicate_seen end, 20),
   'doublurecontrole kreeg de opgemaakte rubriektekst niet te zien'
 )
+assert(output:find('## Facebook', 1, true), 'Kamper Kiek kreeg geen automatische Facebooktekst')
+assert(output:find('## LinkedIn', 1, true), 'Kamper Kiek kreeg geen automatische LinkedIn-tekst')
 assert(require('layout_export').pending(buf), 'automatische Kamper Kiek verloor de vormgevingsexport')
 
 local once = output
@@ -288,6 +294,7 @@ assert(table.concat(vim.api.nvim_buf_get_lines(honden_buf, 0, -1, false), '\n') 
 
 vim.ui.select = original_select
 ai_text._duplicate_stage_runner = original_duplicate_runner
+ai_text._kamper_kiek_topics_runner = original_kiek_topics_runner
 
 vim.fn.delete(tmp, 'rf')
 print(string.format('article recognition: OK (%.3f ms gemiddeld)', average_ms))
