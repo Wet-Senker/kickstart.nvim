@@ -297,6 +297,18 @@ function M.show(result, callback, options)
       if not state.done then finish(false) end
     end,
   })
+
+  -- Bevestig de focus. nvim_open_win(enter=true) zet de focus meestal al, maar
+  -- als dit dialoog tijdens een verse import/embedded TUI-sessie opent kan de
+  -- focus in de onderliggende buffer blijven hangen (cursor 'erachter'). Zet
+  -- het actieve venster daarom expliciet — nu en nog eens op de volgende tick.
+  local function focus_dialog()
+    if win and vim.api.nvim_win_is_valid(win) then
+      pcall(vim.api.nvim_set_current_win, win)
+    end
+  end
+  focus_dialog()
+  vim.schedule(focus_dialog)
 end
 
 function M.check(command, callback, options)

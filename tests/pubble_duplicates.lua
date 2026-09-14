@@ -50,6 +50,29 @@ assert(duplicates._dialog_width({ 'kort' }, 200) == 64, 'korte inhoud moet de le
 local long_line = string.rep('x', 90)
 assert(duplicates._dialog_width({ long_line }, 200) == 92, 'brede inhoud moet tot de langste regel + marge groeien')
 assert(duplicates._dialog_width({ long_line }, 80) == 76, 'schermbreedte moet de dialoogbreedte begrenzen')
+
+-- M.show moet het dialoogvenster focussen; anders blijft de cursor 'erachter'
+-- in de onderliggende buffer en kan de redacteur niets selecteren.
+local focus_result = {
+  version = 1,
+  history_complete = true,
+  candidates = {
+    {
+      headline = 'Testkop',
+      publications = { 'De Brug' },
+      variants = {
+        { publication = 'De Brug', display_date_label = '1 sep', created_by = 'piet', editor_url = 'u' },
+      },
+    },
+  },
+}
+local start_buf = vim.api.nvim_get_current_buf()
+duplicates.show(focus_result, function() end, {})
+local focused_buf = vim.api.nvim_get_current_buf()
+assert(focused_buf ~= start_buf, 'dialoog kreeg geen focus (cursor bleef in de buffer)')
+assert(vim.api.nvim_buf_get_name(focused_buf):find('Pubble doublurecontrole', 1, true),
+  'verkeerd venster gefocust')
+vim.api.nvim_win_close(0, true)
 for _, line in ipairs(lines) do
   assert(not line:find('\n', 1, true), 'overzichtregel bevat een newline (nvim_buf_set_lines crasht)')
 end
