@@ -449,15 +449,59 @@ M._choose_detected_person = function(items, prompt)
 end
 
 local function choose_person(items, prompt, context, preferred, callback)
-  if context then
-    if preferred and vim.tbl_contains(items, preferred) then
-      callback(preferred)
-    else
-      callback(M._choose_detected_person(items, prompt))
-    end
+  -- Een betrouwbaar vooraf gedetecteerde keuze (bijv. partij uit de byline) wint
+  -- altijd, zodat je die stap niet meer hoeft te bevestigen.
+  if preferred and vim.tbl_contains(items, preferred) then
+    callback(preferred)
+  elseif context then
+    callback(M._choose_detected_person(items, prompt))
   else
     vim.ui.select(items, { prompt = prompt }, callback)
   end
+end
+
+-- Initialen van een partijnaam (hoofdletters van elk woord): "Forum voor
+-- Democratie" → "FVD", "Hart voor Kampen" → "HVK", "Kampen Sociaal" → "KS".
+local function _party_initials(name)
+  local letters = {}
+  for word in tostring(name):gmatch('[%wÀ-ÿ%-]+') do
+    local first = word:match('%a')
+    if first then letters[#letters + 1] = first:upper() end
+  end
+  return table.concat(letters)
+end
+
+-- Detecteer de partij van de auteur uit de byline (alleen de "door … (Partij)"-
+-- regel, niet losse vermeldingen in de tekst). Matcht op exacte naam of op
+-- initialen; alleen bij precies één treffer wordt er voorgeselecteerd.
+M._detect_party = function(parties, text)
+  local byline
+  for line in tostring(text or ''):gmatch('[^\n]+') do
+    if line:lower():find('door%s') and line:find('%b()') then byline = line; break end
+  end
+  if not byline then return nil end
+  local inside = byline:match('%(([^)]+)%)')
+  if not inside then return nil end
+
+  local tokens = { vim.trim(inside) }
+  for word in inside:gmatch('[%wÀ-ÿ%-]+') do tokens[#tokens + 1] = word end
+
+  local hits = {}
+  for _, party in ipairs(parties) do
+    local name = party:lower()
+    local initials = _party_initials(party):lower()
+    for _, token in ipairs(tokens) do
+      local t = token:lower():gsub('%.', '')
+      if t ~= '' and (t == name or t == initials) then
+        hits[party] = true
+        break
+      end
+    end
+  end
+
+  local matched = vim.tbl_keys(hits)
+  if #matched == 1 then return matched[1] end
+  return nil
 end
 
 local function selection_is_current(buf, tick)
@@ -479,7 +523,10 @@ function M.raadspraat_menu(target_buf, context, done)
     return
   end
 
-  choose_person(parties, 'Partij:', context, context and context.photo and vim.fn.fnamemodify(context.photo, ':h:t'), function(party)
+  local byline_text = table.concat(vim.api.nvim_buf_get_lines(target_buf, 0, 40, false), '\n')
+  local preferred_party = M._detect_party(parties, byline_text)
+    or (context and context.photo and vim.fn.fnamemodify(context.photo, ':h:t'))
+  choose_person(parties, 'Partij:', context, preferred_party, function(party)
     if not party then return end
 
     local party_dir = base .. '/' .. party
