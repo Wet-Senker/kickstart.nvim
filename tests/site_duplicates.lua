@@ -69,16 +69,19 @@ assert(not blob:find('/articles/internet/1', 1, true), 'editor-URL hoort niet in
 assert(blob:find('De Swollenaer: NIET gelezen — timeout', 1, true))
 
 -- Elke koptekstregel is via ranges gekoppeld aan het artikel (voor o/Enter/m).
-local linked_left, linked_right = false, false
+local linked_left, linked_right, reason_only = false, false, false
 for _, entry in pairs(ranges) do
-  if entry.article.editor_url == 'https://editor.test/articles/internet/1' then
+  if entry.article and entry.article.editor_url == 'https://editor.test/articles/internet/1' then
     linked_left = true
     assert(entry.pair.review_key == 'abc', 'artikel mist het kandidaatpaar voor markeren')
-  elseif entry.article.editor_url == 'https://editor.test/articles/internet/2' then
+  elseif entry.article and entry.article.editor_url == 'https://editor.test/articles/internet/2' then
     linked_right = true
+  elseif not entry.article and entry.pair and entry.pair.review_key == 'abc' then
+    reason_only = true  -- redenregel is ook aan het paar gekoppeld (voor m)
   end
 end
 assert(linked_left and linked_right, 'artikelregels zijn niet aan hun artikel gekoppeld')
+assert(reason_only, 'redenregel is niet aan het paar gekoppeld voor markeren')
 local keys = duplicates._review_keys {
   sites = { { pairs = { { review_key = 'first' }, { review_key = 'second' } } } },
 }

@@ -56,6 +56,8 @@ function M._render(result)
         table.insert(lines, string.format('  %s%s; %d dag(en) uiteen (%d%%)',
           pair.reviewed and '[gecontroleerd] ' or '',
           sanitize(pair.reason), pair.days_apart or 0, pair.score or 0))
+        -- Ook de redenregel hoort bij het paar, zodat 'm' overal in het blok werkt.
+        ranges[#lines] = { pair = pair }
         for _, article in ipairs({ pair.left, pair.right }) do
           table.insert(lines, string.format('    • %s (%s)',
             sanitize(article.headline), article.display_date_label or '?'))
@@ -77,7 +79,7 @@ function M._render(result)
     table.insert(lines, '')
   end
   table.insert(lines,
-    'Enter = tekst in nvim  •  o = in browser  •  m = paar markeren  •  '
+    'Enter = tekst in nvim  •  o = in browser  •  m = paar markeren (geen doublure)  •  '
     .. 'r = gecontroleerde tonen/verbergen  •  q = sluiten')
   return lines, ranges
 end
@@ -161,7 +163,8 @@ local function show_report(result, edition, include_reviewed)
   vim.cmd 'botright split'
   local win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(win, buf)
-  vim.api.nvim_win_set_height(win, math.max(10, math.min(24, #lines)))
+  -- Ongeveer de halve schermhoogte (niet groter dan de inhoud nodig heeft).
+  vim.api.nvim_win_set_height(win, math.max(10, math.min(#lines + 1, math.floor(vim.o.lines / 2))))
 
   local function entry_at_cursor()
     local row = vim.api.nvim_win_get_cursor(win)[1]
@@ -177,8 +180,8 @@ local function show_report(result, edition, include_reviewed)
 
   vim.keymap.set('n', 'o', function()
     local entry = entry_at_cursor()
-    if not entry or not entry.article.editor_url then
-      vim.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
+    if not entry or not entry.article or not entry.article.editor_url then
+      vim.notify('Zet de cursor op een titelregel.', vim.log.levels.INFO)
       return
     end
     local ok, _, err = pcall(vim.ui.open, tostring(entry.article.editor_url))
@@ -189,8 +192,8 @@ local function show_report(result, edition, include_reviewed)
 
   vim.keymap.set('n', '<CR>', function()
     local entry = entry_at_cursor()
-    if not entry then
-      vim.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
+    if not entry or not entry.article then
+      vim.notify('Zet de cursor op een titelregel.', vim.log.levels.INFO)
       return
     end
     open_article_buffer(entry.article)
@@ -199,7 +202,7 @@ local function show_report(result, edition, include_reviewed)
   vim.keymap.set('n', 'm', function()
     local entry = entry_at_cursor()
     if not entry or not entry.pair or not entry.pair.review_key then
-      vim.notify('Zet de cursor op een artikelregel om het paar te markeren.', vim.log.levels.INFO)
+      vim.notify('Zet de cursor op een regel van het kandidaatpaar.', vim.log.levels.INFO)
       return
     end
     mark_keys({ entry.pair.review_key }, function()
