@@ -31,6 +31,9 @@ assert(krant._detect_party(parties, 'Column – Raadspraat, door Annelies Strikk
   'FVD uit de byline werd niet naar Forum voor Democratie gemapt')
 assert(krant._detect_party(parties, 'door Jan (CDA)') == 'CDA', 'exacte partijnaam werd niet herkend')
 assert(krant._detect_party(parties, 'door Piet (HvK)') == 'Hart voor Kampen', 'initialen werden niet herkend')
+-- Initialen ook over koppeltekens: Groep Azer-Zwitser → GAZ, Lid Schmidt-Blokzijl → LSB.
+assert(krant._detect_party(parties, 'door A (GAZ)') == 'Groep Azer-Zwitser', 'GAZ-initialen werden niet herkend')
+assert(krant._detect_party(parties, 'door B (LSB)') == 'Lid Schmidt-Blokzijl', 'LSB-initialen werden niet herkend')
 -- Losse vermeldingen in de tekst (geen byline) tellen niet mee.
 assert(krant._detect_party(parties, 'Gewone tekst. CDA en VVD stemden tegen.') == nil,
   'body-vermelding werd ten onrechte als auteurspartij gekozen')

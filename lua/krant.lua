@@ -460,13 +460,13 @@ local function choose_person(items, prompt, context, preferred, callback)
   end
 end
 
--- Initialen van een partijnaam (hoofdletters van elk woord): "Forum voor
--- Democratie" → "FVD", "Hart voor Kampen" → "HVK", "Kampen Sociaal" → "KS".
+-- Initialen van een partijnaam (eerste letter van elk woorddeel, ook over
+-- koppeltekens): "Forum voor Democratie" → "FVD", "Hart voor Kampen" → "HVK",
+-- "Groep Azer-Zwitser" → "GAZ", "Lid Schmidt-Blokzijl" → "LSB".
 local function _party_initials(name)
   local letters = {}
-  for word in tostring(name):gmatch('[%wÀ-ÿ%-]+') do
-    local first = word:match('%a')
-    if first then letters[#letters + 1] = first:upper() end
+  for part in tostring(name):gmatch('[%aÀ-ÿ]+') do
+    letters[#letters + 1] = part:sub(1, 1):upper()
   end
   return table.concat(letters)
 end
