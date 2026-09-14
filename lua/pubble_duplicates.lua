@@ -7,6 +7,12 @@ local function trim_text(value, maximum)
   return text:sub(1, maximum - 1):gsub('%s+$', '') .. '…'
 end
 
+-- nvim_buf_set_lines weigert regels met een ingebedde newline; koppen en
+-- datumlabels uit Pubble bevatten die soms. Sla ze plat tot één regel.
+local function flatten(value)
+  return (vim.trim(tostring(value or '')):gsub('%s+', ' '))
+end
+
 local function grouped_entries(candidates)
   local groups, order = {}, {}
   local function add(publication, candidate, variant)
@@ -55,15 +61,18 @@ function M.report_lines(result, options)
   local ranges = {}
   local groups, order = grouped_entries(candidates)
   for _, publication in ipairs(order) do
-    table.insert(lines, publication)
+    table.insert(lines, flatten(publication))
     for _, entry in ipairs(groups[publication]) do
       local row = #lines + 1
-      local headline = entry.variant and entry.variant.headline
-        or entry.candidate.headline
-        or 'Zonder kop'
-      local display_date = (entry.variant and entry.variant.display_date_label)
+      local headline = flatten(
+        entry.variant and entry.variant.headline
+          or entry.candidate.headline
+          or 'Zonder kop'
+      )
+      local raw_date = (entry.variant and entry.variant.display_date_label)
         or entry.candidate.display_date_label
-        or 'datum onbekend'
+      local display_date = flatten(raw_date)
+      if display_date == '' then display_date = 'datum onbekend' end
       table.insert(lines, ('  • %s  —  %s'):format(headline, display_date))
       ranges[#ranges + 1] = {
         first = row,

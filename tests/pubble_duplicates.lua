@@ -39,6 +39,32 @@ assert(text:find('De Drontenaar', 1, true), 'De Drontenaar ontbreekt als rubriek
 assert(not text:find('3 september 2026 om 10.42 uur', 1, true), 'overzicht toont detailmetadata')
 assert(text:find('19 september 2026 om 09.00 uur', 1, true), 'overzicht toont de publicatiedatum niet')
 assert(text:find('20 september 2026 om 09.00 uur', 1, true), 'overzicht toont de publicatiedatum per krant niet')
+for _, line in ipairs(lines) do
+  assert(not line:find('\n', 1, true), 'overzichtregel bevat een newline (nvim_buf_set_lines crasht)')
+end
+
+-- Kop en datumlabel uit Pubble kunnen ingebedde newlines bevatten; het overzicht
+-- moet die platslaan i.p.v. crashen op nvim_buf_set_lines.
+local with_newlines = {
+  version = 1,
+  history_complete = true,
+  candidates = {
+    {
+      headline = 'Kop met\nharde newline',
+      publications = { 'De Brug' },
+      variants = {
+        {
+          publication = 'De Brug',
+          display_date_label = '20 september 2026\nom 09.00 uur',
+          editor_url = 'https://brugmedia.pubble.dev/articles/internet/303',
+        },
+      },
+    },
+  },
+}
+for _, line in ipairs(duplicates.report_lines(with_newlines)) do
+  assert(not line:find('\n', 1, true), 'ingebedde newline werd niet platgeslagen')
+end
 assert(not text:find('Volledige tekst van het artikel.', 1, true), 'overzicht toont volledige tekst')
 assert(#ranges == 2, 'één gekoppeld artikel hoort eenmaal per krant in het overzicht')
 assert(duplicates._candidate_at_cursor(ranges, ranges[1].first) == result.candidates[1], 'cursorselectie kiest verkeerde kandidaat')
