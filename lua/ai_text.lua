@@ -1880,39 +1880,46 @@ function M.rewrite_article_buffer()
         end, "AI · Kalender", buf)
       end
 
-      if not needs_calendar then
-        ai_system({ articlemeta }, { text = true, stdin = rewritten_str }, function(meta_result)
-          vim.schedule(function()
-            if not vim.api.nvim_buf_is_valid(buf) then return end
-            if meta_result.code ~= 0 then
-              vim.notify("Metadata ophalen mislukt: " .. (meta_result.stderr or ""), vim.log.levels.WARN)
-              return
-            end
+      -- Metadata en Facebook zijn niet nodig voor de doublurecontrole. Ze mogen
+      -- daarom pas draaien nadat die is afgehandeld en goedgekeurd — net als de
+      -- kalender-AI (start_calendar_after_duplicate). Bij een geannuleerde
+      -- doublure starten ze dus niet, en breekt de gate lopend werk af.
+      local function start_metadata_and_facebook_after_duplicate()
+        if not vim.api.nvim_buf_is_valid(buf) then return end
+        if not needs_calendar then
+          ai_system({ articlemeta }, { text = true, stdin = rewritten_str }, function(meta_result)
+            vim.schedule(function()
+              if not vim.api.nvim_buf_is_valid(buf) then return end
+              if meta_result.code ~= 0 then
+                vim.notify("Metadata ophalen mislukt: " .. (meta_result.stderr or ""), vim.log.levels.WARN)
+                return
+              end
 
-            local meta_lines = vim.split(meta_result.stdout, "\n", { plain = true })
-            local new_fm, _ = split_frontmatter_lines(meta_lines)
-            if #new_fm > 0 then
-              vim.b[buf].cached_metadata = new_fm
-            end
-          end)
-        end, "AI · Metadata", buf)
-      end
+              local meta_lines = vim.split(meta_result.stdout, "\n", { plain = true })
+              local new_fm, _ = split_frontmatter_lines(meta_lines)
+              if #new_fm > 0 then
+                vim.b[buf].cached_metadata = new_fm
+              end
+            end)
+          end, "AI · Metadata", buf)
+        end
 
-      if needs_facebook then
-        local fb_prompt = _112_signal_score(rewritten_body_str) >= _112_THRESHOLD and "facebook_bericht_112" or "facebook_bericht"
-        ai_system({ aitext, fb_prompt }, { text = true, stdin = rewritten_body_str }, function(fb_result)
-          vim.schedule(function()
-            if fb_result.code ~= 0 then
-              vim.notify("Facebook-bericht ophalen mislukt: " .. (fb_result.stderr or ""), vim.log.levels.WARN)
-              return
-            end
-            local fb_text = vim.trim(fb_result.stdout or "")
-            if fb_text ~= "" then
-              vim.b[buf].cached_facebook_text = fb_text
-            end
-            strip_leading_control_line(buf, "^[Ff]acebook%s*:%s*x%s*$")
-          end)
-        end, "AI · Facebook", buf)
+        if needs_facebook then
+          local fb_prompt = _112_signal_score(rewritten_body_str) >= _112_THRESHOLD and "facebook_bericht_112" or "facebook_bericht"
+          ai_system({ aitext, fb_prompt }, { text = true, stdin = rewritten_body_str }, function(fb_result)
+            vim.schedule(function()
+              if fb_result.code ~= 0 then
+                vim.notify("Facebook-bericht ophalen mislukt: " .. (fb_result.stderr or ""), vim.log.levels.WARN)
+                return
+              end
+              local fb_text = vim.trim(fb_result.stdout or "")
+              if fb_text ~= "" then
+                vim.b[buf].cached_facebook_text = fb_text
+              end
+              strip_leading_control_line(buf, "^[Ff]acebook%s*:%s*x%s*$")
+            end)
+          end, "AI · Facebook", buf)
+        end
       end
 
       -- Herken opnieuw op basis van de herschreven tekst. Een zichtbare
@@ -1931,6 +1938,7 @@ function M.rewrite_article_buffer()
           end
           check_duplicate_stage(buf, codes, "herschrijven", function(checked)
             if checked then
+              start_metadata_and_facebook_after_duplicate()
               offer_and_generate_edition_versions(
                 buf, rewritten_body_str, codes, names
               )
