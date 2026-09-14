@@ -43,6 +43,13 @@ assert(text:find('piet.deboer', 1, true), 'overzicht toont de auteur niet')
 -- Kop van 7 woorden wordt op 6 afgekapt: 'onderhoud' valt weg, met …-markering.
 assert(text:find('Batavia gaat aan land voor groot…', 1, true), 'lange kop werd niet ingekort')
 assert(not text:find('groot onderhoud', 1, true), 'lange kop werd niet afgekapt op zes woorden')
+
+-- Dialoogbreedte volgt de inhoud (niet het aantal artikelen): ondergrens 64,
+-- anders de langste regel + marge, begrensd door de schermbreedte.
+assert(duplicates._dialog_width({ 'kort' }, 200) == 64, 'korte inhoud moet de leesbare ondergrens houden')
+local long_line = string.rep('x', 90)
+assert(duplicates._dialog_width({ long_line }, 200) == 92, 'brede inhoud moet tot de langste regel + marge groeien')
+assert(duplicates._dialog_width({ long_line }, 80) == 76, 'schermbreedte moet de dialoogbreedte begrenzen')
 for _, line in ipairs(lines) do
   assert(not line:find('\n', 1, true), 'overzichtregel bevat een newline (nvim_buf_set_lines crasht)')
 end

@@ -25,6 +25,19 @@ local function shorten_words(value, max_words)
   return table.concat(kept, ' ') .. '…'
 end
 
+-- Breedte van het dialoogvenster: net als de hoogte content-gedreven, zodat
+-- geen enkele regel wrapt en de kolommen uitlijnen. Zo breed als de langste
+-- regel (+ marge), met een leesbare ondergrens en begrensd door het scherm.
+-- Niet afhankelijk van het aantal artikelen; bij korte inhoud geen brede doos.
+function M._dialog_width(report, columns)
+  local longest = 0
+  for _, line in ipairs(report or {}) do
+    longest = math.max(longest, vim.fn.strdisplaywidth(line))
+  end
+  local screen_cap = math.max(54, (columns or 80) - 4)
+  return math.min(screen_cap, math.max(64, longest + 2))
+end
+
 local function grouped_entries(candidates)
   local groups, order = {}, {}
   local function add(publication, candidate, variant)
@@ -136,7 +149,7 @@ end
 
 function M.show(result, callback, options)
   local report, ranges = M.report_lines(result, options)
-  local width = math.min(100, math.max(54, vim.o.columns - 8))
+  local width = M._dialog_width(report, vim.o.columns)
   local height = math.min(math.max(16, #report), math.max(16, vim.o.lines - 8))
   local buf = vim.api.nvim_create_buf(false, true)
   local state = { done = false, mode = 'report', back_line = nil }
