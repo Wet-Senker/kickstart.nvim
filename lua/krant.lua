@@ -449,12 +449,16 @@ M._choose_detected_person = function(items, prompt)
 end
 
 local function choose_person(items, prompt, context, preferred, callback)
-  -- Een betrouwbaar vooraf gedetecteerde keuze (bijv. partij uit de byline) wint
-  -- altijd, zodat je die stap niet meer hoeft te bevestigen.
-  if preferred and vim.tbl_contains(items, preferred) then
-    callback(preferred)
-  elseif context then
-    callback(M._choose_detected_person(items, prompt))
+  -- Bij import: een betrouwbaar vooraf gedetecteerde keuze (bijv. partij uit de
+  -- byline) wordt automatisch genomen, anders het genummerde importmenu.
+  -- Handmatig (<leader>kt, geen context) blijft altijd het volledige keuzemenu:
+  -- dat is de override/terugdraai-route als de detectie niet klopt.
+  if context then
+    if preferred and vim.tbl_contains(items, preferred) then
+      callback(preferred)
+    else
+      callback(M._choose_detected_person(items, prompt))
+    end
   else
     vim.ui.select(items, { prompt = prompt }, callback)
   end
