@@ -256,6 +256,7 @@ local aitext = texttools_commands.bin("aitext")
 local kampen_fix = texttools_commands.bin("kampen-fix")
 local redactie_adres = texttools_commands.bin("redactie-adres")
 local article_dateline = texttools_commands.bin("article-dateline")
+local layout_designer = texttools_commands.bin("layout-designer")
 local article_headline = texttools_commands.bin("article-headline")
 local teams_config_cli = texttools_commands.bin("teams-config")
 local aichat = texttools_commands.bin("aichat")
@@ -2786,6 +2787,106 @@ vim.keymap.set("n", "<leader>ac", M.articlemeta_calendar_buffer, {
 
 vim.keymap.set("n", "<leader>av", M.prepare_article, {
   desc = "Zelf getikt artikel voorbereiden voor verzending (geen rewrite)",
+})
+
+-- Vormgevingsexport: buffer → platte tekst (FOTO/FOTOBIJSCHRIFT/STREAMER + vette
+-- intro) op het Bureaublad, plus de bijbehorende foto('s) uit de Pubble Inbox met
+-- dezelfde naam. Vraagt om een bestandsnaam. De opmaakregels komen alleen mee als
+-- ze er echt zijn (dat bepaalt de gedeelde Python-actie layout-designer).
+local _DESIGNER_IMAGE_EXTS = { jpg = true, jpeg = true, png = true, webp = true, heic = true }
+
+local function _designer_photo_number(name)
+  local stem = name:gsub("%.[^.]+$", "")
+  local num = stem:match("(%d+)%s*$")
+  return num and tonumber(num) or 1
+end
+
+-- Loszittende afbeeldingen in de Pubble Inbox-root, numeriek geordend (foto1,
+-- foto2, foto10) — dezelfde koppeling als de publicatieflow gebruikt.
+local function _designer_inbox_images(dir)
+  local images = {}
+  local scanner = vim.uv.fs_scandir(dir)
+  if not scanner then return images end
+  while true do
+    local entry, entry_type = vim.uv.fs_scandir_next(scanner)
+    if not entry then break end
+    local ext = entry:match("%.([^.]+)$")
+    if ext and _DESIGNER_IMAGE_EXTS[ext:lower()] and (entry_type == nil or entry_type == "file") then
+      table.insert(images, entry)
+    end
+  end
+  table.sort(images, function(a, b)
+    local na, nb = _designer_photo_number(a), _designer_photo_number(b)
+    if na ~= nb then return na < nb end
+    return a:lower() < b:lower()
+  end)
+  return images
+end
+
+function M.export_designer_text(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  local content = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+  if vim.trim(content) == "" then
+    vim.notify("Buffer is leeg.", vim.log.levels.WARN)
+    return
+  end
+  if vim.fn.executable(layout_designer) ~= 1 then
+    vim.notify("layout-designer ontbreekt; draai 'pip install -e .' in texttools.", vim.log.levels.ERROR)
+    return
+  end
+
+  vim.ui.input({ prompt = "Bestandsnaam vormgeving (Bureaublad): " }, function(input)
+    if not input or vim.trim(input) == "" then
+      notify_workflow("Vormgevingsexport geannuleerd.", vim.log.levels.INFO)
+      return
+    end
+    local name = vim.trim(input):gsub("%.txt$", "")
+    local desktop = vim.fn.expand("~/Desktop")
+    if vim.fn.isdirectory(desktop) ~= 1 then
+      vim.notify("Bureaublad niet gevonden: " .. desktop, vim.log.levels.ERROR)
+      return
+    end
+    local txt_path = desktop .. "/" .. name .. ".txt"
+
+    vim.system({ layout_designer }, { stdin = content, text = true }, function(result)
+      vim.schedule(function()
+        if result.code ~= 0 then
+          vim.notify("Vormgevingstekst mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
+          return
+        end
+        local body = (result.stdout or ""):gsub("\n$", "")
+        if vim.fn.writefile(vim.split(body, "\n", { plain = true }), txt_path) ~= 0 then
+          vim.notify("Opslaan tekst mislukt: " .. txt_path, vim.log.levels.ERROR)
+          return
+        end
+
+        -- Foto('s) uit de Pubble Inbox met dezelfde naam meekopiëren.
+        local inbox = texttools_paths.inbox()
+        local photos = 0
+        for index, entry in ipairs(_designer_inbox_images(inbox)) do
+          local ext = entry:match("%.([^.]+)$")
+          local suffix = index == 1 and "" or tostring(index)
+          local destination = desktop .. "/" .. name .. suffix .. "." .. ext
+          if vim.uv.fs_copyfile(inbox .. "/" .. entry, destination) then
+            photos = photos + 1
+          end
+        end
+
+        local message = "Vormgeving opgeslagen: " .. name .. ".txt"
+        if photos == 1 then
+          message = message .. " + foto"
+        elseif photos > 1 then
+          message = message .. " + " .. photos .. " foto's"
+        end
+        notify_workflow(message .. " (Bureaublad).", vim.log.levels.INFO)
+      end)
+    end)
+  end)
+end
+
+vim.keymap.set("n", "<leader>ax", M.export_designer_text, {
+  desc = "Artikel als vormgevingstekst (+foto) naar Bureaublad",
 })
 
 -- Lokale upvalue voor de eventvoorbereiding. De verzendflow gebruikt bewust

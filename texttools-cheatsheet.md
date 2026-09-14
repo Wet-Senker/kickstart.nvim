@@ -54,6 +54,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>aV` | Overzicht van bron en afzonderlijke krantversiebuffers |
 | `<leader>aG` | Huidige krantversie opslaan en expliciet goedkeuren |
 | `<leader>aw` | Publicatie voorbereiden; vangnet voor doublures en onbewerkte import; toont zo nodig eerst `## Kranttijdsversies` en eventvervolgen |
+| `<leader>ax` | Vormgevingstekst (FOTO/FOTOBIJSCHRIFT/STREAMER + vette intro) + foto('s) naar het Bureaublad; vraagt een bestandsnaam |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |
 | `<leader>ah` | Hiërarchisch hulpmenu voor codes, rubrieken, acties en cheatsheet |
