@@ -113,5 +113,30 @@ for _, code in ipairs({ 'B', 'K' }) do
   settled(single)
   assert(approved and not vim.b[single].pubble_duplicate_check_completed, 'beleidsmatig overgeslagen is niet uitgevoerd')
 end
+-- Een geannuleerde échte doublure (kandidaten aanwezig) breekt ook alle andere
+-- lopende AI-taken op dit artikel af. Een annulering zonder kandidaten (bv.
+-- netwerkfout of leeg resultaat) doet dat niet.
+local original_cancel = ai.cancel_ai
+local cancel_calls = {}
+ai.cancel_ai = function(target)
+  table.insert(cancel_calls, target)
+  return true
+end
+
+local with_candidates = buffer()
+ai._check_duplicate_stage(with_candidates, { 'B', 'D' }, 'herschrijven', function(ok) approved = ok end)
+pending(false, { version = 1, performed = true, candidates = { { headline = 'Batavia aan land' } } })
+settled(with_candidates)
+assert(not approved, 'geannuleerde doublure gold als goedkeuring')
+assert(#cancel_calls == 1 and cancel_calls[1] == with_candidates,
+  'geannuleerde doublure met kandidaten brak de andere AI-taken niet af')
+
+local empty_cancel = buffer()
+ai._check_duplicate_stage(empty_cancel, { 'B', 'D' }, 'herschrijven', function(ok) approved = ok end)
+pending(false, { version = 1, performed = true, candidates = {} })
+settled(empty_cancel)
+assert(#cancel_calls == 1, 'annulering zonder kandidaten brak ten onrechte AI-taken af')
+
+ai.cancel_ai = original_cancel
 ai._duplicate_stage_runner = original_runner
 print 'duplicate stages: OK'

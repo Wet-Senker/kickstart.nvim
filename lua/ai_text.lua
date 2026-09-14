@@ -1181,6 +1181,14 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file)
           )
         end
       end
+      -- De redacteur zag een echte doublure en koos niet voor doorgaan: dan
+      -- gaat dit artikel voorlopig niet mee. Breek ook alle andere AI-taken af
+      -- die vóór of tijdens de controle op dit artikel gestart zijn, zodat er
+      -- niets verder verwerkt wordt tot de redacteur bewust opnieuw begint.
+      local rejected_real_duplicate = not approved
+        and type(data) == "table"
+        and type(data.candidates) == "table"
+        and #data.candidates > 0
       if vim.api.nvim_buf_is_valid(buf) then
         vim.b[buf].pubble_duplicate_check_running = false
         if not approved then vim.b[buf].send_requested = false end
@@ -1188,6 +1196,7 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file)
           vim.b[buf].pubble_duplicate_check_completed = true
         end
         settle_duplicate_calendar_gate(buf, approved == true)
+        if rejected_real_duplicate then M.cancel_ai(buf) end
       end
       finish_buffer_job(buf)
       if done then done(approved == true) end
