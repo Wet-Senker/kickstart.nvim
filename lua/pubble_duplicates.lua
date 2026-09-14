@@ -13,6 +13,18 @@ local function flatten(value)
   return (vim.trim(tostring(value or '')):gsub('%s+', ' '))
 end
 
+-- Houd de overzichtsregel kort (± twee regels): kap een lange kop af op een
+-- vast aantal woorden met een …-markering.
+local function shorten_words(value, max_words)
+  local text = flatten(value)
+  if text == '' then return text end
+  local words = vim.split(text, ' ', { plain = true, trimempty = true })
+  if #words <= max_words then return text end
+  local kept = {}
+  for i = 1, max_words do kept[i] = words[i] end
+  return table.concat(kept, ' ') .. '…'
+end
+
 local function grouped_entries(candidates)
   local groups, order = {}, {}
   local function add(publication, candidate, variant)
@@ -64,16 +76,22 @@ function M.report_lines(result, options)
     table.insert(lines, flatten(publication))
     for _, entry in ipairs(groups[publication]) do
       local row = #lines + 1
-      local headline = flatten(
+      local headline = shorten_words(
         entry.variant and entry.variant.headline
           or entry.candidate.headline
-          or 'Zonder kop'
+          or 'Zonder kop',
+        6
       )
       local raw_date = (entry.variant and entry.variant.display_date_label)
         or entry.candidate.display_date_label
       local display_date = flatten(raw_date)
       if display_date == '' then display_date = 'datum onbekend' end
-      table.insert(lines, ('  • %s  —  %s'):format(headline, display_date))
+      local author = flatten(
+        (entry.variant and entry.variant.created_by) or entry.candidate.created_by
+      )
+      local row_text = ('  • %s  —  %s'):format(headline, display_date)
+      if author ~= '' then row_text = row_text .. '  ·  ' .. author end
+      table.insert(lines, row_text)
       ranges[#ranges + 1] = {
         first = row,
         last = row,

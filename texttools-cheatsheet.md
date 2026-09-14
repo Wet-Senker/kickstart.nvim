@@ -134,14 +134,23 @@ prio: 2            # 1=moet mee  2=mag mee  3=rest(standaard)  4=nood
 b: Bijschrift      # fotobijschrift
 c: Naam fotograaf  # fotocredit
 @John Boodschap    # alleen voor actuele Teams-ontvanger John
+@B Boodschap       # naar wie op dat moment editie B (De Brug) beheert
 @all Boodschap     # voor alle Teams-meldingen van dit artikel
 @ Boodschap        # kale @ = alle ontvangers (gelijk aan @all)
 ```
 
-Meerdere ontvangers op één regel: `@Joop, @Saskia Boodschap`. Een kale `@`
-zonder naam of `all` gaat naar alle edities/ontvangers — handig bij meerdere
-edities. De selectors zijn hoofdletterongevoelig, worden niet getoond en volgen
-eventuele waarneming uit `:TeamsRedactie`.
+- **Naam of editiecode**: `@Saskia` mikt op de persoon, `@B`/`@SW`/`@ST`/`@D`/
+  `@Z`/`@K` op wie díe krant nú beheert (handig als het wisselt van persoon).
+- **Meerdere ontvangers**: op één regel met komma's (`@Joop, @Saskia Boodschap`)
+  óf op losse regels boven de boodschap:
+  ```
+  @joop
+  @B
+  @Saskia Controleer de kop.
+  ```
+- Een kale `@` zonder naam of `all` gaat naar alle edities/ontvangers.
+- Selectors zijn hoofdletterongevoelig, worden niet getoond en volgen eventuele
+  waarneming uit `:TeamsRedactie`.
 
 Alternatieve notatie voor bijschrift/credit (ook herkend in eerste 4 regels):
 ```
