@@ -139,8 +139,11 @@ c: Naam fotograaf  # fotocredit
 @ Boodschap        # kale @ = alle ontvangers (gelijk aan @all)
 ```
 
-- **Naam of editiecode**: `@Saskia` mikt op de persoon, `@B`/`@SW`/`@ST`/`@D`/
-  `@Z`/`@K` op wie díe krant nú beheert (handig als het wisselt van persoon).
+- **Naam of editie**: `@Saskia` mikt op de persoon, een editie op wie díe krant
+  nú beheert (handig als het wisselt van persoon). De editie mag fuzzy, net als
+  de `e:`-regel: code (`@ST`), naam(prefix) (`@stad`, `@swol`, `@br`) of
+  afkorting. Alleen bij twijfel (`@s` = Swollenaer óf Stadskoerier?) volgt een
+  foutmelding.
 - **Meerdere ontvangers**: op één regel met komma's (`@Joop, @Saskia Boodschap`)
   óf op losse regels boven de boodschap:
   ```
