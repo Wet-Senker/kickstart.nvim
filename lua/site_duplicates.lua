@@ -33,6 +33,8 @@ local function sanitize(value)
   return tostring(value or ''):gsub('[\r\n]+', ' ')
 end
 
+-- Bouwt de overzichtsregels én een ranges-tabel die elke artikelregel koppelt
+-- aan het bijbehorende artikel + kandidaatpaar (voor cursorgestuurde acties).
 function M._render(result)
   local lines = {
     string.format('Webartikel-doublures (%s..%s; maximaal %s dagen uiteen)',
@@ -40,6 +42,7 @@ function M._render(result)
     string.rep('=', 68),
     '',
   }
+  local ranges = {}
   for _, site in ipairs(result.sites or {}) do
     if site.error and site.error ~= vim.NIL then
       table.insert(lines, string.format('%s: NIET gelezen — %s',
@@ -50,14 +53,14 @@ function M._render(result)
         site.publication or site.edition, site.article_count or 0, #pairs,
         #pairs > 0 and ':' or '.'))
       for _, pair in ipairs(pairs) do
-        table.insert(lines, string.format('  %s%s (%s) ↔ %s (%s)',
+        table.insert(lines, string.format('  %s%s; %d dag(en) uiteen (%d%%)',
           pair.reviewed and '[gecontroleerd] ' or '',
-          sanitize(pair.left.headline), pair.left.display_date_label or '?',
-          sanitize(pair.right.headline), pair.right.display_date_label or '?'))
-        table.insert(lines, string.format('      %s; %d dag(en) uiteen (%d%%)',
           sanitize(pair.reason), pair.days_apart or 0, pair.score or 0))
-        table.insert(lines, '      ' .. tostring(pair.left.editor_url))
-        table.insert(lines, '      ' .. tostring(pair.right.editor_url))
+        for _, article in ipairs({ pair.left, pair.right }) do
+          table.insert(lines, string.format('    • %s (%s)',
+            sanitize(article.headline), article.display_date_label or '?'))
+          ranges[#lines] = { article = article, pair = pair }
+        end
       end
       if (site.reviewed_hidden_count or 0) > 0 then
         table.insert(lines, string.format('  %d eerder gecontroleerde kandidaatpaar(en) verborgen.',
@@ -73,9 +76,10 @@ function M._render(result)
     end
     table.insert(lines, '')
   end
-  table.insert(lines, '<leader>km = getoonde lichting markeren als gecontroleerd')
-  table.insert(lines, '<leader>ka = eerder gecontroleerde kandidaatparen tonen/verbergen')
-  return lines
+  table.insert(lines,
+    'Enter = tekst in nvim  •  o = in browser  •  m = paar markeren  •  '
+    .. 'r = gecontroleerde tonen/verbergen  •  q = sluiten')
+  return lines, ranges
 end
 
 local function review_keys(result)
@@ -88,10 +92,10 @@ local function review_keys(result)
   return keys
 end
 
-local function mark_result(result, on_done)
-  local keys = review_keys(result)
+local function mark_keys(keys, on_done)
+  keys = keys or {}
   if #keys == 0 then
-    vim.notify('Deze lichting bevat geen kandidaatparen om te markeren.', vim.log.levels.INFO)
+    vim.notify('Geen kandidaatpaar om te markeren.', vim.log.levels.INFO)
     return
   end
   vim.system(mark_command(), {
@@ -117,24 +121,103 @@ local function mark_result(result, on_done)
   end)
 end
 
+-- Toon één webartikel als losse, sluitbare buffer onder het overzicht. Zo kun
+-- je met Enter beide artikelen van een paar onder elkaar bekijken.
+local function open_article_buffer(article)
+  local body = { sanitize(article.headline) ~= '' and article.headline or 'Zonder kop', '' }
+  if article.display_date_label then
+    table.insert(body, 'Publicatiedatum: ' .. article.display_date_label)
+  end
+  if article.editor_url and tostring(article.editor_url) ~= '' then
+    table.insert(body, 'Pubble: ' .. tostring(article.editor_url))
+  end
+  table.insert(body, '')
+  for _, line in ipairs(vim.split(article.text or article.lead or '', '\n', { plain = true })) do
+    table.insert(body, line)
+  end
+
+  local abuf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(abuf, 0, -1, false, body)
+  vim.bo[abuf].filetype = 'markdown'
+  vim.bo[abuf].modifiable = false
+  vim.bo[abuf].bufhidden = 'wipe'
+  pcall(vim.api.nvim_buf_set_name, abuf, 'Artikel: ' .. sanitize(article.headline))
+  vim.cmd 'belowright split'
+  vim.api.nvim_win_set_buf(0, abuf)
+  vim.api.nvim_win_set_height(0, math.max(8, math.min(20, #body)))
+  for _, key in ipairs({ 'q', '<Esc>' }) do
+    vim.keymap.set('n', key, '<cmd>close<cr>', { buffer = abuf, silent = true, desc = 'Sluiten' })
+  end
+end
+
 local function show_report(result, edition, include_reviewed)
   local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, M._render(result))
+  local lines, ranges = M._render(result)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].filetype = 'markdown'
   vim.bo[buf].modifiable = false
   vim.bo[buf].bufhidden = 'wipe'
   pcall(vim.api.nvim_buf_set_name, buf, 'Webartikel-doublures')
-  vim.cmd 'botright vsplit'
-  vim.api.nvim_win_set_buf(0, buf)
-  vim.keymap.set('n', '<leader>km', function()
-    mark_result(result, function()
-      if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
+  vim.cmd 'botright split'
+  local win = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(win, buf)
+  vim.api.nvim_win_set_height(win, math.max(10, math.min(24, #lines)))
+
+  local function entry_at_cursor()
+    local row = vim.api.nvim_win_get_cursor(win)[1]
+    return ranges[row]
+  end
+
+  local function redraw()
+    lines, ranges = M._render(result)
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].modifiable = false
+  end
+
+  vim.keymap.set('n', 'o', function()
+    local entry = entry_at_cursor()
+    if not entry or not entry.article.editor_url then
+      vim.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
+      return
+    end
+    local ok, _, err = pcall(vim.ui.open, tostring(entry.article.editor_url))
+    if not ok or err then
+      vim.notify('Openen in browser mislukt: ' .. tostring(err or _), vim.log.levels.WARN)
+    end
+  end, { buffer = buf, silent = true, desc = 'Artikel in browser openen' })
+
+  vim.keymap.set('n', '<CR>', function()
+    local entry = entry_at_cursor()
+    if not entry then
+      vim.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
+      return
+    end
+    open_article_buffer(entry.article)
+  end, { buffer = buf, silent = true, desc = 'Artikel in nvim tonen' })
+
+  vim.keymap.set('n', 'm', function()
+    local entry = entry_at_cursor()
+    if not entry or not entry.pair or not entry.pair.review_key then
+      vim.notify('Zet de cursor op een artikelregel om het paar te markeren.', vim.log.levels.INFO)
+      return
+    end
+    mark_keys({ entry.pair.review_key }, function()
+      entry.pair.reviewed = true
+      redraw()
     end)
-  end, { buffer = buf, desc = 'Lichting als gecontroleerd markeren' })
-  vim.keymap.set('n', '<leader>ka', function()
+  end, { buffer = buf, silent = true, desc = 'Kandidaatpaar als gecontroleerd markeren' })
+
+  vim.keymap.set('n', 'r', function()
     if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
     M.run(edition, { include_reviewed = not include_reviewed, open_browser = false })
-  end, { buffer = buf, desc = 'Gecontroleerde webdoublures tonen/verbergen' })
+  end, { buffer = buf, silent = true, desc = 'Gecontroleerde webdoublures tonen/verbergen' })
+
+  for _, key in ipairs({ 'q', '<Esc>' }) do
+    vim.keymap.set('n', key, function()
+      if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
+    end, { buffer = buf, silent = true, desc = 'Overzicht sluiten' })
+  end
 end
 
 function M.run(edition, options)
@@ -154,16 +237,17 @@ function M.run(edition, options)
         return
       end
       show_report(result, edition, options.include_reviewed == true)
-      local urls = {}
-      for _, site in ipairs(result.sites or {}) do
-        vim.list_extend(urls, site.open_urls or {})
+      -- De artikelen worden niet meer automatisch in de browser gegooid; open ze
+      -- gericht per stuk met `o` in het overzicht. Alleen op expliciet verzoek
+      -- (open_browser == true) gaat de hele lichting geordend open.
+      if options.open_browser == true then
+        local urls = {}
+        for _, site in ipairs(result.sites or {}) do
+          vim.list_extend(urls, site.open_urls or {})
+        end
+        browser.open_urls(urls)
       end
-      if options.open_browser ~= false then browser.open_urls(urls) end
-      notifications.workflow(string.format(
-        options.open_browser == false
-          and 'Webdoublurecontrole klaar: rapport bijgewerkt.'
-          or 'Webdoublurecontrole klaar: %d artikel(en) geordend in de browser geopend.',
-        #urls),
+      notifications.workflow('Webdoublurecontrole klaar: overzicht geopend.',
         vim.log.levels.INFO, { ttl = 10 })
     end)
   end)

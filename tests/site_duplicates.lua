@@ -13,7 +13,7 @@ local mark_command = duplicates._mark_command()
 assert(mark_command[4] == '--json')
 assert(mark_command[5] == '--mark-reviewed')
 
-local lines = duplicates._render {
+local lines, ranges = duplicates._render {
   from = '2026-09-01',
   to = '2026-09-14',
   max_days_apart = 7,
@@ -57,12 +57,28 @@ local lines = duplicates._render {
 }
 local blob = table.concat(lines, '\n')
 assert(blob:find('De Brug: 31 actieve artikelen', 1, true))
-assert(blob:find('4 dag(en) uiteen (86%)', 1, true))
-assert(blob:find('[gecontroleerd] Dezelfde aankondiging', 1, true))
+-- [gecontroleerd] staat nu op de redenregel; de koppen staan als losse
+-- • -regels eronder (cursorregels voor o/Enter/m).
+assert(blob:find('[gecontroleerd] sterk gelijkende inhoud; 4 dag(en) uiteen (86%)', 1, true))
+assert(blob:find('    • Dezelfde aankondiging (01-09-2026)', 1, true))
+assert(blob:find('    • Anders geschreven aankondiging (05-09-2026)', 1, true))
 assert(blob:find('2 eerder gecontroleerde kandidaatpaar(en) verborgen', 1, true))
-assert(blob:find('<leader>km = getoonde lichting markeren', 1, true))
-assert(blob:find('/articles/internet/1', 1, true))
+assert(blob:find('Enter = tekst in nvim', 1, true) and blob:find('o = in browser', 1, true)
+  and blob:find('m = paar markeren', 1, true) and blob:find('r = gecontroleerde', 1, true))
+assert(not blob:find('/articles/internet/1', 1, true), 'editor-URL hoort niet in het overzicht maar achter o/Enter')
 assert(blob:find('De Swollenaer: NIET gelezen — timeout', 1, true))
+
+-- Elke koptekstregel is via ranges gekoppeld aan het artikel (voor o/Enter/m).
+local linked_left, linked_right = false, false
+for _, entry in pairs(ranges) do
+  if entry.article.editor_url == 'https://editor.test/articles/internet/1' then
+    linked_left = true
+    assert(entry.pair.review_key == 'abc', 'artikel mist het kandidaatpaar voor markeren')
+  elseif entry.article.editor_url == 'https://editor.test/articles/internet/2' then
+    linked_right = true
+  end
+end
+assert(linked_left and linked_right, 'artikelregels zijn niet aan hun artikel gekoppeld')
 local keys = duplicates._review_keys {
   sites = { { pairs = { { review_key = 'first' }, { review_key = 'second' } } } },
 }
