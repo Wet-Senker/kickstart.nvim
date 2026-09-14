@@ -434,9 +434,17 @@ local function partij_in_bijschrift(party)
   return 'de ' .. party .. '-fractie'
 end
 
--- Importkeuzes gebruiken confirm; handmatige wizards blijven vim.ui.select.
+-- Importkeuzes gebruiken een genummerd inputlist-menu (geen fzf, dus veilig
+-- tijdens een verse TUI-import). Bewust géén vim.fn.confirm: bij veel opties of
+-- gelijk beginnende namen (CDA/ChristenUnie → beide sneltoets 'C') botsen de
+-- sneltoetsen en blijft confirm het menu eindeloos hertekenen.
 M._choose_detected_person = function(items, prompt)
-  local index = vim.fn.confirm(prompt, table.concat(items, '\n'), 0)
+  local menu = { prompt }
+  for i, item in ipairs(items) do
+    menu[#menu + 1] = string.format('%d. %s', i, item)
+  end
+  local index = vim.fn.inputlist(menu)
+  if type(index) ~= 'number' or index < 1 or index > #items then return nil end
   return items[index]
 end
 
