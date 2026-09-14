@@ -135,12 +135,12 @@ local function export_content(buf)
   end
 
   local header = {}
-  if streamer_text then table.insert(header, 'Streamer: ' .. streamer_text) end
-  if fm_caption then table.insert(header, 'Bijschrift: ' .. fm_caption) end
   if fm_credit then
     local credit_name = fm_credit:gsub('^[Ff]oto:%s*', '')
-    table.insert(header, 'Fotograaf: ' .. credit_name)
+    table.insert(header, 'FOTO: ' .. credit_name)
   end
+  if fm_caption then table.insert(header, 'FOTOBIJSCHRIFT: ' .. fm_caption) end
+  if streamer_text then table.insert(header, 'STREAMER: ' .. streamer_text) end
 
   while #body > 0 and vim.trim(body[1]) == '' do table.remove(body, 1) end
   while #body > 0 and vim.trim(body[#body]) == '' do table.remove(body) end
