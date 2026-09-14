@@ -135,11 +135,13 @@ b: Bijschrift      # fotobijschrift
 c: Naam fotograaf  # fotocredit
 @John Boodschap    # alleen voor actuele Teams-ontvanger John
 @all Boodschap     # voor alle Teams-meldingen van dit artikel
+@ Boodschap        # kale @ = alle ontvangers (gelijk aan @all)
 ```
 
-Meerdere ontvangers op één regel: `@Joop, @Saskia Boodschap`. De selectors
-zijn hoofdletterongevoelig, worden niet getoond en volgen eventuele waarneming
-uit `:TeamsRedactie`.
+Meerdere ontvangers op één regel: `@Joop, @Saskia Boodschap`. Een kale `@`
+zonder naam of `all` gaat naar alle edities/ontvangers — handig bij meerdere
+edities. De selectors zijn hoofdletterongevoelig, worden niet getoond en volgen
+eventuele waarneming uit `:TeamsRedactie`.
 
 Alternatieve notatie voor bijschrift/credit (ook herkend in eerste 4 regels):
 ```
