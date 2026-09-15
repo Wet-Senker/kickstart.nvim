@@ -282,6 +282,31 @@ local function next_pending_buffer(source_buf, workspace, current_code)
   return nil
 end
 
+-- Open de krantversies zichtbaar naast elkaar in een eigen tabpagina, zodat het
+-- hoofdartikel op de bestaande tab onaangeroerd blijft. Bij veel edities blijven
+-- de kolommen smal; navigeren kan verder met <leader>aV.
+local function open_review_layout(ordered)
+  local valid = {}
+  for _, review_buf in ipairs(ordered or {}) do
+    if review_buf and vim.api.nvim_buf_is_valid(review_buf) then
+      table.insert(valid, review_buf)
+    end
+  end
+  if #valid == 0 then return end
+  local ok = pcall(vim.cmd, "tabnew")
+  if not ok then
+    -- Geen vensters (bijv. headless): val terug op alleen de eerste tonen.
+    pcall(vim.api.nvim_set_current_buf, valid[1])
+    return
+  end
+  vim.api.nvim_set_current_buf(valid[1])
+  for index = 2, #valid do
+    pcall(vim.cmd, "vsplit")
+    vim.api.nvim_set_current_buf(valid[index])
+  end
+  pcall(vim.cmd, "wincmd t")
+end
+
 function M.create_workspace(source_buf, expected_source, codes, names, variants, done)
   if not vim.api.nvim_buf_is_valid(source_buf) then
     if done then done(false) end
@@ -317,11 +342,10 @@ function M.create_workspace(source_buf, expected_source, codes, names, variants,
         return
       end
       local buffers = refresh_review_buffers(source_buf, result.workspace, { force = true })
-      if buffers[1] and vim.api.nvim_buf_is_valid(buffers[1]) then
-        vim.api.nvim_set_current_buf(buffers[1])
-      end
+      open_review_layout(buffers)
       notify(
-        "Aparte krantversies staan in eigen buffers. Controleer elke tekst en keur goed met <leader>aG.",
+        "Aparte krantversies staan naast elkaar in een reviewtab. Controleer elke tekst, "
+          .. "keur goed met <leader>aG, en spring met <leader>aV. Sluit de tab met :tabclose.",
         vim.log.levels.INFO
       )
       if done then done(true, result.workspace) end

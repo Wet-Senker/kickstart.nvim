@@ -100,8 +100,10 @@ local original_confirm = ai._edition_versions_confirm
 local original_runner = ai._edition_variant_runner
 ai._edition_versions_confirm = function() return 1 end
 local requested = {}
-ai._edition_variant_runner = function(_, code, _, done)
+local seen_origin = {}
+ai._edition_variant_runner = function(_, code, origin, done)
   table.insert(requested, code)
+  seen_origin[code] = origin
   done(
     true,
     code .. " kop\n\n**OVERIJSSEL - Intro voor " .. code .. ".**\n\nBody voor " .. code .. "."
@@ -111,12 +113,17 @@ end
 ai._offer_and_generate_edition_versions(
   buf,
   "Gezamenlijke kop\n\n**OVERIJSSEL - Gezamenlijke intro.**\n\nGezamenlijke body.",
+  "Origineel persbericht met lokaal cijfer.",
   { "B", "SW", "ST" },
   { "De Brug", "De Swollenaer", "De Stadskoerier" }
 )
 
 local rendered = text(buf)
 assert(table.concat(requested, ",") == "B,SW,ST", "niet iedere editie kreeg een eigen AI-call")
+assert(
+  seen_origin.B == "Origineel persbericht met lokaal cijfer.",
+  "krantversie kreeg niet het origineel maar de gedeelde/herschreven bron"
+)
 assert(rendered:find("Gezamenlijke kop", 1, true), "gedeelde brontekst werd vervangen")
 assert(rendered:find("### Editieversie B — De Brug", 1, true), "B-versie ontbreekt")
 assert(rendered:find("### Editieversie SW — De Swollenaer", 1, true), "SW-versie ontbreekt")
@@ -156,6 +163,7 @@ ai._edition_variant_runner = function() ran = true end
 ai._offer_and_generate_edition_versions(
   declined,
   "Gezamenlijk artikel",
+  "Origineel gezamenlijk artikel.",
   { "B", "SW" },
   { "De Brug", "De Swollenaer" }
 )

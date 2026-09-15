@@ -1646,7 +1646,11 @@ M._edition_variant_runner = function(buf, code, source, done)
   )
 end
 
-local function offer_and_generate_edition_versions(buf, source, codes, names)
+-- `source` is de zichtbare bufferbody (dient als expected_source/gedeelde bron);
+-- `origin` is het oorspronkelijke bericht dat de AI per krant herschrijft. Ze
+-- zijn bewust gescheiden: elke krantversie wordt uit het origineel gedestilleerd,
+-- zodat een editie-onbewuste voor-herschrijving geen lokaal vitale info wist.
+local function offer_and_generate_edition_versions(buf, source, origin, codes, names)
   if type(codes) ~= "table" or #codes < 2 then return end
   if M._edition_versions_confirm(codes, names) ~= 1 then
     notify_workflow("Eén gezamenlijke artikelversie behouden.", vim.log.levels.INFO)
@@ -1656,7 +1660,7 @@ local function offer_and_generate_edition_versions(buf, source, codes, names)
   local variants, errors = {}, {}
   local remaining = #codes
   for _, code in ipairs(codes) do
-    M._edition_variant_runner(buf, code, source, function(ok, variant, err)
+    M._edition_variant_runner(buf, code, origin, function(ok, variant, err)
       if ok then
         variants[code] = variant
       else
@@ -1941,8 +1945,10 @@ function M.rewrite_article_buffer()
           check_duplicate_stage(buf, codes, "herschrijven", function(checked)
             if checked then
               start_metadata_and_facebook_after_duplicate()
+              -- source = herschreven bufferbody (expected_source); origin = het
+              -- oorspronkelijke bericht waaruit elke krantversie wordt gemaakt.
               offer_and_generate_edition_versions(
-                buf, rewritten_body_str, codes, names
+                buf, rewritten_body_str, input, codes, names
               )
               start_calendar_after_duplicate()
             end
