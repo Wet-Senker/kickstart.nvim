@@ -626,6 +626,14 @@ local function mark_ai_neutrality_completed(buf, lines)
 end
 
 local function send_safeguard_reason(buf, lines)
+  -- De gedeelde bron blijft bij varianten bewust ongeredigeerd. De echte
+  -- publicatieteksten zijn expliciet gereviewd; Python valideert hun hashes
+  -- opnieuw vóór publicatie, ook als deze afgeleide clientcache verouderd is.
+  if vim.b[buf].edition_workspace_ready == true then
+    for _, line in ipairs(lines) do
+      if vim.trim(line) == "## Editieversies" then return nil end
+    end
+  end
   local imported = vim.b[buf].send_import_body
   if type(imported) ~= "string" then return nil end
 
@@ -1590,7 +1598,7 @@ local function normalized_edition_variant(output)
   return rendered
 end
 
-local function apply_edition_versions(buf, codes, names, variants, source, done)
+local function apply_edition_versions(buf, codes, names, variants, source, done, shared_groups)
   if not vim.api.nvim_buf_is_valid(buf) or #codes < 2 then
     if done then done(false) end
     return false
@@ -1601,18 +1609,33 @@ local function apply_edition_versions(buf, codes, names, variants, source, done)
       return false
     end
   end
-  edition_review.create_workspace(buf, source, codes, names, variants, done)
+  edition_review.create_workspace(buf, source, codes, names, variants, done, shared_groups)
   return true
 end
 
-M._edition_versions_confirm = function(codes, names)
-  return vim.fn.confirm(
+M._edition_mode_choice = function(codes, names, strategy)
+  local options = strategy and strategy.options or {
+    { label = "Algemene versie voor alle kranten" },
+    { label = "Splitsen: eigen versie per krant" },
+  }
+  local labels, findings = {}, {}
+  for index, option in ipairs(options) do table.insert(labels, "&" .. index .. ". " .. option.label) end
+  table.insert(labels, "&0. Annuleren")
+  for index, code in ipairs(codes) do
+    local places = strategy and strategy.places_by_edition and strategy.places_by_edition[code]
+    if places and #places > 0 then
+      table.insert(findings, (names and names[index] or code) .. ": " .. table.concat(places, ", "))
+    end
+  end
+  local choice = vim.fn.confirm(
     "Dit artikel gaat naar meerdere kranten:\n\n"
       .. edition_names(codes, names)
-      .. "\n\nVoor iedere krant een eigen versie maken?",
-    "&Ja, aparte versies\n&Nee, gezamenlijke versie",
-    2
+      .. (#findings > 0 and ("\n\nPlaatsvermeldingen gevonden (geen bewijs van lokale relevantie):\n" .. table.concat(findings, "\n")) or "")
+      .. "\n\nWelke tekstversie wil je maken?",
+    table.concat(labels, "\n"),
+    1
   )
+  return choice >= 1 and choice <= #options and choice or 0
 end
 
 M._edition_versions_regenerate_confirm = function()
@@ -1623,9 +1646,13 @@ M._edition_versions_regenerate_confirm = function()
   )
 end
 
-M._edition_variant_runner = function(buf, code, source, done)
+M._edition_variant_runner = function(buf, code, source, done, task)
+  local command = { aitext, "krantversie", "--edition", code }
+  if task and task.prompt == "krantversie_algemeen" then
+    command = { aitext, task.prompt, "--editions", table.concat(task.editions, ",") }
+  end
   ai_system(
-    { aitext, "krantversie", "--edition", code },
+    command,
     { text = true, stdin = source },
     function(result)
     vim.schedule(function()
@@ -1642,7 +1669,8 @@ M._edition_variant_runner = function(buf, code, source, done)
     end)
     end,
     "AI · Krantversie " .. code,
-    buf
+    buf,
+    function() vim.schedule(function() done(false, nil, "krantversie geannuleerd") end) end
   )
 end
 
@@ -1650,19 +1678,53 @@ end
 -- `origin` is het oorspronkelijke bericht dat de AI per krant herschrijft. Ze
 -- zijn bewust gescheiden: elke krantversie wordt uit het origineel gedestilleerd,
 -- zodat een editie-onbewuste voor-herschrijving geen lokaal vitale info wist.
-local function offer_and_generate_edition_versions(buf, source, origin, codes, names)
-  if type(codes) ~= "table" or #codes < 2 then return end
-  if M._edition_versions_confirm(codes, names) ~= 1 then
-    notify_workflow("Eén gezamenlijke artikelversie behouden.", vim.log.levels.INFO)
-    return
-  end
+M._edition_variant_formatter = function(source_buf, code, variant, done)
+  if not vim.api.nvim_buf_is_valid(source_buf) then done(false); return end
+  -- De lokale inspectie ook async: N krantversies blokkeren geen editorthread.
+  start_buffer_job(source_buf)
+  vim.system({ article_headline, "inspect" }, { text = true, stdin = variant }, function(result)
+    vim.schedule(function()
+      finish_buffer_job(source_buf)
+      local decoded, headline = pcall(vim.json.decode, result.stdout or "")
+      if result.code ~= 0 or not decoded or type(headline) ~= "table"
+          or not vim.api.nvim_buf_is_valid(source_buf) then
+        done(false, nil, "kopinspectie van krantversie " .. code .. " mislukt")
+        return
+      end
+      -- Tijdelijke werkbuffer, nooit een tweede duurzame bron van waarheid.
+      local working = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_lines(working, 0, -1, false, vim.split(variant, "\n", { plain = true }))
+      M.tussenkopjes_streamer({ automatic = true, streamer_only = true, headline = headline,
+        buf = working, job_buf = source_buf, done = function(ok)
+          local formatted
+          if ok and vim.api.nvim_buf_is_valid(working) then
+            formatted = table.concat(vim.api.nvim_buf_get_lines(working, 0, -1, false), "\n")
+          end
+          if vim.api.nvim_buf_is_valid(working) then vim.api.nvim_buf_delete(working, { force = true }) end
+          done(formatted ~= nil and vim.api.nvim_buf_is_valid(source_buf), formatted,
+            "opmaak van krantversie " .. code .. " kon niet veilig worden afgerond")
+        end })
+    end)
+  end)
+end
 
-  local variants, errors = {}, {}
-  local remaining = #codes
-  for _, code in ipairs(codes) do
-    M._edition_variant_runner(buf, code, origin, function(ok, variant, err)
+local function generate_edition_versions(buf, source, origin, codes, names, tasks)
+  if type(codes) ~= "table" or #codes < 2 then return end
+
+  if not tasks then
+    tasks = {}
+    for _, code in ipairs(codes) do table.insert(tasks, { code = code, editions = { code }, prompt = "krantversie" }) end
+  end
+  local variants, errors, shared_groups = {}, {}, {}
+  local remaining = #tasks
+  for _, task in ipairs(tasks) do
+    if #task.editions > 1 then table.insert(shared_groups, task.editions) end
+  end
+  for _, task in ipairs(tasks) do
+    local code = task.code
+    local function finish_variant(ok, variant, err)
       if ok then
-        variants[code] = variant
+        for _, destination in ipairs(task.editions) do variants[destination] = variant end
       else
         table.insert(errors, code .. (err and (": " .. err) or ""))
       end
@@ -1677,16 +1739,22 @@ local function offer_and_generate_edition_versions(buf, source, origin, codes, n
         return
       end
       if not apply_edition_versions(buf, codes, names, variants, source, function(applied)
-        if not applied then
+        if applied then
+          mark_ai_rewrite_completed(buf)
+        else
           notify_workflow(
             "Aparte krantversies konden niet veilig worden ingevoegd.",
             vim.log.levels.ERROR
           )
         end
-      end) then
+      end, shared_groups) then
         notify_workflow("Aparte krantversies konden niet veilig worden ingevoegd.", vim.log.levels.ERROR)
       end
-    end)
+    end
+    M._edition_variant_runner(buf, code, origin, function(ok, variant, err)
+      if not ok then finish_variant(false, nil, err); return end
+      M._edition_variant_formatter(buf, code, variant, finish_variant)
+    end, task)
   end
 end
 
@@ -1697,7 +1765,7 @@ M._edition_autodetect = edition_autodetect
 M._drop_edition_versions_block = drop_edition_versions_block
 M._normalized_edition_variant = normalized_edition_variant
 M._apply_edition_versions = apply_edition_versions
-M._offer_and_generate_edition_versions = offer_and_generate_edition_versions
+M._generate_edition_versions = generate_edition_versions
 M._edition_review = edition_review
 
 function M.rewrite_article_buffer()
@@ -1708,6 +1776,8 @@ function M.rewrite_article_buffer()
   -- buiten de AI-input en worden na de rewrite deterministisch teruggezet.
   local saved_fm, saved_ctrl, body_lines, saved_sections, saved_boundary =
     split_article_parts(lines)
+  local source_body = table.concat(body_lines, "\n")
+  local resolve_tick = vim.api.nvim_buf_get_changedtick(buf)
   if has_edition_versions_block(saved_sections) then
     if M._edition_versions_regenerate_confirm() ~= 1 then
       notify_workflow("Herschrijven geannuleerd; bestaande krantversies zijn behouden.", vim.log.levels.INFO)
@@ -1743,12 +1813,23 @@ function M.rewrite_article_buffer()
   local rewrite_cmd = { "bash", "-c",
     "set -o pipefail; " .. vim.fn.shellescape(aitext)
       .. " journalistiek_schrijven | " .. vim.fn.shellescape(kampen_fix) }
+  local edition_mode = "single"
+  local edition_tasks
+  local function source_body_unchanged()
+    if not vim.api.nvim_buf_is_valid(buf) then return false end
+    local _, _, current_body = split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+    if table.concat(current_body, "\n") == source_body then return true end
+    notify_workflow("Herschrijven niet toegepast: de brontekst is intussen gewijzigd. Start opnieuw.", vim.log.levels.WARN)
+    return false
+  end
   local function run_rewrite()
-  ai_system(rewrite_cmd, { text = true, stdin = input }, function(result)
+  if not source_body_unchanged() then return end
+  local function receive_rewrite(result)
     vim.schedule(function()
       -- De importbuffer kan tijdens de AI-call door een templatekeuze, vensteractie
       -- of handmatig sluiten verdwijnen. Een laat resultaat heeft dan geen doel.
       if not vim.api.nvim_buf_is_valid(buf) then return end
+      if not source_body_unchanged() then return end
       if result.code ~= 0 then
         vim.notify("AI rewrite mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
         return
@@ -1819,11 +1900,11 @@ function M.rewrite_article_buffer()
 
       local rewritten_str = table.concat(new_lines, "\n")
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
-      mark_ai_rewrite_completed(buf)
-      M.tussenkopjes_streamer({ automatic = true, buf = buf })
+      if edition_mode ~= "splitsen" then mark_ai_rewrite_completed(buf) end
       -- Een eerdere reviewworkspace is door deze expliciet bevestigde rewrite
       -- vervangen. Oude scratchbuffers mogen daarna niet meer terugschrijven.
       edition_review.close(buf, true)
+      vim.b[buf].edition_workspace_ready = false
       vim.b[buf].cached_metadata = nil
       vim.b[buf].cached_calendar_metadata = nil
       vim.b[buf].cached_facebook_text = nil
@@ -1932,29 +2013,35 @@ function M.rewrite_article_buffer()
       -- e:-keuze blijft stil leidend zolang de betrouwbare inhoudsdetectie
       -- door de rewrite niet is veranderd. Kalender-AI begint pas vanuit de
       -- callback van de afgeronde doublurecontrole.
-      vim.b[buf].pubble_duplicate_gate_pending = true
-      reconcile_editions_after_rewrite(
-        buf,
-        rewritten_str,
-        original_for_edition_detection,
-        function(ok, codes, names)
-          if not ok then
-            settle_duplicate_calendar_gate(buf, false)
-            return
-          end
-          check_duplicate_stage(buf, codes, "herschrijven", function(checked)
-            if checked then
-              start_metadata_and_facebook_after_duplicate()
-              -- source = herschreven bufferbody (expected_source); origin = het
-              -- oorspronkelijke bericht waaruit elke krantversie wordt gemaakt.
-              offer_and_generate_edition_versions(
-                buf, rewritten_body_str, input, codes, names
-              )
-              start_calendar_after_duplicate()
+      local function reconcile_and_continue()
+        vim.b[buf].pubble_duplicate_gate_pending = true
+        reconcile_editions_after_rewrite(
+          buf,
+          rewritten_str,
+          original_for_edition_detection,
+          function(ok, codes, names)
+            if not ok then
+              settle_duplicate_calendar_gate(buf, false)
+              return
             end
-          end)
-        end
-      )
+            check_duplicate_stage(buf, codes, "herschrijven", function(checked)
+              if checked then
+                start_metadata_and_facebook_after_duplicate()
+                -- De gedeelde bron blijft onopgemaakt; elke definitieve
+                -- krantversie krijgt opmaak vóór workspacecreatie/review.
+                if edition_mode == "splitsen" then
+                  generate_edition_versions(buf, rewritten_body_str, input, codes, names, edition_tasks)
+                end
+                start_calendar_after_duplicate()
+              end
+            end)
+          end
+        )
+      end
+      if edition_mode ~= "splitsen" then
+        M.tussenkopjes_streamer({ automatic = true, streamer_only = true, buf = buf })
+      end
+      reconcile_and_continue()
 
       -- Als dit nog geen 112-templateartikel was maar de rewritten tekst wél
       -- als 112 scoort: opnieuw aanbieden als importdetectie dit niet al aan
@@ -1973,28 +2060,50 @@ function M.rewrite_article_buffer()
         end
       end
     end)
-  end, "AI · Herschrijven", buf)
+  end
+  if edition_mode == "splitsen" then
+    -- Alleen de duurzame gedeelde bron klaarzetten. Geen tussenherschrijf-AI:
+    -- alle definitieve teksten komen rechtstreeks uit het origineel.
+    receive_rewrite({ code = 0, stdout = input, stderr = "" })
+  else
+    ai_system(rewrite_cmd, { text = true, stdin = input }, receive_rewrite, "AI · Herschrijven", buf)
+  end
   end
 
-  -- Randgeval-poort vóór de dure rewrite. Een handgetypte of via <leader>av
-  -- voorbereide buffer ging niet door de importcontrole; draai dan éérst de
-  -- doublurecontrole, zodat de rewrite niet meer draait voor een artikel dat
-  -- toch niet meegaat. Is de controle al afgerond (bijv. bij import), dan slaat
-  -- check_duplicate_stage zichzelf over en start de rewrite meteen. Lukt
-  -- editieresolutie niet (bijv. geen artikelgrens), dan valt hij terug op het
-  -- bestaande gedrag; de controles ná de rewrite en vóór verzenden blijven dan
-  -- het vangnet.
-  if vim.b[buf].pubble_duplicate_check_completed == true then
-    run_rewrite()
-    return
-  end
+  -- Ook na import eerst de bestemming bepalen: de moduskeuze moet vóór de
+  -- AI-call vallen, zodat de algemene versie rechtstreeks het origineel krijgt.
   resolve_editions_for_content(buf, original_for_edition_detection, function(resolved)
     if not vim.api.nvim_buf_is_valid(buf) then return end
-    if not resolved or type(resolved.editions) ~= "table" or #resolved.editions == 0 then
+    if vim.api.nvim_buf_get_changedtick(buf) ~= resolve_tick then
+      notify_workflow("Herschrijven geannuleerd: de buffer is tijdens de editiecheck gewijzigd. Start opnieuw.", vim.log.levels.WARN)
+      return
+    end
+    local codes = resolved and type(resolved.editions) == "table" and resolved.editions or {}
+    local names = resolved and resolved.names or nil
+    if #codes >= 2 then
+      local strategy = resolved and resolved.rewrite_strategies
+      local choice = M._edition_mode_choice(codes, names, strategy)
+      if choice == 0 then
+        notify_workflow("Herschrijven geannuleerd.", vim.log.levels.INFO)
+        return
+      elseif choice == 1 then
+        edition_mode = "algemeen"
+        rewrite_cmd = { "bash", "-c",
+          "set -o pipefail; " .. vim.fn.shellescape(aitext)
+            .. " krantversie_algemeen --editions "
+            .. vim.fn.shellescape(table.concat(codes, ","))
+            .. " | " .. vim.fn.shellescape(kampen_fix) }
+      else
+        edition_mode = "splitsen"
+        vim.b[buf].send_ai_rewrite_completed = false
+        edition_tasks = strategy and strategy.options[choice] and strategy.options[choice].tasks
+      end
+    end
+    if vim.b[buf].pubble_duplicate_check_completed == true or #codes == 0 then
       run_rewrite()
       return
     end
-    check_duplicate_stage(buf, resolved.editions, "herschrijven", function(approved)
+    check_duplicate_stage(buf, codes, "herschrijven", function(approved)
       if approved then run_rewrite() end
     end)
   end)
@@ -5261,14 +5370,28 @@ end
 -- kop behouden kan altijd.
 function M.tussenkopjes_streamer(options)
   options = options or {}
+  local completed = false
+  local function complete(ok)
+    if completed then return end
+    completed = true
+    if options.done then options.done(ok) end
+  end
   local automatic = options.automatic == true
   local buf = options.buf or vim.api.nvim_get_current_buf()
-  if vim.b[buf].article_structure_running then return end
+  local job_buf = options.job_buf or buf
+  local function cancelled()
+    vim.schedule(function()
+      if vim.api.nvim_buf_is_valid(buf) then vim.b[buf].article_structure_running = false end
+      complete(false)
+    end)
+  end
+  if not vim.api.nvim_buf_is_valid(buf) then complete(false); return end
+  if vim.b[buf].article_structure_running then complete(false); return end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
-  local headline = inspect_article_headline(body)
-  if not headline then return end
-  if automatic and not headline.automatic_structure then return end
+  local headline = options.headline or inspect_article_headline(body)
+  if not headline then complete(true); return end
+  if automatic and not headline.automatic_structure then complete(true); return end
   vim.b[buf].article_structure_running = true
   local has_headline = headline.has_headline == true
   local paras = scan_paragraphs(body)
@@ -5276,7 +5399,7 @@ function M.tussenkopjes_streamer(options)
   -- De herschrijf-AI mag zelf al tussenkopjes hebben geleverd. Binnen het
   -- artikelcontract is een losse vetregel na kop en lead een tussenkop; stuur
   -- de body dan niet nogmaals naar dezelfde tussenkopjesprompt.
-  local has_subheadings = false
+  local has_subheadings = options.streamer_only == true
   local first_subheading = has_headline and 3 or 2
   for index = first_subheading, #paras do
     if paras[index].heading then
@@ -5314,16 +5437,18 @@ function M.tussenkopjes_streamer(options)
 
   if pending == 0 then
     vim.b[buf].article_structure_running = false
+    complete(true)
     return
   end
 
   local function finish()
     if pending > 0 then return end
-    if not vim.api.nvim_buf_is_valid(buf) then return end
+    if not vim.api.nvim_buf_is_valid(buf) then complete(false); return end
     vim.b[buf].article_structure_running = false
     local _, _, current_body = split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
     if not vim.deep_equal(current_body, body) then
       notify_workflow('Artikel gewijzigd tijdens opmaak; gebruik <leader>at om opnieuw op te maken.', vim.log.levels.WARN)
+      complete(false)
       return
     end
 
@@ -5360,10 +5485,10 @@ function M.tussenkopjes_streamer(options)
     end
 
     local function write_body(final_body)
-      if not vim.api.nvim_buf_is_valid(buf) then return end
+      if not vim.api.nvim_buf_is_valid(buf) then complete(false); return end
       local latest_fm, latest_ctrl, latest_body, latest_sections, latest_boundary =
         split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
-      if not vim.deep_equal(latest_body, body) then return end
+      if not vim.deep_equal(latest_body, body) then complete(false); return end
       vim.api.nvim_buf_set_lines(
         buf, 0, -1, false,
         reassemble_article(latest_fm, latest_ctrl, final_body, latest_sections, latest_boundary)
@@ -5374,6 +5499,7 @@ function M.tussenkopjes_streamer(options)
           vim.log.levels.INFO
         )
       end
+      complete(true)
     end
 
     -- Twee kopregels; nummering/bullets/vetmarkering van de AI wordt gestript.
@@ -5396,7 +5522,7 @@ function M.tussenkopjes_streamer(options)
     vim.ui.select(items, { prompt = "Kop kiezen:" }, function(choice)
       if choice and choice ~= keep_label then
         local with_headline = apply_selected_headline(new_body, choice)
-        if not with_headline then return end
+        if not with_headline then complete(false); return end
         new_body = with_headline
       end
       write_body(new_body)
@@ -5430,7 +5556,8 @@ function M.tussenkopjes_streamer(options)
         end)
       end,
       "AI · Kopopties",
-      buf
+      job_buf,
+      cancelled
     )
   end
 
@@ -5454,7 +5581,8 @@ function M.tussenkopjes_streamer(options)
         end)
       end,
       "AI · Tussenkopjes",
-      buf
+      job_buf,
+      cancelled
     )
   end
 
@@ -5481,7 +5609,8 @@ function M.tussenkopjes_streamer(options)
         end)
       end,
       "AI · Streamer",
-      buf
+      job_buf,
+      cancelled
     )
   end
 end

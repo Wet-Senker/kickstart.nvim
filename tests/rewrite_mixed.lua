@@ -1,0 +1,83 @@
+package.preload['fidget.progress'] = function()
+  return { handle = { create = function() return { finish = function() end } end } }
+end
+
+local ai = require 'ai_text'
+local review = ai._edition_review
+local original_system, original_confirm = vim.system, vim.fn.confirm
+local source = 'Bronkop\n\nIn IJsselmuiden en Dronten zijn energieprojecten.'
+local requested, streamers, callbacks = {}, {}, {}
+local function wait(predicate) assert(vim.wait(5000, predicate, 10), 'gemengde flow bleef hangen') end
+local function text(buf) return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n') end
+local buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_set_current_buf(buf)
+vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split('e: all\n\n=== ARTIKEL ===\n\n' .. source, '\n'))
+vim.b[buf].pubble_duplicate_check_completed = true
+vim.b[buf].calendar_autodetect_suppressed = true
+ai._capture_import_baseline(buf)
+vim.fn.confirm = function(message, labels, default)
+  assert(message:find('IJsselmuiden', 1, true) and message:find('Dronten', 1, true))
+  assert(message:find('geen bewijs', 1, true))
+  assert(labels:find('overige', 1, true) and labels:find('Annuleren', 1, true))
+  assert(default == 1)
+  return 2
+end
+vim.system = function(command, opts, callback)
+  if command[1] == 'bash' then error('overbodige tussenherschrijving') end
+  if command[2] == 'krantversie' or command[2] == 'krantversie_algemeen' then
+    assert(opts.stdin == source, 'definitieve tekst kreeg niet het origineel')
+    local code = command[4]:match('^([^,]+)')
+    requested[code] = command
+    local body = { code .. ' kop', '', '**Een definitieve intro.**', '' }
+    for i = 1, 7 do
+      table.insert(body, string.rep('Deze definitieve alinea bevat concrete informatie over de projecten. ', 12))
+      table.insert(body, '')
+      if i == 3 then table.insert(body, '**Projecten**'); table.insert(body, '') end
+    end
+    callback { code = 0, stdout = table.concat(body, '\n'), stderr = '' }
+    return { kill = function() end }
+  end
+  if command[2] == 'tussenkopjes' then error('losse tussenkopjesaanvraag') end
+  if command[2] == 'streamer' then
+    local code = assert(opts.stdin:match('^([A-Z]+) kop'))
+    streamers[code] = (streamers[code] or 0) + 1
+    callbacks[code] = callback
+    return { kill = function() end }
+  end
+  -- De echte lokale Python-resolver en het echte workspacecontract, geen HTTP.
+  if not callback or command[2] == 'inspect' or vim.tbl_contains(command, '--resolve-editions')
+      or command[2] == '-m' then return original_system(command, opts, callback) end
+  callback { code = 0, stdout = '', stderr = '' }
+  return { kill = function() end }
+end
+ai.rewrite_article_buffer()
+wait(function() return callbacks.B and callbacks.D and callbacks.SW end)
+assert(vim.tbl_count(requested) == 3 and vim.tbl_count(streamers) == 3, 'niet precies drie unieke teksten/opmaakaanvragen')
+assert(requested.SW[2] == 'krantversie_algemeen' and requested.SW[4] == 'SW,ST,Z,K')
+assert(not review._review_buffers[buf], 'review startte vóór complete opmaak')
+for code, callback in pairs(callbacks) do callback { code = 0, stdout = 'Streamer ' .. code, stderr = '' } end
+wait(function() return review._review_buffers[buf] ~= nil end)
+local entries = review._review_buffers[buf]
+assert(vim.tbl_count(entries) == 3 and entries.B and entries.D and entries.SW, 'niet één reviewbuffer per unieke tekst')
+assert(#vim.api.nvim_tabpage_list_wins(0) == 3)
+local general = vim.b[entries.SW].edition_variant
+assert(table.concat(general.editions, ',') == 'SW,ST,Z,K')
+assert(general.name:find('De Swollenaer', 1, true) and general.name:find('Nieuwsbode de Kop', 1, true))
+assert(text(entries.SW):find('> Streamer SW', 1, true))
+for _, code in ipairs { 'B', 'D', 'SW' } do
+  local done = false
+  review.sync(entries[code], true, function(ok) assert(ok); done = true end)
+  wait(function() return done end)
+end
+assert(vim.b[buf].edition_workspace_ready, 'drie goedkeuringen maakten niet alle zes kranten klaar')
+assert(ai._send_safeguard_reason(buf, vim.api.nvim_buf_get_lines(buf, 0, -1, false)) == nil,
+  'gereviewde varianten vroegen onterecht goedkeuring voor de ongewijzigde gedeelde bron')
+local done = false
+vim.api.nvim_buf_set_lines(entries.SW, -1, -1, false, { 'Redactionele wijziging.' })
+review.sync(entries.SW, false, function(ok) assert(ok); done = true end)
+wait(function() return done end)
+assert(not vim.b[buf].edition_workspace_ready, 'edit bleef stil goedgekeurd')
+assert(text(buf):find('shared-editions: SW,ST,Z,K', 1, true))
+review.close(buf, true)
+vim.system, vim.fn.confirm = original_system, original_confirm
+print 'rewrite mixed: OK'

@@ -141,7 +141,7 @@ local function review_name(source_buf, variant, modified)
     variant.code,
     status,
     source_buf,
-    source_name
+    source_name .. " — " .. (variant.name or variant.code)
   )
 end
 
@@ -307,7 +307,7 @@ local function open_review_layout(ordered)
   pcall(vim.cmd, "wincmd t")
 end
 
-function M.create_workspace(source_buf, expected_source, codes, names, variants, done)
+function M.create_workspace(source_buf, expected_source, codes, names, variants, done, shared_groups)
   if not vim.api.nvim_buf_is_valid(source_buf) then
     if done then done(false) end
     return
@@ -320,6 +320,7 @@ function M.create_workspace(source_buf, expected_source, codes, names, variants,
       editions = codes,
       names = names_by_code(codes, names),
       variants = variants,
+      shared_groups = shared_groups,
     }, function(ok, result, err)
       if not ok then
         notify(err or "Krantversies konden niet worden opgeslagen.", vim.log.levels.ERROR)
@@ -415,7 +416,8 @@ function M.sync(review_buf, approve, done)
         if result.workspace.ready then
           notify("Alle krantversies zijn goedgekeurd en verzendklaar.", vim.log.levels.INFO)
         else
-          notify("Krantversie " .. code .. " is goedgekeurd.", vim.log.levels.INFO)
+          local variant = vim.b[review_buf].edition_variant
+          notify("Tekst voor " .. (variant.name or code) .. " is goedgekeurd.", vim.log.levels.INFO)
           local next_buf = next_pending_buffer(source_buf, result.workspace, code)
           if next_buf and vim.api.nvim_buf_is_valid(next_buf) then
             vim.api.nvim_set_current_buf(next_buf)

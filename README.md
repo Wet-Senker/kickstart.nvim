@@ -39,7 +39,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 
 | Leader | Actie |
 |---|---|
-| `<leader>ar` | Herschrijven naar krantenartikel (AI). Vraagt bij meerdere gekozen edities of aparte krantversies gewenst zijn. Metadata en Facebook kunnen op de achtergrond starten; kalender-AI wacht eerst op de doublurecontrole. Detecteert 112 en agendaberichten automatisch. |
+| `<leader>ar` | Herschrijven naar krantenartikel (AI). Vooraf één menu: Algemeen / lokale varianten + één algemene voor overige kranten (bij passende plaatsvermeldingen) / alle kranten afzonderlijk / Annuleren. Bestemmingen blijven gelijk. Iedere unieke tekst komt direct uit het origineel, inclusief tussenkopjes; daarna een losse ontbrekende streamer. Complete versies openen in een reviewtab, één goedkeuring per unieke tekst met alle bestemmingen zichtbaar. Geen tussenrewrite of opmaak van de gedeelde bron. Bij één editie geen modusvraag. |
 | `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. Tijdens een doublurecontrole wordt deze actie eenmaal uitgesteld en alleen na doorgaan hervat. Een herkend maar onvolledig item toont `<!-- Ontbreekt: … -->` inclusief invoerformaat, bijvoorbeeld `Tijd: HH:MM`. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
 | `<leader>an` | Minimaal publicatieklaar maken: herstelt waar nodig kop en nieuwsgerichte lead; neutraliseert de rest met minimale wijzigingen. |

@@ -96,9 +96,9 @@ end
 local buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(source_text .. "\n\n---\n\n## Facebook\n\nFacebooktekst.", "\n"))
 
-local original_confirm = ai._edition_versions_confirm
 local original_runner = ai._edition_variant_runner
-ai._edition_versions_confirm = function() return 1 end
+local original_formatter = ai._edition_variant_formatter
+ai._edition_variant_formatter = function(_, _, variant, done) done(true, variant) end
 local requested = {}
 local seen_origin = {}
 ai._edition_variant_runner = function(_, code, origin, done)
@@ -110,7 +110,7 @@ ai._edition_variant_runner = function(_, code, origin, done)
   )
 end
 
-ai._offer_and_generate_edition_versions(
+ai._generate_edition_versions(
   buf,
   "Gezamenlijke kop\n\n**OVERIJSSEL - Gezamenlijke intro.**\n\nGezamenlijke body.",
   "Origineel persbericht met lokaal cijfer.",
@@ -157,18 +157,17 @@ assert(vim.b[entries.SW].edition_variant.status == "review", "edit werd stil goe
 
 local declined = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(declined, 0, -1, false, { "Gezamenlijk artikel" })
-ai._edition_versions_confirm = function() return 2 end
 local ran = false
 ai._edition_variant_runner = function() ran = true end
-ai._offer_and_generate_edition_versions(
+ai._generate_edition_versions(
   declined,
   "Gezamenlijk artikel",
   "Origineel gezamenlijk artikel.",
-  { "B", "SW" },
-  { "De Brug", "De Swollenaer" }
+  { "B" },
+  { "De Brug" }
 )
-assert(not ran, "AI-call startte ondanks keuze voor gezamenlijke versie")
-assert(not text(declined):find("## Editieversies", 1, true), "bij weigeren ontstond toch een versieblok")
+assert(not ran, "één editie startte toch variantgeneratie")
+assert(not text(declined):find("## Editieversies", 1, true), "één editie kreeg toch een versieblok")
 
 assert(
   ai._normalized_edition_variant("Kop\n\n**OVERIJSSEL - Intro.**\n\nBody."),
@@ -232,8 +231,8 @@ assert(
 )
 review.close(race_source, true)
 
-ai._edition_versions_confirm = original_confirm
 ai._edition_variant_runner = original_runner
+ai._edition_variant_formatter = original_formatter
 review._runner = nil
 
 print("edition versions: OK")
