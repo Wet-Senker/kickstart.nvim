@@ -122,7 +122,8 @@ local function open_detail_buffer(item)
   vim.cmd 'belowright split'
   vim.api.nvim_win_set_buf(0, abuf)
   vim.api.nvim_win_set_height(0, math.max(8, math.min(20, #body)))
-  for _, key in ipairs({ 'q', '<Esc>' }) do
+  -- Alleen q sluit; geen <Esc> (die is spiergeheugen voor insert-mode verlaten).
+  for _, key in ipairs({ 'q' }) do
     vim.keymap.set('n', key, '<cmd>close<cr>', { buffer = abuf, silent = true, desc = 'Sluiten' })
   end
 end
@@ -189,7 +190,8 @@ local function show_report(result, edition, include_reviewed)
     M.run(edition, { include_reviewed = not include_reviewed })
   end, { buffer = buf, silent = true, desc = 'Afgehandelde tonen/verbergen' })
 
-  for _, key in ipairs({ 'q', '<Esc>' }) do
+  -- Alleen q sluit; geen <Esc> (die is spiergeheugen voor insert-mode verlaten).
+  for _, key in ipairs({ 'q' }) do
     vim.keymap.set('n', key, function()
       if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
     end, { buffer = buf, silent = true, desc = 'Overzicht sluiten' })

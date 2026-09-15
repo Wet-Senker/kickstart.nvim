@@ -285,11 +285,13 @@ function M.show(result, callback, options)
   vim.keymap.set('n', 'v', function() finish(true) end, {
     buffer = buf, silent = true, desc = (options or {}).approve_label or 'Toch verzenden',
   })
-  for _, key in ipairs({ 'q', '<Esc>' }) do
-    vim.keymap.set('n', key, function()
-      if state.mode == 'text' then render_report() else finish(false) end
-    end, { buffer = buf, silent = true, desc = 'Terug of annuleren' })
-  end
+  -- Bewust géén <Esc> als sluit-/annuleertoets: Escape is spiergeheugen om uit
+  -- insert-mode te gaan; als dit dialoog tijdens het typen verschijnt zou een
+  -- reflexmatige Escape de controle anders per ongeluk annuleren. Sluiten/terug
+  -- gaat met q.
+  vim.keymap.set('n', 'q', function()
+    if state.mode == 'text' then render_report() else finish(false) end
+  end, { buffer = buf, silent = true, desc = 'Terug of annuleren' })
   vim.api.nvim_create_autocmd('BufWipeout', {
     buffer = buf,
     once = true,
