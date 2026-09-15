@@ -39,10 +39,11 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 
 | Leader | Actie |
 |---|---|
+| `<leader>z` | Rustige Zen-weergave met een bredere tekstkolom, zonder regelnummers, tekens in de marge of zichtbare witruimte. Markdown loopt alleen visueel om bij woordgrenzen; het bestand krijgt geen extra regeleinden. |
 | `<leader>ar` | Herschrijven naar krantenartikel (AI). Vooraf één menu: Algemeen / lokale varianten + één algemene voor overige kranten (bij passende plaatsvermeldingen) / alle kranten afzonderlijk / Annuleren. Bestemmingen blijven gelijk. Iedere unieke tekst komt direct uit het origineel, inclusief tussenkopjes; daarna een losse ontbrekende streamer. Complete versies openen in een reviewtab, één goedkeuring per unieke tekst met alle bestemmingen zichtbaar. Geen tussenrewrite of opmaak van de gedeelde bron. Bij één editie geen modusvraag. |
 | `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. Tijdens een doublurecontrole wordt deze actie eenmaal uitgesteld en alleen na doorgaan hervat. Een herkend maar onvolledig item toont `<!-- Ontbreekt: … -->` inclusief invoerformaat, bijvoorbeeld `Tijd: HH:MM`. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
-| `<leader>an` | Minimaal publicatieklaar maken: herstelt waar nodig kop en nieuwsgerichte lead; neutraliseert de rest met minimale wijzigingen. |
+| `<leader>an` | Minimaal publicatieklaar maken in twee fasen: eerst uitsluitend zekere persbericht-/mailruis als volledige regels verwijderen, daarna kop en nieuwsgerichte lead herstellen en reclametaal, directe aanspreekvormen en lokale taalfouten minimaal neutraliseren. |
 | `<leader>at` | Tussenkopjes, een streamer (als er nog geen eigen `>` staat) en twee kopopties. Een gekozen kop vervangt alleen een bestaande korte kop; bij een dateline, auteursregel of eerste alinea van meer dan tien woorden wordt zij vóór de lead ingevoegd. |
 | `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
 | `<leader>aV` / `:Krantversies` | Overzicht van de gedeelde bron en alle afzonderlijke krantversiebuffers openen. |
@@ -76,7 +77,10 @@ die actie en worden er geen kalender-AI-kosten gemaakt. Gewone metadata- en
 Facebooktaken mogen wel parallel blijven lopen.
 
 `<leader>an` is bedoeld voor een tekst waarvan de inhoud grotendeels goed staat,
-maar die nog niet helemaal plaatsbaar is. Een goede kop en lead blijven staan;
+maar die nog niet helemaal plaatsbaar is. Een lichte AI-voorfase wijst alleen
+regelnummers met zekere persbericht- of mailruis aan; Python verwijdert precies
+die originele regels en accepteert geen vervangende AI-tekst. Daarna blijven
+een goede kop en lead staan;
 een ontbrekende of ondeugdelijke kop of lead wordt gericht hersteld. De lead
 brengt het nieuws direct en begint niet met een datum of tijd. Een dateline
 wordt alleen toegevoegd als één plaats ondubbelzinnig centraal staat. In de

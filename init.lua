@@ -967,30 +967,10 @@ end
 
 -- The line beneath this is called `modeline`. See `:help modeline`
 
--- Prose / Markdown settings (text filetypes only)
-vim.api.nvim_create_autocmd('FileType', {
-  pattern = { 'markdown', 'text', 'gitcommit' },
-  callback = function()
-    vim.opt_local.wrap = true
-    vim.opt_local.linebreak = true
-    vim.opt_local.breakindent = true
-    vim.opt_local.spell = true
-    vim.opt_local.spelllang = 'nl,en_us'
-    vim.opt_local.conceallevel = 2
-    vim.opt_local.textwidth = 0
-
-    vim.keymap.set('n', 'j', function()
-      return vim.v.count == 0 and 'gj' or 'j'
-    end, { expr = true, silent = true, buffer = true })
-
-    vim.keymap.set('n', 'k', function()
-      return vim.v.count == 0 and 'gk' or 'k'
-    end, { expr = true, silent = true, buffer = true })
-
-    vim.keymap.set('n', '0', 'g0', { buffer = true })
-    vim.keymap.set('n', '$', 'g$', { buffer = true })
-  end,
-})
+-- A calmer prose view for Markdown and other text buffers. Lines only wrap on
+-- screen; no hard line breaks are inserted in the document.
+local prose_editor = require 'prose_editor'
+prose_editor.setup()
 
 -- Auto-convert non-plain-text documents (mail attachments: docx, rtf, odt, pdf)
 -- to markdown/text as soon as you open them, e.g. `:e briefing.docx`.
@@ -1038,15 +1018,18 @@ vim.api.nvim_create_autocmd('BufReadCmd', {
 })
 -- render-markdown.nvim: renders markdown inline while editing (headers,
 -- checkboxes, tables, --- rules, code blocks) instead of showing raw
--- markup. Uses 'conceallevel', which is set to 2 for markdown buffers
--- above. Scoped to the Obsidian vault only (via `ignore`) — regular
--- markdown outside it (Pubble articles, this config's docs) is untouched.
+-- markup. It manages 'conceallevel' itself while rendering. Scoped to the
+-- Obsidian vault only (via `ignore`) — regular markdown outside it (Pubble
+-- articles, this config's docs) is untouched.
 vim.pack.add { gh 'MeanderingProgrammer/render-markdown.nvim' }
 local obsidian_vault_path = vim.fn.expand '~/Obsidian/Obsidian'
 require('render-markdown').setup {
   -- Built-in preset that mimics Obsidian's own callout icons/colors,
   -- instead of the plain default look.
   preset = 'obsidian',
+  -- Keep the rendered reading view in normal mode, but show the literal
+  -- Markdown while typing so the cursor and surrounding words stay stable.
+  render_modes = { 'n', 'c', 't' },
   -- Obsidian.app itself doesn't put a numbered icon before headings
   -- (just size/weight/color), so drop the default circled-number icons.
   heading = { icons = {} },
@@ -1183,16 +1166,29 @@ vim.api.nvim_create_user_command('Z', function(opts)
     { annote = 'Neovim' }
   )
 end, { nargs = 1, desc = 'cd via zoxide (:Z <query>)' })
-
-
 require('zen-mode').setup({
   window = {
-    width = 80,
-    options = { number = false, relativenumber = false },
+    width = 96,
+    options = {
+      number = false,
+      relativenumber = false,
+      signcolumn = 'no',
+      foldcolumn = '0',
+      cursorline = false,
+      cursorcolumn = false,
+      list = false,
+      colorcolumn = '',
+      wrap = true,
+      linebreak = true,
+      breakindent = true,
+      breakindentopt = 'min:40,list:-1',
+      showbreak = '',
+      smoothscroll = true,
+    },
   },
 })
 
-vim.keymap.set('n', '<leader>z', '<cmd>ZenMode<cr>', { desc = 'Toggle Zen (narrow column)' })
+vim.keymap.set('n', '<leader>z', '<cmd>ZenMode<cr>', { desc = 'Toggle Zen (rustige tekstkolom)' })
 
 -- Copy to system clipboard
 vim.keymap.set('n', '<leader>c', '<cmd>%y+<cr>', { desc = 'Copy whole buffer to clipboard' })

@@ -5179,9 +5179,9 @@ vim.keymap.set("n", "<leader>ao", M.tekstcheck, {
   desc = "Tekstcheck: alleen taalfouten; tekst blijft verder gelijk (twijfel → ## Suggesties)",
 })
 
--- <leader>an — maak kop en lead waar nodig publicatieklaar en neutraliseer de
--- rest met minimale wijzigingen. De centrale prompt en Python-validatie bewaken
--- citaten en concrete waarden. Een laat resultaat mag nieuwere
+-- <leader>an — laat Python eerst bronruis deletion-only verwijderen en maak
+-- daarna kop en lead waar nodig publicatieklaar; neutraliseer de rest minimaal.
+-- De centrale Python-validatie bewaakt citaten en concrete waarden. Een laat resultaat mag nieuwere
 -- bufferbewerkingen nooit overschrijven.
 function M.journalistic_neutralize()
   local buf = vim.api.nvim_get_current_buf()
@@ -5235,7 +5235,7 @@ function M.journalistic_neutralize()
 end
 
 vim.keymap.set("n", "<leader>an", M.journalistic_neutralize, {
-  desc = "Neutraliseren: reclame/'u'-taal eruit + kop/lead publicatieklaar; rest ~origineel (nette persberichten)",
+  desc = "Bronruis verwijderen + reclame/'u'-taal neutraliseren; kop/lead publicatieklaar",
 })
 
 -- Scan de body in alinea's (blokken gescheiden door lege regels).
@@ -5955,7 +5955,7 @@ local help_categories = {
     items = {
       { label = "Herschrijven — volledig naar krantenstijl, ook de body (<leader>ar)", action = function() M.rewrite_article_buffer() end },
       { label = "Tekstcheck — alleen taalfouten, tekst blijft gelijk (<leader>ao)", action = function() M.tekstcheck() end },
-      { label = "Neutraliseren — reclame/'u'-taal eruit + kop/lead klaar, rest ~origineel (<leader>an)", action = function() M.journalistic_neutralize() end },
+      { label = "Opschonen + neutraliseren — bronruis/reclametaal eruit, kop/lead klaar (<leader>an)", action = function() M.journalistic_neutralize() end },
       { label = "Eigen artikel voorbereiden, geen rewrite (<leader>av)", action = function() M.prepare_article() end },
       { label = "Tussenkopjes en streamer (<leader>at)", action = function() M.tussenkopjes_streamer() end },
       { label = "LinkedIn-tekst maken (<leader>al)", action = function() M.generate_linkedin() end },

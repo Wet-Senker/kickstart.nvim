@@ -47,7 +47,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 |---|---|
 | `<leader>ar` | **Herschrijven** — vooraf Algemeen / lokale varianten + algemene voor overige / alle kranten apart / Annuleren. Plaatsenscan doet alleen een voorstel. Direct uit het origineel met tussenkopjes, daarna losse streamer; één review/goedkeuring per unieke tekst |
 | `<leader>ao` | **Tekstcheck** — alleen taalfouten (spelling/grammatica); tekst blijft verder gelijk (twijfel → `## Suggesties`) |
-| `<leader>an` | **Neutraliseren** — reclame/'u'-taal eruit + kop/lead publicatieklaar; rest zo dicht mogelijk bij origineel. Voor nette persberichten |
+| `<leader>an` | **Opschonen + neutraliseren** — eerst zekere persbericht-/mailruis als volledige regels weg, daarna reclame/'u'-taal eruit + kop/lead publicatieklaar; rest zo dicht mogelijk bij origineel |
 | `<leader>ac` | Metadata + kalenderitem — ontbrekende velden tonen het formaat, zoals `Tijd: HH:MM` |
 | `<leader>at` | Tussenkopjes, optionele streamer en 2 kopopties; gekozen kop wordt zo nodig vóór de lead ingevoegd |
 | `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie |
