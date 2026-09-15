@@ -1612,29 +1612,29 @@ local function apply_edition_versions(buf, codes, names, variants, source, done,
   return true
 end
 
-M._edition_mode_choice = function(codes, names, strategy)
+M._edition_mode_choice_async = function(codes, names, strategy, done)
   local options = strategy and strategy.options or {
     { label = "Algemene versie voor alle kranten" },
     { label = "Splitsen: eigen versie per krant" },
   }
   local labels, findings = {}, {}
-  for index, option in ipairs(options) do table.insert(labels, "&" .. index .. ". " .. option.label) end
-  table.insert(labels, "&0. Annuleren")
+  for _, option in ipairs(options) do table.insert(labels, option.label) end
+  table.insert(labels, "Annuleren")
   for index, code in ipairs(codes) do
     local places = strategy and strategy.places_by_edition and strategy.places_by_edition[code]
     if places and #places > 0 then
       table.insert(findings, (names and names[index] or code) .. ": " .. table.concat(places, ", "))
     end
   end
-  local choice = require('user_dialog').confirm(
-    "Dit artikel gaat naar meerdere kranten:\n\n"
+  require('user_dialog').select(labels, {
+    prompt = "Dit artikel gaat naar meerdere kranten:\n\n"
       .. edition_names(codes, names)
       .. (#findings > 0 and ("\n\nPlaatsvermeldingen gevonden (geen bewijs van lokale relevantie):\n" .. table.concat(findings, "\n")) or "")
       .. "\n\nWelke tekstversie wil je maken?",
-    table.concat(labels, "\n"),
-    1
-  )
-  return choice >= 1 and choice <= #options and choice or 0
+    default = 1,
+  }, function(_, index)
+    done(index and index <= #options and index or 0)
+  end)
 end
 
 M._edition_versions_regenerate_confirm = function()
@@ -2079,32 +2079,43 @@ function M.rewrite_article_buffer()
     end
     local codes = resolved and type(resolved.editions) == "table" and resolved.editions or {}
     local names = resolved and resolved.names or nil
-    if #codes >= 2 then
-      local strategy = resolved and resolved.rewrite_strategies
-      local choice = M._edition_mode_choice(codes, names, strategy)
-      if choice == 0 then
-        notify_workflow("Herschrijven geannuleerd.", vim.log.levels.INFO)
+    local strategy = resolved and resolved.rewrite_strategies
+    local function continue_after_mode_choice(choice)
+      if not vim.api.nvim_buf_is_valid(buf) then return end
+      if vim.api.nvim_buf_get_changedtick(buf) ~= resolve_tick then
+        notify_workflow("Herschrijven geannuleerd: de buffer is tijdens de keuze gewijzigd. Start opnieuw.", vim.log.levels.WARN)
         return
-      elseif choice == 1 then
-        edition_mode = "algemeen"
-        rewrite_cmd = { "bash", "-c",
-          "set -o pipefail; " .. vim.fn.shellescape(aitext)
-            .. " krantversie_algemeen --editions "
-            .. vim.fn.shellescape(table.concat(codes, ","))
-            .. " | " .. vim.fn.shellescape(kampen_fix) }
-      else
-        edition_mode = "splitsen"
-        vim.b[buf].send_ai_rewrite_completed = false
-        edition_tasks = strategy and strategy.options[choice] and strategy.options[choice].tasks
       end
+      if #codes >= 2 then
+        if choice == 0 then
+          notify_workflow("Herschrijven geannuleerd.", vim.log.levels.INFO)
+          return
+        elseif choice == 1 then
+          edition_mode = "algemeen"
+          rewrite_cmd = { "bash", "-c",
+            "set -o pipefail; " .. vim.fn.shellescape(aitext)
+              .. " krantversie_algemeen --editions "
+              .. vim.fn.shellescape(table.concat(codes, ","))
+              .. " | " .. vim.fn.shellescape(kampen_fix) }
+        else
+          edition_mode = "splitsen"
+          vim.b[buf].send_ai_rewrite_completed = false
+          edition_tasks = strategy and strategy.options[choice] and strategy.options[choice].tasks
+        end
+      end
+      if vim.b[buf].pubble_duplicate_check_completed == true or #codes == 0 then
+        run_rewrite()
+        return
+      end
+      check_duplicate_stage(buf, codes, "herschrijven", function(approved)
+        if approved then run_rewrite() end
+      end)
     end
-    if vim.b[buf].pubble_duplicate_check_completed == true or #codes == 0 then
-      run_rewrite()
+    if #codes >= 2 then
+      M._edition_mode_choice_async(codes, names, strategy, continue_after_mode_choice)
       return
     end
-    check_duplicate_stage(buf, codes, "herschrijven", function(approved)
-      if approved then run_rewrite() end
-    end)
+    continue_after_mode_choice(1)
   end)
 end
 

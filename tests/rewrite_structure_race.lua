@@ -5,7 +5,7 @@ end
 local ai = require 'ai_text'
 local review = ai._edition_review
 local original_system = vim.system
-local original_choice = ai._edition_mode_choice
+local original_choice = ai._edition_mode_choice_async
 local original_variant_runner = ai._edition_variant_runner
 local callbacks, requested, workspace_calls = {}, {}, 0
 local origin = 'Originele kop\n\nOrigineel persbericht.'
@@ -27,7 +27,7 @@ local function make_buffer()
   vim.b[buf].calendar_autodetect_suppressed = true
   return buf
 end
-ai._edition_mode_choice = function() return 2 end
+ai._edition_mode_choice_async = function(_, _, _, done) done(2) end
 vim.system = function(command, opts, callback)
   if not callback or command[2] == 'inspect' then return original_system(command, opts, callback) end
   if command[1] == 'bash' then
@@ -107,7 +107,7 @@ assert(workspace_calls == 1 and not review._review_buffers[buf], 'gewijzigde bro
 assert(table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n'):find('Nieuwere tekst van de redacteur.', 1, true))
 
 vim.system = original_system
-ai._edition_mode_choice = original_choice
+ai._edition_mode_choice_async = original_choice
 ai._edition_variant_runner = original_variant_runner
 review._runner = nil
 print 'rewrite structure race: OK'

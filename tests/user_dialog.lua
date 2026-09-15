@@ -58,13 +58,19 @@ vim.api.nvim_list_uis = original_uis
 -- Import policies are explicit; hand-triggered rewrite questions allow Escape.
 local ai = require('ai_text')
 local original_confirm = dialog.confirm
+local original_select = dialog.select
 local required
 dialog.confirm = function(_, _, _, policy) required = policy; return 2 end
 ai._calendar_date_confirm(5); assert(required == true, 'agendavraag niet verplicht')
 ai._112_confirm('112'); assert(required == true, '112-vraag niet verplicht')
 ai._rubric_confirm({ candidates = {} }); assert(required == true, 'rubriekvraag niet verplicht')
 ai._rubriek_confirm_simple('Sport'); assert(required == true, 'sportvraag niet verplicht')
-ai._edition_mode_choice({ 'B', 'SW' }, { 'Brug', 'Swollenaer' })
-assert(required ~= true, 'handmatige rewritevraag niet annuleerbaar')
+dialog.select = function(_, opts, done)
+  required = opts.required
+  done(nil, nil)
+end
+ai._edition_mode_choice_async({ 'B', 'SW' }, { 'Brug', 'Swollenaer' }, nil, function() end)
+assert(required ~= true, 'handmatige rewritevraag niet annuleerbaar of niet asynchroon')
 dialog.confirm = original_confirm
+dialog.select = original_select
 print('user dialog: OK')

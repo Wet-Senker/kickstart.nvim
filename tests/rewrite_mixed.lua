@@ -4,7 +4,8 @@ end
 
 local ai = require 'ai_text'
 local review = ai._edition_review
-local original_system, original_confirm = vim.system, vim.fn.confirm
+local dialog = require 'user_dialog'
+local original_system, original_select = vim.system, dialog.select
 local source = 'Bronkop\n\nIn IJsselmuiden en Dronten zijn energieprojecten.'
 local requested, streamers, callbacks = {}, {}, {}
 local function wait(predicate) assert(vim.wait(5000, predicate, 10), 'gemengde flow bleef hangen') end
@@ -15,12 +16,12 @@ vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split('e: all\n\n=== ARTIKEL =
 vim.b[buf].pubble_duplicate_check_completed = true
 vim.b[buf].calendar_autodetect_suppressed = true
 ai._capture_import_baseline(buf)
-vim.fn.confirm = function(message, labels, default)
-  assert(message:find('IJsselmuiden', 1, true) and message:find('Dronten', 1, true))
-  assert(message:find('geen bewijs', 1, true))
-  assert(labels:find('overige', 1, true) and labels:find('Annuleren', 1, true))
-  assert(default == 1)
-  return 2
+dialog.select = function(items, opts, done)
+  assert(opts.prompt:find('IJsselmuiden', 1, true) and opts.prompt:find('Dronten', 1, true))
+  assert(opts.prompt:find('geen bewijs', 1, true))
+  assert(items[2]:find('overige', 1, true) and items[#items] == 'Annuleren')
+  assert(opts.default == 1)
+  done(items[2], 2)
 end
 vim.system = function(command, opts, callback)
   if command[1] == 'bash' then error('overbodige tussenherschrijving') end
@@ -79,5 +80,5 @@ wait(function() return done end)
 assert(not vim.b[buf].edition_workspace_ready, 'edit bleef stil goedgekeurd')
 assert(text(buf):find('shared-editions: SW,ST,Z,K', 1, true))
 review.close(buf, true)
-vim.system, vim.fn.confirm = original_system, original_confirm
+vim.system, dialog.select = original_system, original_select
 print 'rewrite mixed: OK'

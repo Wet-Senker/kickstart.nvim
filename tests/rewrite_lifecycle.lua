@@ -46,17 +46,41 @@ local drained = false
 vim.schedule(function() drained = true end)
 assert(vim.wait(1000, function() return drained end, 20))
 
-local original_choice = ai._edition_mode_choice
-local original_confirm = vim.fn.confirm
-for _, choice in ipairs { 1, 2, 3, 0 } do
-  vim.fn.confirm = function(_, buttons, default)
-    assert(default == 1, 'algemeen is niet de standaardkeuze')
-    assert(buttons:find('Annuleren', 1, true), 'expliciete annuleerknop ontbreekt')
-    return choice
+local original_choice = ai._edition_mode_choice_async
+local dialog = require('user_dialog')
+local original_select = dialog.select
+for _, test_case in ipairs {
+  { index = 1, expected = 1 },
+  { index = 2, expected = 2 },
+  { index = 3, expected = 0 },
+  { expected = 0 },
+} do
+  dialog.select = function(items, opts, done)
+    assert(opts.default == 1, 'algemeen is niet de standaardkeuze')
+    assert(items[#items] == 'Annuleren', 'expliciete annuleerknop ontbreekt')
+    done(test_case.index and items[test_case.index] or nil, test_case.index)
   end
-  assert(ai._edition_mode_choice({ 'B', 'SW' }) == ((choice == 1 or choice == 2) and choice or 0))
+  local result
+  ai._edition_mode_choice_async({ 'B', 'SW' }, nil, nil, function(choice) result = choice end)
+  assert(result == test_case.expected)
 end
-vim.fn.confirm = original_confirm
+dialog.select = original_select
+
+-- De productiekeuze mag niet op de callback wachten: juist vanuit de
+-- asynchrone editieresolutie zou een synchrone wachtlus de TUI blokkeren.
+local pending_choice, deferred_result
+dialog.select = function(items, _, done)
+  pending_choice = function(index) done(items[index], index) end
+end
+ai._edition_mode_choice_async({ 'B', 'SW' }, nil, nil, function(choice)
+  deferred_result = choice
+end)
+assert(type(pending_choice) == 'function' and deferred_result == nil,
+  'editiekeuze wachtte synchroon op gebruikersinvoer')
+pending_choice(2)
+assert(deferred_result == 2, 'asynchrone editiekeuze ging niet verder na antwoord')
+dialog.select = original_select
+
 local original_variant_runner = ai._edition_variant_runner
 local original_structure = ai.tussenkopjes_streamer
 ai.tussenkopjes_streamer = function(options)
@@ -82,10 +106,10 @@ for _, mode in ipairs { 1, 2, 0 } do
     table.insert(variants, code)
     done(false, nil, 'bewuste testfout: geen reviewwerkruimte nodig')
   end
-  ai._edition_mode_choice = function(codes)
+  ai._edition_mode_choice_async = function(codes, _, _, done)
     assert(table.concat(codes, ',') == 'B,SW')
     choices = choices + 1
-    return mode
+    done(mode)
   end
   vim.system = function(command, opts, callback)
     if command[1] == 'bash' then
@@ -123,11 +147,32 @@ for _, mode in ipairs { 1, 2, 0 } do
   vim.api.nvim_buf_delete(target, { force = true })
 end
 
+-- Ook een wijziging terwijl het asynchrone keuzemenu openstaat maakt de
+-- editieresolutie ongeldig; de late keuze mag dan geen rewrite meer starten.
+local target = make_buffer()
+local mode_done, started = nil, false
+ai._edition_mode_choice_async = function(_, _, _, done) mode_done = done end
+vim.system = function(command, _, callback)
+  if command[1] == 'bash' then started = true
+  else callback { code = 0, stdout = '{"editions":["B","SW"]}', stderr = '' } end
+  return {}
+end
+ai.rewrite_article_buffer()
+assert(vim.wait(1000, function() return type(mode_done) == 'function' end, 20))
+vim.api.nvim_buf_set_lines(target, -1, -1, false, { 'Wijziging tijdens de keuze.' })
+mode_done(1)
+drained = false
+vim.schedule(function() drained = true end)
+assert(vim.wait(1000, function() return drained end, 20))
+assert(not started, 'late moduskeuze startte een rewrite voor een gewijzigde buffer')
+vim.api.nvim_buf_delete(target, { force = true })
+
 -- Een gewijzigde buffer tijdens de extra resolve mag geen verouderde keuze
 -- of AI-call starten, ook niet op de al gecontroleerde importtak.
-local target = make_buffer()
-local resolve_callback, started = nil, false
-ai._edition_mode_choice = function() error('late moduskeuze') end
+target = make_buffer()
+local resolve_callback
+started = false
+ai._edition_mode_choice_async = function() error('late moduskeuze') end
 vim.system = function(command, _, callback)
   if command[1] == 'bash' then started = true else resolve_callback = callback end
   return {}
@@ -159,7 +204,7 @@ assert(vim.wait(1000, function() return drained end, 20))
 assert(table.concat(vim.api.nvim_buf_get_lines(target, 0, -1, false), '\n'):find('Bewuste bodywijziging.', 1, true))
 vim.api.nvim_buf_delete(target, { force = true })
 
-ai._edition_mode_choice = original_choice
+ai._edition_mode_choice_async = original_choice
 ai._edition_variant_runner = original_variant_runner
 ai.tussenkopjes_streamer = original_structure
 vim.system = original_system
