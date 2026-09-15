@@ -310,7 +310,7 @@ function M.website_scan()
         vim.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
         return
       end
-      local answer = vim.fn.confirm(
+      local answer = require('user_dialog').confirm(
         'Markeer "' .. tostring(candidate.headline or 'Zonder kop')
           .. '" als geen agendabericht nodig?',
         '&Ja\n&Nee',

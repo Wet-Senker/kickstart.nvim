@@ -665,7 +665,7 @@ local function send_safeguard_reason(buf, lines)
 end
 
 M._send_safeguard_confirm = function(reason)
-  return vim.fn.confirm(
+  return require('user_dialog').confirm(
     "Extra verzendcontrole\n\n" .. reason .. "\n\nToch publiceren?",
     "&Ja\n&Nee",
     2
@@ -913,12 +913,11 @@ end
 
 M._calendar_signal_score = _calendar_signal_score
 
--- Een automatische BufReadPost-vraag mag niet via de fzf-lua
--- vim.ui.select-provider lopen: die kan tijdens een verse embedded TUI-sessie
--- de eventloop bezet houden. De ingebouwde confirm-dialoog is hiervoor klein,
--- synchroon en betrouwbaar. Dit testpunt is injecteerbaar in headless tests.
+-- Importvragen gebruiken de native overlay, niet de fuzzy-pickerprovider.
+-- Ze vereisen een expliciet antwoord; Escape is geen afwijzing.
+-- Deze synchrone compatibiliteitshooks blijven injecteerbaar in tests.
 M._calendar_date_confirm = function(date_count)
-  return vim.fn.confirm(
+  return require('user_dialog').confirm(
     table.concat({
       string.format("Tekst bevat %d verschillende datums.", date_count),
       "",
@@ -927,12 +926,12 @@ M._calendar_date_confirm = function(date_count)
       "Nee: niets uit deze tekst komt in de online agenda.",
     }, "\n"),
     "&Ja — één of meer agenda-items maken\n&Nee — niets naar de online agenda",
-    2
+    2, true
   )
 end
 
 M._112_confirm = function(prompt)
-  return vim.fn.confirm(prompt, "&Ja\n&Nee", 2)
+  return require('user_dialog').confirm(prompt, "&Ja\n&Nee", 2, true)
 end
 
 M._rubric_confirm = function(decision)
@@ -944,10 +943,10 @@ M._rubric_confirm = function(decision)
     )
   end
   table.insert(buttons, "&Geen rubriektemplate toepassen")
-  local choice = vim.fn.confirm(
+  local choice = require('user_dialog').confirm(
     "Herkenning controleren:",
     table.concat(buttons, "\n"),
-    #buttons
+    #buttons, true
   )
   return (decision.candidates or {})[choice]
 end
@@ -1416,7 +1415,7 @@ local function fill_detected_editions_line(buf, content, done)
 end
 
 M._edition_rewrite_confirm = function(current_label, detected_label, source)
-  return vim.fn.confirm(
+  return require('user_dialog').confirm(
     "Bestemming na herschrijven controleren:\n\n"
       .. "Huidig: " .. current_label .. "\n"
       .. "Nieuwe detectie: " .. detected_label .. " (" .. source .. ")",
@@ -1627,7 +1626,7 @@ M._edition_mode_choice = function(codes, names, strategy)
       table.insert(findings, (names and names[index] or code) .. ": " .. table.concat(places, ", "))
     end
   end
-  local choice = vim.fn.confirm(
+  local choice = require('user_dialog').confirm(
     "Dit artikel gaat naar meerdere kranten:\n\n"
       .. edition_names(codes, names)
       .. (#findings > 0 and ("\n\nPlaatsvermeldingen gevonden (geen bewijs van lokale relevantie):\n" .. table.concat(findings, "\n")) or "")
@@ -1639,7 +1638,7 @@ M._edition_mode_choice = function(codes, names, strategy)
 end
 
 M._edition_versions_regenerate_confirm = function()
-  return vim.fn.confirm(
+  return require('user_dialog').confirm(
     "Dit artikel bevat al aparte krantversies. <leader>ar vervangt deze allemaal. Doorgaan?",
     "&Vervangen\n&Annuleren",
     2
@@ -2355,7 +2354,8 @@ end
 
 local function has_calendar_section(lines)
   for _, line in ipairs(lines or {}) do
-    if vim.trim(line):match("^## Kalender%s*$") then return true end
+    local heading = vim.trim(line)
+    if heading:match("^## Kalender%s*$") or heading:match("^#### Kalender%s*$") then return true end
   end
   return false
 end
@@ -2382,6 +2382,7 @@ function _run_articlemeta_calendar(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local input = table.concat(lines, "\n")
 
+  local calendar_tick = vim.api.nvim_buf_get_changedtick(buf)
   ai_system({ articlemeta, "--calendar" }, { text = true, stdin = input }, function(result)
     vim.schedule(function()
       if buf and vim.api.nvim_buf_is_valid(buf) then
@@ -2389,6 +2390,12 @@ function _run_articlemeta_calendar(buf)
       end
       if result.code ~= 0 then
         vim.notify("articlemeta mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
+        return
+      end
+
+      if not vim.api.nvim_buf_is_valid(buf)
+          or vim.api.nvim_buf_get_changedtick(buf) ~= calendar_tick then
+        notify_workflow("Artikel gewijzigd tijdens kalenderanalyse; resultaat niet toegepast. Start opnieuw met <leader>ac.", vim.log.levels.WARN)
         return
       end
 
@@ -2413,7 +2420,8 @@ function _run_articlemeta_calendar(buf)
         -- opnieuw draaien.
         strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
         notify_workflow(
-          "Kalenderdata toegevoegd. Controleer en pas aan, dan <leader>aw. "
+          "Kalenderdata toegevoegd. Controleer en pas aan, "
+            .. (vim.b[buf].edition_code and "sla op met :w en keur opnieuw goed met <leader>aG. " or "dan <leader>aw. ")
             .. "Niet gewenst? Verwijder het volledige blok vanaf ## Kalender.",
           vim.log.levels.INFO,
           { ttl = 10 }
@@ -2488,7 +2496,7 @@ function M.reject_calendar(buf, message)
 end
 
 M._calendar_send_confirm = function(score)
-  return vim.fn.confirm(
+  return require('user_dialog').confirm(
     string.format(
       "Dit artikel lijkt alsnog een agenda-item (score %d). Agenda-item maken en eerst tonen?",
       score
@@ -2897,7 +2905,7 @@ local function offer_sport_rubriek(buf, text)
 end
 
 M._rubriek_confirm_simple = function(prompt)
-  return vim.fn.confirm(prompt, "&Ja\n&Nee", 2)
+  return require('user_dialog').confirm(prompt, "&Ja\n&Nee", 2, true)
 end
 M._offer_sport_rubriek = offer_sport_rubriek
 
@@ -3151,7 +3159,7 @@ M._edition_send_confirm = function(resolved)
     prompt = "Bestemming automatisch bepaald: " .. destination
       .. " (" .. source .. "). Klopt dit?"
   end
-  return vim.fn.confirm(
+  return require('user_dialog').confirm(
     prompt,
     "&Ja, vastleggen en doorgaan\n&Zelf e: invullen\n&Annuleren",
     1
@@ -3363,7 +3371,7 @@ function M.pubble_send(target_buf)
   local has_facebook = false
   local has_linkedin = false
   for _, line in ipairs(lines) do
-    if line:match("^## Kalender") then has_calendar = true end
+    if line:match("^## Kalender") or line:match("^#### Kalender%s*$") then has_calendar = true end
     if line:match("^## Facebook") then has_facebook = true end
     if line:match("^## LinkedIn") then has_linkedin = true end
   end
@@ -4469,7 +4477,7 @@ M._past_timing_confirm = function(targets)
     if type(label) == "string" and label ~= "" then table.insert(editions, label) end
   end
   local suffix = #editions > 0 and (" (" .. table.concat(editions, ", ") .. ")") or ""
-  return vim.fn.confirm(
+  return require('user_dialog').confirm(
     "De publicatiedatum van de krant ligt na minstens één evenement"
       .. suffix .. ". Daarom is een aangepaste kranttekst nodig.",
     "&Herschrijven voor krant\n&Niet in krant (web/agenda wel)",

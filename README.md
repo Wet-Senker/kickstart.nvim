@@ -444,6 +444,26 @@ stappenplan staat in `INSTALLATIE_NIEUWE_MAC.md` in de texttools-repository.
 
 ## Tests en CI
 
+### Vragen en krantversies
+
+Keuzevragen en invoervelden verschijnen in een centrale overlay boven de tekst.
+Gebruik pijltjes of `j`/`k` en Enter; bij keuzevragen werken ook nummers 1–9.
+Escape annuleert handmatig geopende menu's. Automatische importvragen (agenda,
+112, rubriek en persoonskeuze) vereisen een expliciet antwoord: Escape en Ctrl-C
+zijn daar geen annulering. Lange uitleg kan met Ctrl-U/Ctrl-D worden gescrold.
+
+Goedgekeurde krantversies blijven bereikbaar via `<leader>aV` of `:Krantversies`.
+Wijzigen en opslaan maakt opnieuw goedkeuren met `<leader>aG` nodig.
+
+Maak met `<leader>ac` een agenda-item vanuit de gewenste krantversie. Controleer
+het kalenderblok, sla op met `:w` en keur de versie opnieuw goed met `<leader>aG`.
+Het item gaat alleen naar de site(s) van die versie. `<leader>aw` blijft de
+gezamenlijke verzending vanuit het bronartikel starten. Een kalenderblok bij
+de gedeelde bron blijft een gezamenlijke agenda; een eigen kalenderblok bij een
+variant vervangt die gezamenlijke agenda voor die variant.
+
+### Regressietests
+
 De configuratie richt zich op Neovim 0.12.3. De headless regressietests draaien
 zonder persoonlijke configuratie of plugininstallatie:
 

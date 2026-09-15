@@ -333,7 +333,7 @@ function M.check(command, callback, options)
         if options.automatic then
           -- Automatische importvragen gebruiken geen fzf-provider: die kan
           -- de eventloop tijdens het starten van de embedded TUI bezet houden.
-          local choice = vim.fn.confirm(prompt, '&' .. continue_label .. '\n&Annuleren', 2)
+          local choice = require('user_dialog').confirm(prompt, '&' .. continue_label .. '\n&Annuleren', 2)
           callback(choice == 1, nil)
           return
         end

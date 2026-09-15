@@ -489,7 +489,7 @@ local function migrate_legacy(source_buf)
     notify("Oude krantversies kunnen niet worden gemigreerd.", vim.log.levels.ERROR)
     return
   end
-  if vim.fn.confirm(
+  if require('user_dialog').confirm(
       "Dit artikel gebruikt het oude versieformaat. Omzetten naar losse reviewbuffers? Alle versies moeten daarna eenmalig worden goedgekeurd.",
       "&Omzetten\n&Annuleren",
       1

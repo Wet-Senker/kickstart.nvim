@@ -448,6 +448,7 @@ do
   -- Enable Telescope extensions if they are installed
   pcall(require('telescope').load_extension, 'fzf')
   pcall(require('telescope').load_extension, 'ui-select')
+  require('user_dialog').setup()
   pcall(require('telescope').load_extension, 'file_browser')
 
   -- Fuzzy-browse folders (by name, not path) and move/rename/delete files
