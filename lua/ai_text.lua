@@ -1999,7 +1999,7 @@ function M.visual_rewrite()
 end
 
 vim.keymap.set("n", "<leader>ar", M.rewrite_article_buffer, {
-  desc = "Artikel herschrijven naar krantenstijl",
+  desc = "Herschrijven: volledig naar krantenstijl, ook de body (ruwe tekst)",
 })
 
 vim.keymap.set("v", "<leader>ai", M.visual_rewrite, {
@@ -5053,7 +5053,7 @@ function M.tekstcheck()
 end
 
 vim.keymap.set("n", "<leader>ao", M.tekstcheck, {
-  desc = "Tekstcheck: spelling/grammatica; twijfelgevallen als suggesties onderaan",
+  desc = "Tekstcheck: alleen taalfouten; tekst blijft verder gelijk (twijfel → ## Suggesties)",
 })
 
 -- <leader>an — maak kop en lead waar nodig publicatieklaar en neutraliseer de
@@ -5112,7 +5112,7 @@ function M.journalistic_neutralize()
 end
 
 vim.keymap.set("n", "<leader>an", M.journalistic_neutralize, {
-  desc = "Kop en lead waar nodig herstellen; rest minimaal wijzigen",
+  desc = "Neutraliseren: reclame/'u'-taal eruit + kop/lead publicatieklaar; rest ~origineel (nette persberichten)",
 })
 
 -- Scan de body in alinea's (blokken gescheiden door lege regels).
@@ -5810,10 +5810,10 @@ local help_categories = {
     label = "Acties",
     prompt = "Actie starten:",
     items = {
-      { label = "Artikel herschrijven (<leader>ar)", action = function() M.rewrite_article_buffer() end },
+      { label = "Herschrijven — volledig naar krantenstijl, ook de body (<leader>ar)", action = function() M.rewrite_article_buffer() end },
+      { label = "Tekstcheck — alleen taalfouten, tekst blijft gelijk (<leader>ao)", action = function() M.tekstcheck() end },
+      { label = "Neutraliseren — reclame/'u'-taal eruit + kop/lead klaar, rest ~origineel (<leader>an)", action = function() M.journalistic_neutralize() end },
       { label = "Eigen artikel voorbereiden, geen rewrite (<leader>av)", action = function() M.prepare_article() end },
-      { label = "Tekstcheck (<leader>ao)", action = function() M.tekstcheck() end },
-      { label = "Minimaal publicatieklaar maken (<leader>an)", action = function() M.journalistic_neutralize() end },
       { label = "Tussenkopjes en streamer (<leader>at)", action = function() M.tussenkopjes_streamer() end },
       { label = "LinkedIn-tekst maken (<leader>al)", action = function() M.generate_linkedin() end },
       { label = "Eigen opdracht via *** (<leader>ap)", action = function() M.ai_prompt_rewrite() end },

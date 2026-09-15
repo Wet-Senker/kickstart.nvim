@@ -45,10 +45,10 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 
 | Leader | Actie |
 |---|---|
-| `<leader>ar` | Herschrijven naar krantenartikel (AI) |
+| `<leader>ar` | **Herschrijven** — volledig naar krantenstijl, ook de body. Voor ruwe/rommelige tekst |
+| `<leader>ao` | **Tekstcheck** — alleen taalfouten (spelling/grammatica); tekst blijft verder gelijk (twijfel → `## Suggesties`) |
+| `<leader>an` | **Neutraliseren** — reclame/'u'-taal eruit + kop/lead publicatieklaar; rest zo dicht mogelijk bij origineel. Voor nette persberichten |
 | `<leader>ac` | Metadata + kalenderitem — ontbrekende velden tonen het formaat, zoals `Tijd: HH:MM` |
-| `<leader>ao` | Tekstcheck; twijfelgevallen komen onder `## Suggesties` |
-| `<leader>an` | Minimaal publicatieklaar: kop/lead waar nodig herstellen, rest behouden; citaten en concrete waarden beschermd |
 | `<leader>at` | Tussenkopjes, optionele streamer en 2 kopopties; gekozen kop wordt zo nodig vóór de lead ingevoegd |
 | `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie |
 | `<leader>aV` | Overzicht van bron en afzonderlijke krantversiebuffers |
