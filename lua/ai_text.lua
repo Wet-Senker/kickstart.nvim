@@ -1620,18 +1620,28 @@ M._edition_mode_choice_async = function(codes, names, strategy, done)
   local labels, findings = {}, {}
   for _, option in ipairs(options) do table.insert(labels, option.label) end
   table.insert(labels, "Annuleren")
+  local areas_by_edition = strategy and strategy.areas_by_edition
+    or strategy and strategy.places_by_edition
+    or nil
   for index, code in ipairs(codes) do
-    local places = strategy and strategy.places_by_edition and strategy.places_by_edition[code]
-    if places and #places > 0 then
-      table.insert(findings, (names and names[index] or code) .. ": " .. table.concat(places, ", "))
+    local areas = areas_by_edition and areas_by_edition[code]
+    if areas and #areas > 0 then
+      table.insert(findings, (names and names[index] or code) .. ": " .. table.concat(areas, ", "))
+    end
+  end
+  local default = 1
+  for index, option in ipairs(options) do
+    if option.id == (strategy and strategy.recommended_option_id) then
+      default = index
+      break
     end
   end
   require('user_dialog').select(labels, {
     prompt = "Dit artikel gaat naar meerdere kranten:\n\n"
       .. edition_names(codes, names)
-      .. (#findings > 0 and ("\n\nPlaatsvermeldingen gevonden (geen bewijs van lokale relevantie):\n" .. table.concat(findings, "\n")) or "")
+      .. (#findings > 0 and ("\n\nOnderscheidende gebiedssignalen gevonden (geen bewijs van lokale relevantie):\n" .. table.concat(findings, "\n")) or "")
       .. "\n\nWelke tekstversie wil je maken?",
-    default = 1,
+    default = default,
   }, function(_, index)
     done(index and index <= #options and index or 0)
   end)
@@ -2112,6 +2122,10 @@ function M.rewrite_article_buffer()
       end)
     end
     if #codes >= 2 then
+      if strategy and strategy.requires_choice == false then
+        continue_after_mode_choice(1)
+        return
+      end
       M._edition_mode_choice_async(codes, names, strategy, continue_after_mode_choice)
       return
     end

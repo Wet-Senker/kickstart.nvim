@@ -20,7 +20,7 @@ dialog.select = function(items, opts, done)
   assert(opts.prompt:find('IJsselmuiden', 1, true) and opts.prompt:find('Dronten', 1, true))
   assert(opts.prompt:find('geen bewijs', 1, true))
   assert(items[2]:find('overige', 1, true) and items[#items] == 'Annuleren')
-  assert(opts.default == 1)
+  assert(opts.default == 2)
   done(items[2], 2)
 end
 vim.system = function(command, opts, callback)

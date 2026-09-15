@@ -147,9 +147,33 @@ for _, mode in ipairs { 1, 2, 0 } do
   vim.api.nvim_buf_delete(target, { force = true })
 end
 
+-- Zonder onderscheidend plaats- of provinciesignaal wordt bij meerdere
+-- bestemmingen stil de algemene versie gekozen; er verschijnt geen menu.
+local target = make_buffer()
+local automatic_command
+ai._edition_mode_choice_async = function() error('onnodige moduskeuze') end
+vim.system = function(command, _, callback)
+  if command[1] == 'bash' then
+    automatic_command = command[3]
+    callback { code = 1, stdout = '', stderr = 'bewuste teststop' }
+  else
+    callback {
+      code = 0,
+      stdout = '{"editions":["D","Z"],"names":["De Drontenaar","Zeewolde Actueel"],"rewrite_strategies":{"schema_version":2,"requires_choice":false,"recommended_option_id":"general","options":[{"id":"general","tasks":[]}]}}',
+      stderr = '',
+    }
+  end
+  return {}
+end
+ai.rewrite_article_buffer()
+assert(vim.wait(1000, function() return type(automatic_command) == 'string' end, 20))
+assert(automatic_command:find('krantversie_algemeen --editions', 1, true)
+  and automatic_command:find('D,Z', 1, true), 'algemene D/Z-versie werd niet automatisch gekozen')
+vim.api.nvim_buf_delete(target, { force = true })
+
 -- Ook een wijziging terwijl het asynchrone keuzemenu openstaat maakt de
 -- editieresolutie ongeldig; de late keuze mag dan geen rewrite meer starten.
-local target = make_buffer()
+target = make_buffer()
 local mode_done, started = nil, false
 ai._edition_mode_choice_async = function(_, _, _, done) mode_done = done end
 vim.system = function(command, _, callback)
