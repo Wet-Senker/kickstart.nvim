@@ -43,18 +43,18 @@ dialog.input({ prompt = 'Naam' }, function(item) choice = item end)
 shown(); vim.cmd('stopinsert'); key('<Esc>')
 assert(choice == nil, 'invoer niet geannuleerd')
 
-local original_uis = vim.api.nvim_list_uis
-vim.api.nvim_list_uis = function() return { {} } end
-vim.defer_fn(function() shown(); key('2') end, 20)
-assert(dialog.confirm('Vraag', '&Ja\n&Nee', 1, true) == 2, 'compatibiliteitsvraag mislukt')
--- A synchronous callback during another dialog must not deadlock.
-dialog.select({ 'Oud' }, { prompt = 'Oude vraag', required = true }, function(item) choice = item end)
-shown()
-vim.defer_fn(function() shown(); key('1') end, 20)
-assert(dialog.confirm('Nieuwe vraag', '&Nieuw', 1) == 1, 'geneste vraag mislukt')
-shown(); key('<CR>')
-assert(choice == 'Oud', 'onderbroken vraag niet hersteld')
-vim.api.nvim_list_uis = original_uis
+-- Ja/nee-vragen gaan native via vim.fn.confirm: geen overlay, geen vim.wait-lus,
+-- dus ze kunnen niet vastlopen in het verse-import-venster.
+local original_confirm_native = vim.fn.confirm
+vim.fn.confirm = function() return 2 end
+assert(dialog.confirm('Vraag', '&Ja\n&Nee', 1) == 2, 'native ja/nee-vraag mislukt')
+-- Een verplichte vraag negeert Escape (0) en stelt zich opnieuw tot er een echt
+-- antwoord is.
+local answers, calls = { 0, 0, 1 }, 0
+vim.fn.confirm = function() calls = calls + 1; return table.remove(answers, 1) end
+assert(dialog.confirm('Verplicht?', '&Ja', 1, true) == 1 and calls == 3,
+  'verplichte vraag niet opnieuw gesteld bij Escape')
+vim.fn.confirm = original_confirm_native
 -- Import policies are explicit; hand-triggered rewrite questions allow Escape.
 local ai = require('ai_text')
 local original_confirm = dialog.confirm

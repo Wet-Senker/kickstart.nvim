@@ -110,22 +110,21 @@ function M.select(items, opts, done)
   vim.schedule(next_dialog)
 end
 
--- Compatibility boundary for existing synchronous decision hooks. vim.wait
--- services native UI events; unlike fuzzy pickers it starts no nested process.
+-- Ja/nee-vragen gaan altijd via Neovims ingebouwde prompt (`vim.fn.confirm`).
+-- Die maakt geen zwevend venster aan en houdt de hoofd-thread niet in een
+-- `vim.wait`-lus, dus hij kan nooit vastlopen in het kwetsbare verse-import-
+-- venster waar het overlay-scherm op sommige Neovim-versies de eventloop
+-- wedgede. De interactieve lijst-menu's (select/input) houden wél hun overlay;
+-- die roept de redacteur zelf op, buiten dat kwetsbare moment.
+-- `required` betekent hier: een reflexmatige Escape mag de vraag niet
+-- beantwoorden. `vim.fn.confirm` geeft 0 bij Escape; voor een verplichte vraag
+-- stellen we hem dan opnieuw, net als het oude overlay-gedrag.
 function M.confirm(prompt, buttons, default, required)
-  if #vim.api.nvim_list_uis() == 0 then return vim.fn.confirm(prompt, buttons, default) end
-  local items = vim.split(buttons:gsub('&', ''), '\n', { plain = true })
-  for i, label in ipairs(items) do items[i] = label:gsub('^%d+%.%s*', '') end
-  local result
-  -- A timer may request a synchronous question during an existing question.
-  -- Suspend/requeue the old one, rather than nesting waits behind its window.
-  if suspend_active then suspend_active() end
-  table.insert(queue, 1, { items = items,
-    opts = { prompt = prompt, default = default, required = required == true },
-    done = function(_, index) result = index or 0 end })
-  vim.schedule(next_dialog)
-  while result == nil do vim.wait(100, function() return result ~= nil end, 10) end
-  return result
+  local choice = vim.fn.confirm(prompt, buttons, default or 1)
+  while required and choice == 0 do
+    choice = vim.fn.confirm(prompt, buttons, default or 1)
+  end
+  return choice
 end
 
 function M.inputlist(menu)
