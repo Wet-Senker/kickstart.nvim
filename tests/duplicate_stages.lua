@@ -27,7 +27,7 @@ ai._check_duplicate_stage(buf, { 'B', 'D' }, 'herschrijven', function(ok) assert
 assert(runs == 1, 'tweede controle gestart terwijl eerste nog draait')
 pending(true, nil) -- netwerkfout, gebruiker gaat door
 settled(buf)
-assert(approved and not vim.b[buf].pubble_duplicate_check_completed, 'fout is ten onrechte afgerond')
+assert(approved and not ai._duplicate_check_is_current(buf), 'fout is ten onrechte afgerond')
 assert(vim.fn.filereadable(temporary) == 0, 'tijdelijk artikel achtergelaten')
 
 ai._check_duplicate_stage(buf, { 'B', 'D' }, 'herschrijven', function(ok) approved = ok end)
@@ -42,7 +42,7 @@ ai._check_duplicate_stage(fallback, { 'B', 'D' }, 'verzenden', function(ok) appr
 assert(runs == 3 and options.approve_label == 'toch verzenden', 'send-vangnet ontbreekt')
 pending(true, success)
 settled(fallback)
-assert(approved and vim.b[fallback].pubble_duplicate_check_completed, 'send-vangnet faalde')
+assert(approved and ai._duplicate_check_is_current(fallback), 'send-vangnet faalde')
 
 local stale = buffer()
 ai._check_duplicate_stage(stale, { 'B', 'D' }, 'importeren', function(ok) approved = ok end)
@@ -51,7 +51,7 @@ vim.b[stale].send_requested = true
 assert(not options.is_current(), 'tekstwijziging niet opgemerkt')
 pending(true, success)
 settled(stale)
-assert(not approved and not vim.b[stale].pubble_duplicate_check_completed, 'oude tekst geldt als gecontroleerd')
+assert(not approved and not ai._duplicate_check_is_current(stale), 'oude tekst geldt als gecontroleerd')
 assert(not vim.b[stale].send_requested, 'geannuleerde controle start uitgestelde verzending')
 
 local sections = buffer()
@@ -66,7 +66,7 @@ local cancelled = buffer()
 ai._check_duplicate_stage(cancelled, { 'B', 'D' }, 'importeren', function(ok) approved = ok end)
 pending(false, success)
 settled(cancelled)
-assert(not approved and not vim.b[cancelled].pubble_duplicate_check_completed, 'annuleren werd onthouden als goedkeuring')
+assert(not approved and not ai._duplicate_check_is_current(cancelled), 'annuleren werd onthouden als goedkeuring')
 
 -- Een handmatige kalenderstart tijdens de controle wordt uitgesteld. Alleen
 -- doorgaan na de doubluremelding hervat hem; annuleren maakt geen AI-kosten.
@@ -111,7 +111,7 @@ for _, code in ipairs({ 'B', 'K' }) do
   assert(runs == before + 1, 'client sloeg één editie over vóór het Python-beleid')
   pending(true, { performed = false, candidates = {} })
   settled(single)
-  assert(approved and not vim.b[single].pubble_duplicate_check_completed, 'beleidsmatig overgeslagen is niet uitgevoerd')
+  assert(approved and not ai._duplicate_check_is_current(single), 'beleidsmatig overgeslagen is niet uitgevoerd')
 end
 -- Een geannuleerde échte doublure (kandidaten aanwezig) breekt ook alle andere
 -- lopende AI-taken op dit artikel af. Een annulering zonder kandidaten (bv.
@@ -136,6 +136,32 @@ ai._check_duplicate_stage(empty_cancel, { 'B', 'D' }, 'herschrijven', function(o
 pending(false, { version = 1, performed = true, candidates = {} })
 settled(empty_cancel)
 assert(#cancel_calls == 1, 'annulering zonder kandidaten brak ten onrechte AI-taken af')
+
+
+-- Een herschreven artikel moet opnieuw langs de controle. Een ruwe importmail
+-- vol opmaak levert heel andere zoekwoorden op dan het afgeronde artikel, dus
+-- een goedkeuring op de ruwe tekst zegt niets over de tekst die online gaat.
+local rewritten = buffer()
+ai._check_duplicate_stage(rewritten, { 'B', 'D' }, 'importeren', function(ok) approved = ok end)
+pending(true, success)
+settled(rewritten)
+assert(ai._duplicate_check_is_current(rewritten), 'geslaagde controle werd niet onthouden')
+
+local before_rewrite = runs
+ai._check_duplicate_stage(rewritten, { 'B', 'D' }, 'verzenden', function(ok) approved = ok end)
+assert(runs == before_rewrite, 'onveranderde tekst werd onnodig opnieuw gecontroleerd')
+
+vim.api.nvim_buf_set_lines(rewritten, 0, -1, false, {
+  'e: B, D', '', '=== ARTIKEL ===', '', 'Batavia krijgt groot onderhoud', '',
+  'LELYSTAD - Het schip gaat maanden in de steigers.',
+})
+assert(not ai._duplicate_check_is_current(rewritten), 'herschreven tekst gold nog als gecontroleerd')
+
+ai._check_duplicate_stage(rewritten, { 'B', 'D' }, 'verzenden', function(ok) approved = ok end)
+assert(runs == before_rewrite + 1, 'herschreven artikel ging ongecontroleerd naar verzenden')
+pending(true, success)
+settled(rewritten)
+assert(ai._duplicate_check_is_current(rewritten), 'controle op de nieuwe tekst werd niet onthouden')
 
 ai.cancel_ai = original_cancel
 ai._duplicate_stage_runner = original_runner

@@ -36,7 +36,7 @@ vim.api.nvim_buf_set_lines(plain, 0, -1, false, {
 })
 ai._edition_autodetect(plain, buffer_text(plain))
 assert(
-  vim.wait(5000, function() return vim.b[plain].pubble_duplicate_check_completed == true end, 20),
+  vim.wait(5000, function() return ai._duplicate_check_is_current(plain) end, 20),
   'controle rondde niet af'
 )
 assert(
