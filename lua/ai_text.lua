@@ -935,15 +935,20 @@ M._112_confirm = function(prompt)
 end
 
 M._rubric_confirm = function(decision)
-  local top = (decision or {}).candidate or ((decision or {}).candidates or {})[1]
-  local label = top and top.label or "deze rubriek"
+  local buttons = {}
+  for index, candidate in ipairs(decision.candidates or {}) do
+    table.insert(
+      buttons,
+      string.format("&%d %s (score %d)", index, candidate.label, candidate.confidence)
+    )
+  end
+  table.insert(buttons, "&Geen rubriektemplate toepassen")
   local choice = require('user_dialog').confirm(
-    string.format("Herkende rubriek: %s.\n\nKlopt dat?", label),
-    "&Ja\n&Nee",
-    2, true
+    "Herkenning controleren:",
+    table.concat(buttons, "\n"),
+    #buttons, true
   )
-  if choice == 1 then return top end
-  return nil
+  return (decision.candidates or {})[choice]
 end
 
 -- Compatibiliteitswrapper voor bestaande rewrite-, Facebook- en
@@ -1451,7 +1456,7 @@ end
 
 M._edition_rewrite_confirm = function(current_label, detected_label, source)
   return require('user_dialog').confirm(
-    "Bestemming na herschrijven — welke klopt?\n\n"
+    "Bestemming na herschrijven controleren:\n\n"
       .. "Huidig: " .. current_label .. "\n"
       .. "Nieuwe detectie: " .. detected_label .. " (" .. source .. ")",
     "&Huidige behouden\n&Nieuwe gebruiken",
@@ -2222,7 +2227,7 @@ local function agenda_duplicate_prompt(buf, data)
   local prompt = "Dit evenement lijkt al in de agenda te staan:\n"
     .. table.concat(lines, "\n")
     .. "\n\nToch een agenda-item maken?"
-  local choice = require('user_dialog').confirm(
+  local choice = vim.fn.confirm(
     prompt,
     "&Ja, toch aanmaken\n&Nee, geen agenda-item\n&Bekijken in browser",
     2
@@ -4703,7 +4708,7 @@ M._past_timing_confirm = function(targets)
   local suffix = #editions > 0 and (" (" .. table.concat(editions, ", ") .. ")") or ""
   return require('user_dialog').confirm(
     "De publicatiedatum van de krant ligt na minstens één evenement"
-      .. suffix .. ". Aangepaste kranttekst maken?",
+      .. suffix .. ". Daarom is een aangepaste kranttekst nodig.",
     "&Herschrijven voor krant\n&Niet in krant (web/agenda wel)",
     2
   )
