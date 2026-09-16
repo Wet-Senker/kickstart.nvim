@@ -16,6 +16,7 @@ local edition_review = read("lua/edition_review.lua")
 local documented_mappings = {
   { key = "<leader>ar", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ar"' },
   { key = "<leader>ac", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ac"' },
+  { key = "<leader>ad", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ad"' },
   { key = "<leader>ao", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ao"' },
   { key = "<leader>an", source = ai_text, registration = 'vim.keymap.set("n", "<leader>an"' },
   { key = "<leader>at", source = ai_text, registration = 'vim.keymap.set("n", "<leader>at"' },

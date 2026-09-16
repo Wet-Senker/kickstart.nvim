@@ -1222,6 +1222,20 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file)
 end
 M._check_duplicate_stage = check_duplicate_stage
 
+-- Bij import beide controles achter elkaar, vóór elke verwerking: eerst of het
+-- artikel zelf al bestaat, daarna of het evenement al in de agenda staat. Het
+-- agenda-antwoord blokkeert de import niet; weigeren laat alleen het agenda-item
+-- vervallen.
+local function check_import_duplicates(buf, codes, complete)
+  check_duplicate_stage(buf, codes, "importeren", function(approved)
+    if not approved then
+      complete(false)
+      return
+    end
+    M._check_agenda_duplicates(buf, codes, function() complete(true) end)
+  end)
+end
+
 local function buffer_has_edition_control(buf)
   if not vim.api.nvim_buf_is_valid(buf) then return false end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -1528,12 +1542,12 @@ local function edition_autodetect(buf, content, done)
       if resolved.has_explicit_editions == true or buffer_has_edition_control(buf) then
         adapt_editorial_address(buf, resolved.editions[1])
         apply_edition_suggestions(buf, resolved.editions, resolved)
-        check_duplicate_stage(buf, resolved.editions, "importeren", complete)
+        check_import_duplicates(buf, resolved.editions, complete)
         return
       end
       local detection = high_confidence_detection(resolved)
       if not detection then
-        check_duplicate_stage(buf, resolved.editions, "importeren", complete)
+        check_import_duplicates(buf, resolved.editions, complete)
         return
       end
       set_edition_codes(buf, detection.editions)
@@ -1547,7 +1561,7 @@ local function edition_autodetect(buf, content, done)
           .. (detection.source or "deterministische detectie")
           .. ")."
       )
-      check_duplicate_stage(buf, detection.editions, "importeren", complete)
+      check_import_duplicates(buf, detection.editions, complete)
     end)
   end
   resolve_current(content, true)
@@ -2137,6 +2151,160 @@ function M.visual_rewrite()
   run_on_visual_selection("journalistiek_schrijven", false)
 end
 
+-- Agenda-doublurecontrole: staat dit evenement al in de eigen online agenda?
+-- Bewust zo vroeg mogelijk, nog vóór de kalender-AI: texttools haalt de datums
+-- desnoods AI-vrij uit de ruwe tekst, zodat er niets verwerkt is als blijkt dat
+-- het item al bestaat. Weigeren stopt alleen het agenda-item; web en print gaan
+-- gewoon door, precies zoals reject_calendar() al regelt.
+local function agenda_duplicate_candidates(buf, codes, done)
+  local file = vim.fn.tempname() .. ".md"
+  if vim.fn.writefile(vim.api.nvim_buf_get_lines(buf, 0, -1, false), file) ~= 0 then
+    done(nil)
+    return
+  end
+  local cmd = {
+    texttools_python, "-m", "texttools.agenda_cli", "--json",
+    "artikel-doublures", file, "--editie", table.concat(codes, ","),
+  }
+  local function handle(result)
+    vim.schedule(function()
+      vim.fn.delete(file)
+      local ok, data = pcall(vim.fn.json_decode, result.stdout or "")
+      if result.code ~= 0 or not ok or type(data) ~= "table" or data.version ~= 1 then
+        -- Een mislukte controle mag de import niet blokkeren; melden volstaat.
+        notify_workflow(
+          "Agenda-doublurecontrole overgeslagen (controle mislukt).",
+          vim.log.levels.WARN
+        )
+        done(nil)
+        return
+      end
+      done(data)
+    end)
+  end
+  local started, err = pcall(vim.system, cmd, { text = true }, handle)
+  if not started then handle({ code = 1, stderr = tostring(err) }) end
+end
+
+local function agenda_duplicate_prompt(buf, data)
+  local candidates = data.candidates or {}
+  local lines = {}
+  for index, item in ipairs(candidates) do
+    if index > 3 then break end
+    table.insert(lines, string.format(
+      "- %s (%s, %s)",
+      item.bestaand_titel or "onbekend",
+      item.bestaand_datum or "?",
+      item.bestaand_locatie ~= "" and item.bestaand_locatie or item.editie
+    ))
+  end
+  local prompt = "Dit evenement lijkt al in de agenda te staan:\n"
+    .. table.concat(lines, "\n")
+    .. "\n\nToch een agenda-item maken?"
+  local choice = vim.fn.confirm(
+    prompt,
+    "&Ja, toch aanmaken\n&Nee, geen agenda-item\n&Bekijken in browser",
+    2
+  )
+  if choice == 3 then
+    local url = candidates[1] and candidates[1].url
+    if url then pcall(vim.ui.open, url) end
+    return agenda_duplicate_prompt(buf, data)
+  end
+  -- confirm() geeft 0 bij Escape of afbreken. Dat is geen "nee": stil een
+  -- agenda-item weigeren op een reflexmatige Escape zou de redacteur een keuze
+  -- in de mond leggen. Geen keuze betekent hier: laat de gewone kalenderroute
+  -- zijn werk doen.
+  if choice == 0 then return nil end
+  return choice == 1
+end
+
+M._agenda_duplicate_candidates = agenda_duplicate_candidates
+M._agenda_duplicate_confirm = agenda_duplicate_prompt
+
+-- De controle mag twee keer: eerst op de ruwe tekst, nog vóór de kalender-AI,
+-- en daarna nog eens zodra het kalenderblok bestaat en titel en locatie
+-- opgeschoond zijn. Niet vaker: is er al met het kalenderblok vergeleken, of
+-- heeft de redacteur al besloten het item tóch aan te maken, dan is de vraag
+-- beantwoord. Zo kost een gemiste treffer op ruwe tekst geen dubbel agenda-item.
+function M._check_agenda_duplicates(buf, codes, done)
+  if not vim.api.nvim_buf_is_valid(buf)
+      or type(codes) ~= "table" or #codes == 0
+      or vim.b[buf].agenda_duplicate_accepted == true
+      or vim.b[buf].agenda_duplicate_check_source == "kalenderblok" then
+    done(true)
+    return
+  end
+  vim.b[buf].agenda_duplicate_editions = codes
+  M._agenda_duplicate_candidates(buf, codes, function(data)
+    if not vim.api.nvim_buf_is_valid(buf) then
+      done(false)
+      return
+    end
+    if type(data) == "table" and data.performed == true then
+      vim.b[buf].agenda_duplicate_check_source = data.bron or "ruwe tekst"
+    end
+    if not data or data.performed ~= true or #(data.candidates or {}) == 0 then
+      done(true)
+      return
+    end
+    local keuze = M._agenda_duplicate_confirm(buf, data)
+    if keuze == nil then
+      notify_workflow(
+        "Geen keuze gemaakt over het gelijkende agenda-item; de gewone kalenderroute gaat door.",
+        vim.log.levels.INFO
+      )
+    elseif keuze then
+      vim.b[buf].agenda_duplicate_accepted = true
+      notify_workflow(
+        "Agenda-item wordt toch aangemaakt ondanks een gelijkend item.",
+        vim.log.levels.INFO
+      )
+    else
+      M.reject_calendar(
+        buf,
+        "Het evenement staat al in de agenda; geen nieuw agenda-item. Web en print gaan gewoon door."
+      )
+    end
+    done(true)
+  end)
+end
+
+-- Handmatige hercontrole. De doublurecontrole bestaat verder alleen als fase in
+-- de herschrijf- en verzendstroom: wegdrukken met q laat hem vanzelf terugkomen,
+-- maar wie "toch verzenden" koos markeert de buffer als gecontroleerd en kreeg
+-- hem daarna niet meer. Deze actie wist die markering bewust en draait opnieuw.
+function M.recheck_duplicates(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  if vim.b[buf].pubble_duplicate_check_running == true then
+    notify_workflow("De doublurecontrole loopt al.", vim.log.levels.INFO)
+    return
+  end
+  local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+  resolve_editions_for_content(buf, text, function(resolved)
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    local codes = resolved and type(resolved.editions) == "table" and resolved.editions or {}
+    if #codes == 0 then
+      notify_workflow(
+        "Geen editie bekend; doublurecontrole niet gedraaid.",
+        vim.log.levels.WARN
+      )
+      return
+    end
+    vim.b[buf].pubble_duplicate_check_completed = false
+    check_duplicate_stage(buf, codes, "herschrijven", function(approved)
+      if approved and vim.api.nvim_buf_is_valid(buf) then
+        notify_workflow("Doublurecontrole opnieuw gedraaid.", vim.log.levels.INFO)
+      end
+    end)
+  end)
+end
+
+vim.keymap.set("n", "<leader>ad", function() M.recheck_duplicates() end, {
+  desc = "Doublurecontrole opnieuw draaien voor dit artikel",
+})
+
 vim.keymap.set("n", "<leader>ar", M.rewrite_article_buffer, {
   desc = "Herschrijven: volledig naar krantenstijl, ook de body (ruwe tekst)",
 })
@@ -2444,6 +2612,16 @@ function _run_articlemeta_calendar(buf)
         -- staan en laat pubble-send de kalender-AI bij <leader>aw ten onrechte
         -- opnieuw draaien.
         strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
+        -- Nu pas zijn evenementtitel en locatie opgeschoond. Is er eerder alleen
+        -- op ruwe tekst vergeleken, dan volgt hier de scherpe ronde — nog steeds
+        -- vóór het herschrijven en de rest van het AI-werk, en zonder AI-call.
+        if vim.b[buf].agenda_duplicate_check_source == "ruwe tekst" then
+          M._check_agenda_duplicates(
+            buf,
+            vim.b[buf].agenda_duplicate_editions or {},
+            function() end
+          )
+        end
         notify_workflow(
           "Kalenderdata toegevoegd. Controleer en pas aan, "
             .. (vim.b[buf].edition_code and "sla op met :w en keur opnieuw goed met <leader>aG. " or "dan <leader>aw. ")
