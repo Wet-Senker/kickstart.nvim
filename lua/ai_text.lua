@@ -1131,13 +1131,37 @@ end
 -- dezelfde runner en dezelfde bufferstate; alleen een werkelijk afgeronde
 -- controle wordt onthouden. Pubble zelf wordt altijd over alle zes sites
 -- doorzocht door de Python-actie.
+-- De controle wordt onthouden per artikeltekst, niet per buffer. Zo beschermt de
+-- controle bij import tegen een zinloze herschrijving, zonder een latere
+-- controle te blokkeren: zodra de tekst verandert — en na een herschrijving is
+-- dat altijd zo — telt het oude resultaat niet meer. Dat is nodig omdat een ruwe
+-- importmail vol opmaak heel andere zoekwoorden oplevert dan het afgeronde
+-- artikel; de ruis verdringt dan juist de woorden waarmee je het verhaal vindt.
+-- De garantie is daarmee: de tekst die gepubliceerd wordt, is gecontroleerd.
+local function duplicate_check_is_current(buf)
+  local checked = vim.b[buf].pubble_duplicate_checked_body
+  if type(checked) ~= "string" then return false end
+  return checked == editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+end
+
+M._duplicate_check_is_current = duplicate_check_is_current
+
+-- Markeer de huidige artikeltekst als gecontroleerd. Bedoeld voor tests die een
+-- latere fase willen bereiken zonder de controle zelf na te spelen.
+M._mark_duplicate_check_done = function(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  vim.b[buf].pubble_duplicate_checked_body =
+    editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+end
+
 local function check_duplicate_stage(buf, codes, stage, done, existing_file)
   if not vim.api.nvim_buf_is_valid(buf) then
     if done then done(false) end
     return
   end
   if type(codes) ~= "table" or #codes == 0
-      or vim.b[buf].pubble_duplicate_check_completed == true then
+      or duplicate_check_is_current(buf) then
     settle_duplicate_calendar_gate(buf, true)
     if done then done(true) end
     return
@@ -1202,7 +1226,9 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file)
         vim.b[buf].pubble_duplicate_check_running = false
         if not approved then vim.b[buf].send_requested = false end
         if approved and type(data) == "table" and data.performed ~= false then
-          vim.b[buf].pubble_duplicate_check_completed = true
+          -- De gecontroleerde tekst, niet de huidige: bij een wijziging tijdens
+          -- het ophalen is `approved` al op false gezet.
+          vim.b[buf].pubble_duplicate_checked_body = editorial_body_text(snapshot)
         end
         settle_duplicate_calendar_gate(buf, approved == true)
         if rejected_real_duplicate then M.cancel_ai(buf) end
@@ -2127,7 +2153,7 @@ function M.rewrite_article_buffer()
           edition_tasks = strategy and strategy.options[choice] and strategy.options[choice].tasks
         end
       end
-      if vim.b[buf].pubble_duplicate_check_completed == true or #codes == 0 then
+      if duplicate_check_is_current(buf) or #codes == 0 then
         run_rewrite()
         return
       end
@@ -2292,7 +2318,7 @@ function M.recheck_duplicates(buf)
       )
       return
     end
-    vim.b[buf].pubble_duplicate_check_completed = false
+    vim.b[buf].pubble_duplicate_checked_body = nil
     check_duplicate_stage(buf, codes, "herschrijven", function(approved)
       if approved and vim.api.nvim_buf_is_valid(buf) then
         notify_workflow("Doublurecontrole opnieuw gedraaid.", vim.log.levels.INFO)
@@ -4086,7 +4112,7 @@ function M.pubble_send(target_buf)
     end
 
     local function after_duplicate_check(next_step)
-      if vim.b[buf].pubble_duplicate_check_completed == true then
+      if duplicate_check_is_current(buf) then
         next_step()
         return
       end
@@ -6150,6 +6176,7 @@ local help_categories = {
       { label = "Eigen Facebooktekst schrijven", action = function() M.edit_facebook_text() end },
       { label = "Eigen LinkedIn-tekst schrijven", action = function() M.edit_linkedin_text() end },
       { label = "Teams-boodschap voor alle ontvangers", insert = "@all " },
+      { label = "Geen Teams-melding voor dit artikel", insert = "@none" },
     },
   },
   {
