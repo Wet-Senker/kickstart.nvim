@@ -30,7 +30,7 @@ vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
   '',
   'De aangeleverde tekst.',
 })
-ai._mark_duplicate_check_done(buf)
+vim.b[buf].pubble_duplicate_check_completed = true
 
 ai.rewrite_article_buffer()
 assert(vim.wait(1000, function() return type(rewrite_callback) == 'function' end, 20),
@@ -92,7 +92,7 @@ local function make_buffer()
   vim.api.nvim_buf_set_lines(target, 0, -1, false, {
     'e: B, SW', '', '=== ARTIKEL ===', '', 'Originele kop', '', 'Originele body.',
   })
-  ai._mark_duplicate_check_done(target)
+  vim.b[target].pubble_duplicate_check_completed = true
   return target
 end
 

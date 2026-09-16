@@ -52,7 +52,7 @@ assert(
   'provinciale dateline werd bij import niet toegevoegd'
 )
 assert(vim.b[imported].edition_recognition_done == true, 'eenmalige importmarkering ontbreekt')
-assert(ai._duplicate_check_is_current(imported), 'multi-editie-import werd niet gecontroleerd')
+assert(vim.b[imported].pubble_duplicate_check_completed == true, 'multi-editie-import werd niet gecontroleerd')
 assert(#duplicate_runs == 1, 'multi-editie-import moet precies één doublurecontrole starten')
 assert(duplicate_runs[1].command[#duplicate_runs[1].command] == 'B,SW,ST,K', 'verkeerde edities bij importcontrole')
 
@@ -71,7 +71,7 @@ local explicit_multi = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(explicit_multi, 0, -1, false, lelystad_lines { 'e: B, D', '' })
 ai._edition_autodetect(explicit_multi, buffer_text(explicit_multi))
 assert(
-  vim.wait(5000, function() return ai._duplicate_check_is_current(explicit_multi) end, 20),
+  vim.wait(5000, function() return vim.b[explicit_multi].pubble_duplicate_check_completed == true end, 20),
   'expliciete multi-editie-import werd niet gecontroleerd'
 )
 assert(#duplicate_runs == 3, 'expliciete multi-editie-import startte geen enkele controle')

@@ -23,7 +23,7 @@ local function make_buffer()
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
     'e: all', '', '=== ARTIKEL ===', '', 'Originele kop', '', 'Origineel persbericht.',
   })
-  ai._mark_duplicate_check_done(buf)
+  vim.b[buf].pubble_duplicate_check_completed = true
   vim.b[buf].calendar_autodetect_suppressed = true
   return buf
 end

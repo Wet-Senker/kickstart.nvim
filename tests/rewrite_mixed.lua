@@ -13,7 +13,7 @@ local function text(buf) return table.concat(vim.api.nvim_buf_get_lines(buf, 0, 
 local buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(buf)
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split('e: all\n\n=== ARTIKEL ===\n\n' .. source, '\n'))
-ai._mark_duplicate_check_done(buf)
+vim.b[buf].pubble_duplicate_check_completed = true
 vim.b[buf].calendar_autodetect_suppressed = true
 ai._capture_import_baseline(buf)
 dialog.select = function(items, opts, done)

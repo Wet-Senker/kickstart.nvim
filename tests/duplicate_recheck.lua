@@ -27,7 +27,7 @@ ai._check_duplicate_stage = original
 
 assert(started == false, 'er is een tweede doublurecontrole gestart')
 assert(
-  vim.b[buf].pubble_duplicate_checked_body == nil,
+  vim.b[buf].pubble_duplicate_check_completed == nil,
   'de gecontroleerd-markering is gewijzigd terwijl de controle al liep'
 )
 
