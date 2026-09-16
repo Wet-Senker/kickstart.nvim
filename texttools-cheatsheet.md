@@ -11,7 +11,6 @@ Clipboard/bron kopiëren
 In Neovim:
   Controlecodes bovenaan typen (zie hieronder)
   <leader>ar    herschrijven; start metadata en gevraagde extra's
-  <leader>ad    doublurecontrole opnieuw draaien
   <leader>ac    kalenderdata; onvolledige items tonen wat nog ontbreekt
   <leader>an    kop/lead waar nodig herstellen; rest minimaal neutraliseren
   <leader>af    Facebook-post genereren — verschijnt als ## Facebook sectie
@@ -47,8 +46,6 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | Leader | Actie |
 |---|---|
 | `<leader>ar` | **Herschrijven** — zonder onderscheidende plaats/provincie stil één algemene versie. Anders keuze tussen de voorgestelde gerichte varianten + algemene rest, één algemene versie of Annuleren. De gebiedsscan doet alleen een voorstel. Direct uit het origineel met tussenkopjes, daarna losse streamer; één review/goedkeuring per unieke tekst |
-| `<leader>ad` | **Doublurecontrole opnieuw** — draait de controle nog eens voor dit artikel, ook als je eerder "toch verzenden" koos. Wegdrukken met `q` laat hem vanzelf terugkomen; deze toets is voor de keer dat je hem al had goedgekeurd |
-| *automatisch bij import* | **Agenda-doublurecontrole** — staat het evenement al in de eigen online agenda, dan volgt vóór elke verwerking de vraag of er tóch een agenda-item moet komen, met de optie het bestaande item in de browser te bekijken. Nee laat alleen het agenda-item vervallen; web en print gaan door. Uit te zetten met `TEXTTOOLS_AGENDA_DOUBLURECHECK=0` |
 | `<leader>ao` | **Tekstcheck** — alleen taalfouten (spelling/grammatica); tekst blijft verder gelijk (twijfel → `## Suggesties`) |
 | `<leader>an` | **Opschonen + neutraliseren** — eerst zekere persbericht-/mailruis als volledige regels weg, daarna reclame/'u'-taal eruit + kop/lead publicatieklaar; rest zo dicht mogelijk bij origineel |
 | `<leader>ac` | Metadata + kalenderitem — ontbrekende velden tonen het formaat, zoals `Tijd: HH:MM` |
