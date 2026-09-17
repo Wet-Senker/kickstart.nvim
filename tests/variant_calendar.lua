@@ -3,6 +3,12 @@ package.preload['fidget.progress'] = function()
 end
 local ai = require('ai_text')
 local original_system = vim.system
+local original_resolver = ai._calendar_edition_resolver
+local original_agenda_check = ai._check_agenda_duplicates
+ai._calendar_edition_resolver = function(_buf, _text, done)
+  done({ editions = { 'SW' } })
+end
+ai._check_agenda_duplicates = function(_buf, _codes, done) done(true) end
 local callback
 vim.system = function(_, _, done)
   callback = done
@@ -45,4 +51,6 @@ callback(result)
 assert(vim.wait(500, function() return not vim.b[buf].calendar_ai_running end))
 assert(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == 'Eigen nieuwe kop', 'late agenda overschreef tekst')
 vim.system = original_system
+ai._calendar_edition_resolver = original_resolver
+ai._check_agenda_duplicates = original_agenda_check
 print('variant calendar: OK')

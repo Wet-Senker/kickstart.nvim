@@ -31,6 +31,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
               bij agendapagina: krant kiezen, controleren en print-only versturen
 <leader>ka    Ruwe papieren agendapagina voorbereiden voor tekstcontrole
 <leader>kd    Actieve webartikelen per site op doublures controleren
+<leader>kv    Meestgelezen weekoverzicht voorbereiden en na review genereren
 ```
 
 ---
@@ -58,6 +59,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | `<leader>ka` | Ruwe papieren agendapagina structureren en gewone items redigeren; daarna zelf de tekst controleren. |
 | `<leader>kg` | Agenda-onlinemenu. Bij **Websiteartikelen zonder agenda-item zoeken** maakt Enter een bewerkbaar voorstel, opent `o` het bronartikel en markeert `x` een artikel duurzaam als geen agenda nodig. Afwijzingen synchroniseren via de gedeelde Texttools-map. |
 | `<leader>kd` | Actieve webartikelen van alle kranten of één gekozen krant intern op doublures controleren. Kijkt standaard veertien dagen terug, vergelijkt alleen berichten die maximaal zeven dagen uiteen staan en opent kandidaten geordend in de browser. Sites worden nooit onderling vergeleken; agenda-schaduwartikelen tellen niet mee. |
+| `<leader>kv` / `:Meestgelezen` | Haalt voor één krant maximaal vijf meest bekeken artikelen uit de afgelopen zeven voltooide dagen op. Controleer `Keuze:` en eventuele Facebookreacties in de reviewbuffer en druk opnieuw `<leader>kv`; daarna openen gewone artikelbuffers. Vanaf 15 reacties wordt Meta eerst geprobeerd en anders de handmatige link-/plakroute aangeboden; `los` is pas vanaf 41 reacties toegestaan. |
 | `<leader>aq` | Annuleer alle actieve editor-AI-taken van de huidige buffer. |
 | `:AICancel` | Zelfde expliciete annulering als `<leader>aq`. |
 
@@ -406,6 +408,7 @@ De 112-disclaimer in het 112-template is de enige bron — `ai_text.lua` leest h
 | `lua/agenda_page.lua` | papieren agendapagina voorbereiden, controleren, previewen en versturen (`<leader>ka`) |
 | `lua/pubble_duplicates.lua` | koppen per krant, detailweergave van de gekozen krantversie en expliciete keuze bij mogelijke Pubble-doublures |
 | `lua/site_duplicates.lua` | dunne client en keuzemenu voor interne webartikel-doublures (`<leader>kd`) |
+| `lua/weekly_most_read.lua` | dunne reviewclient voor het meestgelezen weekoverzicht (`<leader>kv`) |
 | `lua/ordered_browser.lua` | opent gerelateerde Pubble-links in een stabiele, niet-blokkerende volgorde |
 | `plugin/agenda_page.lua` | laadt de afzonderlijke agendapagina-UI |
 | `plugin/column_reminders.lua` | Rubriekplanning (`<leader>kp`): reminders en overzichten |

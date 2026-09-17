@@ -60,30 +60,79 @@ local tekst2 = table.concat(vim.api.nvim_buf_get_lines(buf2, 0, -1, false), '\n'
 assert(na_escape == true, 'de flow moet ook na Escape doorlopen')
 assert(not tekst2:find('agenda: nee', 1, true), 'Escape mag geen weigering vastleggen')
 
--- Na een vergelijking op ruwe tekst mag er nog een scherpe ronde komen: zodra
--- het kalenderblok bestaat zijn titel en locatie opgeschoond.
+-- De cache hoort bij de exacte inhoud. Ongewijzigde tekst wordt niet opnieuw
+-- gelezen; zodra het kalenderblok of een datum verandert volgt een nieuwe ronde.
 local buf3 = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(buf3, 0, -1, false, { 'e: B', '', '=== ARTIKEL ===', '', 'Kop', '', 'KAMPEN - Op 8 juli.' })
-vim.b[buf3].agenda_duplicate_check_source = 'ruwe tekst'
-local tweede_ronde = false
-ai._agenda_duplicate_confirm = function() tweede_ronde = true return nil end
+local controles = 0
+ai._agenda_duplicate_candidates = function(_buf, _codes, done)
+  controles = controles + 1
+  done({ version = 1, performed = true, bron = 'ruwe tekst', candidates = {} })
+end
 ai._check_agenda_duplicates(buf3, { 'B' }, function() end)
-assert(tweede_ronde == true, 'na ruwe tekst moet een scherpe ronde mogelijk blijven')
+ai._check_agenda_duplicates(buf3, { 'B' }, function() end)
+assert(controles == 1, 'ongewijzigde kalendergegevens zijn opnieuw gelezen')
 
--- Is er al mét het kalenderblok vergeleken, dan is de vraag beantwoord.
-vim.b[buf3].agenda_duplicate_check_source = 'kalenderblok'
-local derde_ronde = false
-ai._agenda_duplicate_confirm = function() derde_ronde = true return nil end
+vim.api.nvim_buf_set_lines(buf3, -1, -1, false, { '', '## Kalender', '', 'Titel: Open dag', 'Datum: 2026-07-08' })
 ai._check_agenda_duplicates(buf3, { 'B' }, function() end)
-assert(derde_ronde == false, 'na het kalenderblok mag er niet nog eens gevraagd worden')
+assert(controles == 2, 'gewijzigde kalendergegevens kregen geen nieuwe controle')
 
--- Wie al "toch aanmaken" koos, wordt niet nog eens lastiggevallen.
-vim.b[buf3].agenda_duplicate_check_source = 'ruwe tekst'
-vim.b[buf3].agenda_duplicate_accepted = true
-local nogmaals = false
-ai._agenda_duplicate_confirm = function() nogmaals = true return nil end
-ai._check_agenda_duplicates(buf3, { 'B' }, function() end)
-assert(nogmaals == false, 'een gemaakte keuze mag niet opnieuw gevraagd worden')
+-- Wie "toch aanmaken" koos, wordt bij dezelfde inhoud niet opnieuw gevraagd,
+-- maar een latere wijziging maakt die toestemming bewust ongeldig.
+local buf4 = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(buf4, 0, -1, false, { 'e: B', '', '=== ARTIKEL ===', '', 'Kop', '', 'KAMPEN - Op 8 juli.' })
+local kandidaat_calls = 0
+ai._agenda_duplicate_candidates = function(_buf, _codes, done)
+  kandidaat_calls = kandidaat_calls + 1
+  done(data)
+end
+ai._agenda_duplicate_confirm = function() return true end
+ai._check_agenda_duplicates(buf4, { 'B' }, function() end)
+ai._check_agenda_duplicates(buf4, { 'B' }, function() end)
+assert(kandidaat_calls == 1, 'dezelfde geaccepteerde kandidaat is opnieuw gelezen')
+vim.api.nvim_buf_set_lines(buf4, -1, -1, false, { 'Extra informatie.' })
+ai._check_agenda_duplicates(buf4, { 'B' }, function() end)
+assert(kandidaat_calls == 2, 'gewijzigde inhoud gebruikte een oude toestemming')
+
+-- Handmatige <leader>ac start resolver en kalender-AI parallel. Het resultaat
+-- blijft tegengehouden totdat de agenda-doublurecontrole klaar is.
+local manual_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_set_current_buf(manual_buf)
+vim.api.nvim_buf_set_lines(manual_buf, 0, -1, false, {
+  'e: B', '', '=== ARTIKEL ===', '', 'Nieuwe activiteit', '',
+  'KAMPEN - Op 9 juli begint om 10.00 uur een open dag.',
+})
+local start_original = ai._start_calendar_analysis
+local resolver_original = ai._calendar_edition_resolver
+local check_original = ai._check_agenda_duplicates
+local ai_started = false
+local resolver_done
+local agenda_done
+ai._start_calendar_analysis = function(start_buf)
+  assert(start_buf == manual_buf, 'kalender-AI kreeg de verkeerde buffer')
+  ai_started = true
+end
+ai._calendar_edition_resolver = function(resolve_buf, _text, done)
+  assert(resolve_buf == manual_buf, 'editieresolver kreeg de verkeerde buffer')
+  resolver_done = done
+end
+ai._check_agenda_duplicates = function(check_buf, codes, done)
+  assert(check_buf == manual_buf and codes[1] == 'B', 'agenda-check kreeg verkeerde bestemming')
+  agenda_done = done
+end
+ai.articlemeta_calendar_buffer()
+assert(ai_started == true, 'kalender-AI startte niet direct')
+assert(type(resolver_done) == 'function', 'editieresolver startte niet parallel')
+assert(vim.b[manual_buf].manual_calendar_duplicate_pending == true,
+  'handmatige kalenderroute wacht niet op de doublurecontrole')
+resolver_done({ editions = { 'B' } })
+assert(type(agenda_done) == 'function', 'agenda-doublurecontrole startte niet')
+agenda_done(true)
+assert(vim.b[manual_buf].manual_calendar_duplicate_pending == false,
+  'kalenderroute bleef na de doublurecontrole geblokkeerd')
+ai._start_calendar_analysis = start_original
+ai._calendar_edition_resolver = resolver_original
+ai._check_agenda_duplicates = check_original
 
 ai._agenda_duplicate_candidates = candidates_original
 ai._agenda_duplicate_confirm = confirm_original

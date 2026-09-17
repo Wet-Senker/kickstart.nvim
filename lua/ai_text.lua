@@ -803,6 +803,7 @@ M._extract_media_controls = extract_media_controls
 M._add_media_controls = add_media_controls
 
 local _run_articlemeta_calendar  -- forward declaration
+local _apply_articlemeta_calendar_result -- forward declaration
 local _112_signal_score          -- forward declaration
 local _offer_112_template        -- forward declaration
 local _112_THRESHOLD = article_recognition.EMERGENCY_THRESHOLD
@@ -1396,6 +1397,9 @@ local function resolve_editions_for_content(buf, content, done)
     end
   )
 end
+
+-- Testbare naad; productie gebruikt dezelfde asynchrone Python-resolver.
+M._calendar_edition_resolver = resolve_editions_for_content
 
 -- Losse reviewbuffers zijn uitsluitend een NeoVim-weergave van het
 -- UI-onafhankelijke Python-contract. Hashes, status, migratie en serialisatie
@@ -2249,10 +2253,15 @@ M._agenda_duplicate_confirm = agenda_duplicate_prompt
 -- heeft de redacteur al besloten het item tóch aan te maken, dan is de vraag
 -- beantwoord. Zo kost een gemiste treffer op ruwe tekst geen dubbel agenda-item.
 function M._check_agenda_duplicates(buf, codes, done)
+  local fingerprint = nil
+  if vim.api.nvim_buf_is_valid(buf) and type(codes) == "table" and #codes > 0 then
+    local current = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+    fingerprint = vim.fn.sha256(table.concat(codes, ",") .. "\n" .. current)
+  end
   if not vim.api.nvim_buf_is_valid(buf)
       or type(codes) ~= "table" or #codes == 0
-      or vim.b[buf].agenda_duplicate_accepted == true
-      or vim.b[buf].agenda_duplicate_check_source == "kalenderblok" then
+      or vim.b[buf].agenda_duplicate_checked_fingerprint == fingerprint
+      or vim.b[buf].agenda_duplicate_accepted_fingerprint == fingerprint then
     done(true)
     return
   end
@@ -2262,8 +2271,31 @@ function M._check_agenda_duplicates(buf, codes, done)
       done(false)
       return
     end
+    local latest = vim.fn.sha256(
+      table.concat(codes, ",") .. "\n"
+        .. table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+    )
+    if latest ~= fingerprint then
+      notify_workflow(
+        "Artikel gewijzigd tijdens de agenda-doublurecontrole; controleer opnieuw.",
+        vim.log.levels.WARN
+      )
+      done(true)
+      return
+    end
+    local errors = type(data) == "table" and (data.errors or {}) or {}
+    local check_complete = #errors == 0
     if type(data) == "table" and data.performed == true then
       vim.b[buf].agenda_duplicate_check_source = data.bron or "ruwe tekst"
+      if check_complete then
+        vim.b[buf].agenda_duplicate_checked_fingerprint = fingerprint
+      end
+    end
+    if #errors > 0 then
+      notify_workflow(
+        "Agenda-doublurecontrole was niet volledig: " .. table.concat(errors, "; "),
+        vim.log.levels.WARN
+      )
     end
     if not data or data.performed ~= true or #(data.candidates or {}) == 0 then
       done(true)
@@ -2276,12 +2308,15 @@ function M._check_agenda_duplicates(buf, codes, done)
         vim.log.levels.INFO
       )
     elseif keuze then
-      vim.b[buf].agenda_duplicate_accepted = true
+      if check_complete then
+        vim.b[buf].agenda_duplicate_accepted_fingerprint = fingerprint
+      end
       notify_workflow(
         "Agenda-item wordt toch aangemaakt ondanks een gelijkend item.",
         vim.log.levels.INFO
       )
     else
+      vim.b[buf].agenda_duplicate_rejected = true
       M.reject_calendar(
         buf,
         "Het evenement staat al in de agenda; geen nieuw agenda-item. Web en print gaan gewoon door."
@@ -2575,6 +2610,95 @@ local function has_calendar_section(lines)
 end
 M._has_calendar_section = has_calendar_section
 
+local calendar_results_waiting_for_duplicate = {}
+
+_apply_articlemeta_calendar_result = function(buf, result, calendar_tick)
+  if buf and vim.api.nvim_buf_is_valid(buf) then
+    vim.b[buf].calendar_ai_running = false
+  end
+  if vim.api.nvim_buf_is_valid(buf)
+      and vim.b[buf].agenda_duplicate_rejected == true then
+    notify_workflow(
+      "Kalenderanalyse niet toegepast: het agenda-item is als doublure geweigerd.",
+      vim.log.levels.INFO
+    )
+    return
+  end
+  if result.code ~= 0 then
+    vim.notify("articlemeta mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
+    return
+  end
+
+  if not vim.api.nvim_buf_is_valid(buf)
+      or vim.api.nvim_buf_get_changedtick(buf) ~= calendar_tick then
+    notify_workflow("Artikel gewijzigd tijdens kalenderanalyse; resultaat niet toegepast. Start opnieuw met <leader>ac.", vim.log.levels.WARN)
+    return
+  end
+
+  local meta_lines = vim.split(result.stdout, "\n", { plain = true })
+
+  local new_fm, _ = split_frontmatter_lines(meta_lines)
+  if #new_fm > 0 then
+    vim.b[buf].cached_calendar_metadata = new_fm
+  end
+
+  local section = build_calendar_section_lines(meta_lines)
+  local current = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local base = strip_calendar_section(current)
+
+  if section then
+    for _, line in ipairs(section) do table.insert(base, line) end
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, base)
+    vim.b[buf].calendar_section_seen = true
+    -- Een eventuele handmatige "cal: x"/"calendar: x" controleregel is nu
+    -- overbodig (de kalenderdata staat al in de buffer) — anders blijft hij
+    -- staan en laat pubble-send de kalender-AI bij <leader>aw ten onrechte
+    -- opnieuw draaien.
+    strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
+    -- De definitieve kalendergegevens hebben een andere inhoudsvingerafdruk
+    -- dan de ruwe tekst. Daardoor volgt precies één scherpe ronde met titel,
+    -- datum, tijd en locatie; bij ongewijzigd opnieuw uitvoeren wordt die
+    -- ronde uit de bufferlokale cache beantwoord.
+    M._check_agenda_duplicates(
+      buf,
+      vim.b[buf].agenda_duplicate_editions or {},
+      function() end
+    )
+    notify_workflow(
+      "Kalenderdata toegevoegd. Controleer en pas aan, "
+        .. (vim.b[buf].edition_code and "sla op met :w en keur opnieuw goed met <leader>aG. " or "dan <leader>aw. ")
+        .. "Niet gewenst? Verwijder het volledige blok vanaf ## Kalender.",
+      vim.log.levels.INFO,
+      { ttl = 10 }
+    )
+  else
+    notify_workflow("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
+  end
+end
+
+local function finish_manual_calendar_duplicate_check(buf)
+  if not vim.api.nvim_buf_is_valid(buf) then
+    calendar_results_waiting_for_duplicate[buf] = nil
+    return
+  end
+  vim.b[buf].manual_calendar_duplicate_pending = false
+  local waiting = calendar_results_waiting_for_duplicate[buf]
+  calendar_results_waiting_for_duplicate[buf] = nil
+  if vim.b[buf].agenda_duplicate_rejected == true then
+    if waiting then
+      vim.b[buf].calendar_ai_running = false
+      notify_workflow(
+        "Kalenderanalyse niet toegepast: het agenda-item is als doublure geweigerd.",
+        vim.log.levels.INFO
+      )
+    end
+    return
+  end
+  if waiting then
+    _apply_articlemeta_calendar_result(buf, waiting.result, waiting.tick)
+  end
+end
+
 -- Interne implementatie: werkt op een specifieke buf zodat autocmds en
 -- leaders altijd de juiste buffer raken, ook als de focus elders is.
 function _run_articlemeta_calendar(buf)
@@ -2599,66 +2723,49 @@ function _run_articlemeta_calendar(buf)
   local calendar_tick = vim.api.nvim_buf_get_changedtick(buf)
   ai_system({ articlemeta, "--calendar" }, { text = true, stdin = input }, function(result)
     vim.schedule(function()
-      if buf and vim.api.nvim_buf_is_valid(buf) then
-        vim.b[buf].calendar_ai_running = false
-      end
-      if result.code ~= 0 then
-        vim.notify("articlemeta mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
+      if vim.api.nvim_buf_is_valid(buf)
+          and vim.b[buf].manual_calendar_duplicate_pending == true then
+        calendar_results_waiting_for_duplicate[buf] = {
+          result = result,
+          tick = calendar_tick,
+        }
         return
       end
-
-      if not vim.api.nvim_buf_is_valid(buf)
-          or vim.api.nvim_buf_get_changedtick(buf) ~= calendar_tick then
-        notify_workflow("Artikel gewijzigd tijdens kalenderanalyse; resultaat niet toegepast. Start opnieuw met <leader>ac.", vim.log.levels.WARN)
-        return
-      end
-
-      local meta_lines = vim.split(result.stdout, "\n", { plain = true })
-
-      local new_fm, _ = split_frontmatter_lines(meta_lines)
-      if #new_fm > 0 then
-        vim.b[buf].cached_calendar_metadata = new_fm
-      end
-
-      local section = build_calendar_section_lines(meta_lines)
-      local current = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-      local base = strip_calendar_section(current)
-
-      if section then
-        for _, line in ipairs(section) do table.insert(base, line) end
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, base)
-        vim.b[buf].calendar_section_seen = true
-        -- Een eventuele handmatige "cal: x"/"calendar: x" controleregel is nu
-        -- overbodig (de kalenderdata staat al in de buffer) — anders blijft hij
-        -- staan en laat pubble-send de kalender-AI bij <leader>aw ten onrechte
-        -- opnieuw draaien.
-        strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
-        -- Nu pas zijn evenementtitel en locatie opgeschoond. Is er eerder alleen
-        -- op ruwe tekst vergeleken, dan volgt hier de scherpe ronde — nog steeds
-        -- vóór het herschrijven en de rest van het AI-werk, en zonder AI-call.
-        if vim.b[buf].agenda_duplicate_check_source == "ruwe tekst" then
-          M._check_agenda_duplicates(
-            buf,
-            vim.b[buf].agenda_duplicate_editions or {},
-            function() end
-          )
-        end
-        notify_workflow(
-          "Kalenderdata toegevoegd. Controleer en pas aan, "
-            .. (vim.b[buf].edition_code and "sla op met :w en keur opnieuw goed met <leader>aG. " or "dan <leader>aw. ")
-            .. "Niet gewenst? Verwijder het volledige blok vanaf ## Kalender.",
-          vim.log.levels.INFO,
-          { ttl = 10 }
-        )
-      else
-        notify_workflow("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
-      end
+      _apply_articlemeta_calendar_result(buf, result, calendar_tick)
     end)
   end, "AI · Kalender", buf)
 end
 
 function M.articlemeta_calendar_buffer()
-  M._start_calendar_analysis(vim.api.nvim_get_current_buf())
+  local buf = vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  if vim.b[buf].manual_calendar_duplicate_pending == true then
+    notify_workflow("Agenda-doublurecontrole loopt al.", vim.log.levels.INFO)
+    return
+  end
+
+  local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+  vim.b[buf].manual_calendar_duplicate_pending = true
+  vim.b[buf].agenda_duplicate_rejected = false
+
+  -- Beide onafhankelijke taken starten direct. Meestal valt de Pubble-read
+  -- daardoor volledig binnen de wachttijd van de bestaande kalender-AI.
+  M._start_calendar_analysis(buf)
+  M._calendar_edition_resolver(buf, text, function(resolved)
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    local codes = resolved and type(resolved.editions) == "table" and resolved.editions or {}
+    if #codes == 0 then
+      notify_workflow(
+        "Geen editie bekend; agenda-doublurecontrole niet gedraaid.",
+        vim.log.levels.WARN
+      )
+      finish_manual_calendar_duplicate_check(buf)
+      return
+    end
+    M._check_agenda_duplicates(buf, codes, function()
+      finish_manual_calendar_duplicate_check(buf)
+    end)
+  end)
 end
 
 -- Weiger het voorgestelde agenda-item: verwijder de ## Kalender-sectie, wis de
@@ -6154,6 +6261,7 @@ local help_categories = {
       { label = "Rubriektemplate handmatig kiezen (<leader>kt)", action = function() require("krant").menu() end },
       { label = "Planning Raadspraat/Ondernemen (<leader>kp)", action = function() vim.cmd("RubriekPlanning") end },
       { label = "Papieren agendapagina voorbereiden (<leader>ka)", action = function() require("agenda_page").prepare() end },
+      { label = "Meestgelezen weekoverzicht (<leader>kv)", action = function() require("weekly_most_read").run() end },
       { label = "Wat wordt automatisch herkend?", action = show_rubric_recognition_help },
     },
   },
