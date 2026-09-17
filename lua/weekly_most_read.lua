@@ -5,6 +5,7 @@ local M = {}
 local commands = require 'texttools_commands'
 local notifications = require 'texttools_notify'
 local browser = require 'ordered_browser'
+local context_help = require 'context_help'
 
 local command = { commands.bin 'python', '-m', 'texttools.weekly_most_read_cli', '--json' }
 
@@ -37,8 +38,10 @@ end
 
 local function decode(result, fallback)
   if result.code ~= 0 then
-    vim.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr)
-      or fallback, vim.log.levels.ERROR)
+    vim.notify(
+      vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or fallback,
+      vim.log.levels.ERROR
+    )
     return nil
   end
   local ok, data = pcall(vim.json.decode, vim.trim(result.stdout or ''))
@@ -50,14 +53,43 @@ local function decode(result, fallback)
 end
 
 local function facebook_links_needing_review(document)
+  local selection = document:match(
+    '<!%-%- selection%-start %-%->(.-)<!%-%- selection%-end %-%->'
+  )
+  if not selection then return {} end
+  local selected = {}
+  local count = 0
+  for line in selection:gmatch('[^\n]+') do
+    local rank = tonumber(
+      line:match('^%s*LOS:%s*(%d+)%.') or line:match('^%s*(%d+)%.')
+    )
+    if rank and not selected[rank] then
+      selected[rank] = true
+      count = count + 1
+    end
+  end
+  if count > 5 then return {} end
+
   local links = {}
-  local parts = vim.split(document, '\n## ', { plain = true })
+  local parts = vim.split(document, '\n## Dossier ', { plain = true })
   for index = 2, #parts do
-    local section = '## ' .. parts[index]
+    local section = '## Dossier ' .. parts[index]
+    local rank = tonumber(section:match('^## Dossier (%d+)%.'))
     local comments = tonumber(section:match('\nReacties:%s*(%d+)')) or 0
     local link = section:match('\nFacebook:%s*(https?://%S+)')
     local status = section:match('\nFacebookstatus:%s*([^\n]+)') or ''
-    if comments >= 15 and link and status:match('^handmatig:') then
+    local reaction_text = section:match(
+      '<!%-%- reactions%-start: %d+ %-%->%s*(.-)%s*<!%-%- reactions%-end: %d+ %-%->'
+    ) or ''
+    local still_empty = reaction_text == ''
+      or reaction_text:find('Plak hier desgewenst de reacties', 1, true)
+    if
+      selected[rank]
+      and comments >= 15
+      and link
+      and status:match('^handmatig:')
+      and still_empty
+    then
       table.insert(links, link)
     end
   end
@@ -72,21 +104,24 @@ function M.prepare(edition)
       local data = decode(result, 'Meestgelezen weekoverzicht voorbereiden mislukt.')
       if not data or type(data.document) ~= 'string' then return end
       local buf = open_editable('Meestgelezen review ' .. edition, data.document, true)
+      context_help.register(buf, {
+        title = 'Meestgelezen weekoverzicht',
+        lines = {
+          '• Bovenaan staan maximaal tien kandidaten met alleen nummer en kop.',
+          '• Verwijder ongewenste regels met dd; laat maximaal vijf regels staan.',
+          '• De uiteindelijke volgorde wordt bepaald door het aantal keer bekeken.',
+          '• Zet LOS: voor een regel voor een zelfstandig reactieartikel.',
+          '• LOS: is alleen toegestaan vanaf 41 Facebookreacties.',
+          '• Vanaf 15 reacties staat in het dossier een Facebooklink en plakvak.',
+          '• Druk opnieuw <leader>kv om de overgebleven selectie te verwerken.',
+        },
+      })
       vim.keymap.set('n', '<leader>kv', function() M.generate(buf) end, {
         buffer = buf,
         desc = '[K]rant [v]eelgelezen review verwerken',
       })
-      local links = facebook_links_needing_review(data.document)
-      if #links > 0 then
-        local choice = require('user_dialog').confirm(
-          string.format('%d artikel(en) hebben minimaal 15 reacties die handmatig moeten worden bekeken. Facebooklinks openen?', #links),
-          '&Ja\n&Nee',
-          1
-        )
-        if choice == 1 then browser.open_urls(links) end
-      end
       workflow(
-        'Review geopend. Kies overzicht, los of overslaan; plak zo nodig reacties en druk opnieuw <leader>kv.',
+        'Review geopend. Verwijder regels met dd, zet eventueel LOS: en druk opnieuw <leader>kv. Hulp: <leader>kh.',
         vim.log.levels.INFO,
         { ttl = 12 }
       )
@@ -98,6 +133,28 @@ function M.generate(buf)
   buf = buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+  local links = facebook_links_needing_review(text)
+  local review_key = table.concat(links, '\n')
+  if #links > 0 and vim.b[buf].weekly_most_read_facebook_review_key ~= review_key then
+    local choice = require('user_dialog').confirm(
+      string.format(
+        '%d gekozen artikel(en) hebben minimaal 15 reacties die nog niet zijn toegevoegd. Facebooklinks openen?',
+        #links
+      ),
+      '&Ja, openen\n&Nee, zonder reacties doorgaan',
+      1
+    )
+    vim.b[buf].weekly_most_read_facebook_review_key = review_key
+    if choice == 1 then
+      browser.open_urls(links)
+      workflow(
+        'Facebooklinks geopend. Plak desgewenst de reacties in de juiste dossiers en druk opnieuw <leader>kv.',
+        vim.log.levels.INFO,
+        { ttl = 12 }
+      )
+      return
+    end
+  end
   workflow('Meestgelezen · gecontroleerde tekst schrijven…', vim.log.levels.INFO)
   local cmd = vim.list_extend(vim.deepcopy(command), { 'generate' })
   vim.system(cmd, { text = true, stdin = text }, function(result)
@@ -115,8 +172,14 @@ function M.generate(buf)
           opened = opened + 1
         end
       end
-      workflow(string.format('%d artikelbuffer(s) gemaakt; controleer en publiceer via de gewone flow.', opened),
-        vim.log.levels.INFO, { ttl = 10 })
+      workflow(
+        string.format(
+          '%d artikelbuffer(s) gemaakt; controleer en publiceer via de gewone flow.',
+          opened
+        ),
+        vim.log.levels.INFO,
+        { ttl = 10 }
+      )
     end)
   end)
 end

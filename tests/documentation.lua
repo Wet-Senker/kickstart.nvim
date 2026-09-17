@@ -12,6 +12,7 @@ local reminders = read("plugin/column_reminders.lua")
 local agenda_page = read("lua/agenda_page.lua")
 local site_duplicates = read("lua/site_duplicates.lua")
 local weekly_most_read = read("lua/weekly_most_read.lua")
+local context_help = read("lua/context_help.lua")
 local edition_review = read("lua/edition_review.lua")
 
 local documented_mappings = {
@@ -35,6 +36,7 @@ local documented_mappings = {
   { key = "<leader>ka", source = agenda_page, registration = "vim.keymap.set('n', '<leader>ka'" },
   { key = "<leader>kd", source = site_duplicates, registration = "vim.keymap.set('n', '<leader>kd'" },
   { key = "<leader>kv", source = weekly_most_read, registration = "vim.keymap.set('n', '<leader>kv'" },
+  { key = "<leader>kh", source = context_help, registration = "vim.keymap.set('n', '<leader>kh'" },
 }
 
 for _, mapping in ipairs(documented_mappings) do
