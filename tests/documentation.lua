@@ -36,6 +36,7 @@ local documented_mappings = {
   { key = "<leader>ka", source = agenda_page, registration = "vim.keymap.set('n', '<leader>ka'" },
   { key = "<leader>kd", source = site_duplicates, registration = "vim.keymap.set('n', '<leader>kd'" },
   { key = "<leader>kv", source = weekly_most_read, registration = "vim.keymap.set('n', '<leader>kv'" },
+  { key = "<leader>kf", source = weekly_most_read, registration = "vim.keymap.set('n', '<leader>kf'" },
   { key = "<leader>kh", source = context_help, registration = "vim.keymap.set('n', '<leader>kh'" },
 }
 
@@ -74,6 +75,10 @@ assert(ai_text:find('label = "Rubrieken"', 1, true), "Rubrieken ontbreekt in <le
 assert(ai_text:find('vim.cmd("RubriekPlanning")', 1, true), "rubriekplanning is niet bereikbaar vanuit <leader>ah")
 assert(ai_text:find('require("agenda_page").prepare()', 1, true), "agendapagina is niet bereikbaar vanuit <leader>ah")
 assert(ai_text:find('require("weekly_most_read").run()', 1, true), "meestgelezen ontbreekt in <leader>ah")
+assert(
+  weekly_most_read:find("~/Desktop/meestgelezen", 1, true),
+  "meestgelezen-hoofdfoto's gaan niet naar Bureaublad/meestgelezen"
+)
 assert(ai_text:find('agenda_page.is_prepared(buf)', 1, true), "<leader>aw routeert voorbereide agendapagina niet apart")
 assert(
   reminders:find("nvim_create_user_command('RubriekPlanning'", 1, true),

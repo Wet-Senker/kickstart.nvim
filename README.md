@@ -32,6 +32,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 <leader>ka    Ruwe papieren agendapagina voorbereiden voor tekstcontrole
 <leader>kd    Actieve webartikelen per site op doublures controleren
 <leader>kv    Meestgelezen weekoverzicht voorbereiden en na review genereren
+<leader>kf    In een meestgelezen-review één hoofdfoto per gekozen artikel downloaden
 <leader>kh    Contextafhankelijke hulp voor het huidige Texttools-scherm
 ```
 
@@ -61,6 +62,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | `<leader>kg` | Agenda-onlinemenu. Bij **Websiteartikelen zonder agenda-item zoeken** maakt Enter een bewerkbaar voorstel, opent `o` het bronartikel en markeert `x` een artikel duurzaam als geen agenda nodig. Afwijzingen synchroniseren via de gedeelde Texttools-map. |
 | `<leader>kd` | Actieve webartikelen van alle kranten of één gekozen krant intern op doublures controleren. Kijkt standaard veertien dagen terug, vergelijkt alleen berichten die maximaal zeven dagen uiteen staan en opent kandidaten geordend in de browser. Sites worden nooit onderling vergeleken; agenda-schaduwartikelen tellen niet mee. |
 | `<leader>kv` / `:Meestgelezen` | Haalt voor één krant tien meest bekeken kandidaten uit de afgelopen zeven voltooide dagen op. Verwijder bovenaan regels met `dd`, laat maximaal vijf staan en zet eventueel `LOS:` voor een zelfstandig reactieartikel vanaf 41 reacties. De artikelvolgorde volgt de kijkcijfers. Druk opnieuw `<leader>kv`; daarna openen gewone artikelbuffers. Vanaf 15 reacties wordt Meta eerst geprobeerd en anders de handmatige link-/plakroute aangeboden. |
+| buffer-lokaal `<leader>kf` / `:MeestgelezenFotos` | Kies één artikel of alle overgebleven keuzeregels. Per artikel wordt precies één hoofdfoto gedownload naar `Bureaublad/meestgelezen`; volledige galerijen worden niet opgehaald. |
 | `<leader>kh` / `:ContextHelp` | Toont uitleg voor het huidige speciale Texttools-scherm. Zonder geregistreerde schermcontext verwijst de melding naar de algemene `<leader>ah`-hulp. |
 | `<leader>aq` | Annuleer alle actieve editor-AI-taken van de huidige buffer. |
 | `:AICancel` | Zelfde expliciete annulering als `<leader>aq`. |
@@ -410,7 +412,7 @@ De 112-disclaimer in het 112-template is de enige bron — `ai_text.lua` leest h
 | `lua/agenda_page.lua` | papieren agendapagina voorbereiden, controleren, previewen en versturen (`<leader>ka`) |
 | `lua/pubble_duplicates.lua` | koppen per krant, detailweergave van de gekozen krantversie en expliciete keuze bij mogelijke Pubble-doublures |
 | `lua/site_duplicates.lua` | dunne client en keuzemenu voor interne webartikel-doublures (`<leader>kd`) |
-| `lua/weekly_most_read.lua` | dunne reviewclient voor het meestgelezen weekoverzicht (`<leader>kv`) |
+| `lua/weekly_most_read.lua` | dunne reviewclient voor het meestgelezen weekoverzicht en hoofdfoto's (`<leader>kv`, buffer-lokaal `<leader>kf`) |
 | `lua/context_help.lua` | generieke bufferafhankelijke schermhulp (`<leader>kh`) |
 | `lua/ordered_browser.lua` | opent gerelateerde Pubble-links in een stabiele, niet-blokkerende volgorde |
 | `plugin/agenda_page.lua` | laadt de afzonderlijke agendapagina-UI |

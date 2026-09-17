@@ -96,6 +96,32 @@ local function facebook_links_needing_review(document)
   return links
 end
 
+local function photo_menu_items(photos)
+  local items = {}
+  local selected_count = 0
+  for _, photo in ipairs(photos or {}) do
+    if photo.choice ~= 'overslaan' then selected_count = selected_count + 1 end
+  end
+  if selected_count > 0 then
+    table.insert(items, {
+      label = string.format("Eén hoofdfoto van elk van de %d gekozen artikelen", selected_count),
+      all_selected = true,
+    })
+  end
+  for _, photo in ipairs(photos or {}) do
+    table.insert(items, {
+      label = string.format('%s · %s', tostring(photo.headline), tostring(photo.choice)),
+      article_id = photo.article_id,
+    })
+  end
+  return items
+end
+
+local function review_text(buf)
+  if not vim.api.nvim_buf_is_valid(buf) then return nil end
+  return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+end
+
 function M.prepare(edition)
   local cmd = vim.list_extend(vim.deepcopy(command), { 'prepare', '--edition', edition })
   workflow('Meestgelezen · artikelen en cijfers ophalen…', vim.log.levels.INFO)
@@ -114,14 +140,19 @@ function M.prepare(edition)
           '• LOS: is alleen toegestaan vanaf 41 Facebookreacties.',
           '• Vanaf 15 reacties staat in het dossier een Facebooklink en plakvak.',
           '• Druk opnieuw <leader>kv om de overgebleven selectie te verwerken.',
+          '• <leader>kf downloadt één hoofdfoto per gekozen artikel naar Bureaublad/meestgelezen.',
         },
       })
       vim.keymap.set('n', '<leader>kv', function() M.generate(buf) end, {
         buffer = buf,
         desc = '[K]rant [v]eelgelezen review verwerken',
       })
+      vim.keymap.set('n', '<leader>kf', function() M.photos(buf) end, {
+        buffer = buf,
+        desc = '[K]rant meestgelezen [f]oto downloaden',
+      })
       workflow(
-        'Review geopend. Verwijder regels met dd, zet eventueel LOS: en druk opnieuw <leader>kv. Hulp: <leader>kh.',
+        'Review geopend. Kies maximaal vijf regels; <leader>kv schrijft, <leader>kf downloadt hoofdfoto\'s. Hulp: <leader>kh.',
         vim.log.levels.INFO,
         { ttl = 12 }
       )
@@ -131,8 +162,8 @@ end
 
 function M.generate(buf)
   buf = buf or vim.api.nvim_get_current_buf()
-  if not vim.api.nvim_buf_is_valid(buf) then return end
-  local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+  local text = review_text(buf)
+  if not text then return end
   local links = facebook_links_needing_review(text)
   local review_key = table.concat(links, '\n')
   if #links > 0 and vim.b[buf].weekly_most_read_facebook_review_key ~= review_key then
@@ -184,6 +215,59 @@ function M.generate(buf)
   end)
 end
 
+function M.photos(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  if vim.b[buf].weekly_most_read_review ~= true then
+    vim.notify('Open eerst een meestgelezen-review met <leader>kv.', vim.log.levels.WARN)
+    return
+  end
+  local text = review_text(buf)
+  if not text then return end
+  local list_cmd = vim.list_extend(vim.deepcopy(command), { 'photos', '--list' })
+  workflow("Meestgelezen · beschikbare hoofdfoto's ophalen…", vim.log.levels.INFO)
+  vim.system(list_cmd, { text = true, stdin = text }, function(result)
+    vim.schedule(function()
+      local data = decode(result, "Hoofdfoto's uitlezen mislukt.")
+      if not data then return end
+      local items = photo_menu_items(data.photos)
+      if #items == 0 then
+        vim.notify("Geen hoofdfoto's beschikbaar bij deze onderwerpen.", vim.log.levels.WARN)
+        return
+      end
+      vim.ui.select(items, {
+        prompt = "Van welke artikelen wil je één hoofdfoto?",
+        format_item = function(item) return item.label end,
+      }, function(choice)
+        if not choice then return end
+        local args = { 'photos' }
+        if choice.all_selected then
+          table.insert(args, '--all-selected')
+        else
+          vim.list_extend(args, { '--article-id', tostring(choice.article_id) })
+        end
+        vim.list_extend(args, { '--destination', vim.fn.expand('~/Desktop/meestgelezen') })
+        local download_cmd = vim.list_extend(vim.deepcopy(command), args)
+        workflow("Meestgelezen · hoofdfoto's downloaden…", vim.log.levels.INFO)
+        vim.system(download_cmd, { text = true, stdin = text }, function(download_result)
+          vim.schedule(function()
+            local downloaded = decode(download_result, "Hoofdfoto's downloaden mislukt.")
+            if not downloaded then return end
+            workflow(
+              string.format(
+                "%d hoofdfoto('s) in Bureaublad/meestgelezen gezet.",
+                tonumber(downloaded.count) or 0
+              ),
+              vim.log.levels.INFO,
+              { ttl = 10 }
+            )
+          end)
+        end)
+      end)
+    end)
+  end)
+end
+
 function M.run()
   local buf = vim.api.nvim_get_current_buf()
   if vim.b[buf].weekly_most_read_review == true then
@@ -204,11 +288,15 @@ function M.setup()
   vim.api.nvim_create_user_command('Meestgelezen', function() M.run() end, {
     desc = 'Meestgelezen weekoverzicht voorbereiden of genereren',
   })
+  vim.api.nvim_create_user_command('MeestgelezenFotos', function() M.photos() end, {
+    desc = "Eén hoofdfoto per artikel uit de huidige meestgelezen-review downloaden",
+  })
   vim.keymap.set('n', '<leader>kv', M.run, {
     desc = '[K]rant [v]eelgelezen weekoverzicht',
   })
 end
 
 M._facebook_links_needing_review = facebook_links_needing_review
+M._photo_menu_items = photo_menu_items
 
 return M

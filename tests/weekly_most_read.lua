@@ -40,4 +40,13 @@ local links = weekly._facebook_links_needing_review(document)
 assert(#links == 1, 'alleen handmatige onderwerpen vanaf 15 reacties horen te openen')
 assert(links[1] == 'https://www.facebook.com/page_post1', 'verkeerde Facebooklink geselecteerd')
 
+local photo_items = weekly._photo_menu_items {
+  { article_id = 1, headline = 'Gekozen onderwerp', choice = 'overzicht' },
+  { article_id = 2, headline = 'Reserveonderwerp', choice = 'overslaan' },
+}
+assert(#photo_items == 3, 'menu hoort alles-optie en twee losse foto’s te bevatten')
+assert(photo_items[1].all_selected == true, 'eerste optie hoort alle gekozen hoofdfoto’s te downloaden')
+assert(photo_items[2].article_id == 1, 'eerste losse foto hoort bij artikel 1')
+assert(photo_items[3].article_id == 2, 'ook een overgeslagen reservefoto moet los gekozen kunnen worden')
+
 print 'weekly most read: OK'
