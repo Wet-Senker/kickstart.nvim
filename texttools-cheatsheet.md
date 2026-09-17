@@ -12,6 +12,7 @@ In Neovim:
   Controlecodes bovenaan typen (zie hieronder)
   <leader>ar    herschrijven; start metadata en gevraagde extra's
   <leader>ad    doublurecontrole opnieuw draaien
+  <leader>aa    eerder geschreven over dit onderwerp; <leader>as maakt de achtergrond
   <leader>ac    kalenderdata; onvolledige items tonen wat nog ontbreekt
   <leader>an    kop/lead waar nodig herstellen; rest minimaal neutraliseren
   <leader>af    Facebook-post genereren — verschijnt als ## Facebook sectie
@@ -63,6 +64,8 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>ax` | Vormgevingstekst (FOTO/FOTOBIJSCHRIFT/STREAMER + vette intro) + foto('s) naar het Bureaublad; vraagt een bestandsnaam |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |
+| `<leader>aa` | **Archiefzoeker** — eerder geschreven over dit onderwerp, uit het hele archief. Vijf per keer, per jaar gegroepeerd; nogmaals drukken geeft de volgende vijf |
+| `<leader>as` | **Achtergrond** — in de archieflijst: vat samen wat je liet staan tot `## Achtergrond` onderaan je artikel; die gaat vóór verzending weer weg |
 | `<leader>ah` | Hiërarchisch hulpmenu voor codes, rubrieken, acties en cheatsheet |
 | `<leader>kh` | Contextuele workflowhulp — toont de actuele status, de aanbevolen volgende stap, andere hoofdopties en wat daarna gebeurt |
 | `:TexttoolsLog` | Veilige tijdlijn voor het huidige artikel; `:TexttoolsLog!` toont de laatste workflow ongeacht de buffer |

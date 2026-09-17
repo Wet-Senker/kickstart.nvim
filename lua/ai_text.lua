@@ -6767,6 +6767,7 @@ local help_categories = {
       { label = "Planning Raadspraat/Ondernemen (<leader>kp)", action = function() vim.cmd("RubriekPlanning") end },
       { label = "Papieren agendapagina voorbereiden (<leader>ka)", action = function() require("agenda_page").prepare() end },
       { label = "Meestgelezen weekoverzicht (<leader>kv)", action = function() require("weekly_most_read").run() end },
+      { label = "Eerder geschreven over dit onderwerp (<leader>aa)", action = function() require("archive_context").search() end },
       { label = "Wat wordt automatisch herkend?", action = show_rubric_recognition_help },
     },
   },
