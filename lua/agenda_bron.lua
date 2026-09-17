@@ -9,6 +9,7 @@ local M = {}
 
 local commands = require 'texttools_commands'
 local notifications = require 'texttools_notify'
+local context_help = require 'context_help'
 
 local python = commands.bin 'python'
 local module = 'texttools.agenda_cli'
@@ -109,6 +110,28 @@ local function show_overview(sources)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, M._render_lines(sources))
   vim.bo[buf].modifiable = false
   vim.bo[buf].modified = false
+  context_help.register(buf, {
+    title = 'Agendabronnen',
+    status = 'Overzicht van geregistreerde bronnen voor de online agenda.',
+    sections = {
+      {
+        heading = 'Betekenis van de status',
+        lines = {
+          'ACTIEF      Wordt als bestaande bron gebruikt.',
+          'KANDIDAAT   Is toegevoegd en moet nog worden beoordeeld.',
+          'GEPAUZEERD  Wordt tijdelijk niet gebruikt.',
+          'AFGEWEZEN   Is bewust uitgesloten en wordt niet stil hersteld.',
+        },
+      },
+      {
+        heading = 'Hoofdopties',
+        lines = {
+          ':AgendaBronToevoegen  Voeg een URL met editie en optionele plaatsen toe.',
+          ':AgendaBronnen        Lees het actuele overzicht opnieuw in.',
+        },
+      },
+    },
+  })
 
   -- Toon in een apart venster; overschrijf nooit de huidige (artikel)buffer.
   local win

@@ -40,6 +40,17 @@ local links = weekly._facebook_links_needing_review(document)
 assert(#links == 1, 'alleen handmatige onderwerpen vanaf 15 reacties horen te openen')
 assert(links[1] == 'https://www.facebook.com/page_post1', 'verkeerde Facebooklink geselecteerd')
 
+local summary = weekly._selection_summary(document)
+assert(summary.selected == 3, 'actuele keuzeregels zijn verkeerd geteld')
+assert(summary.loose == 0, 'LOS-regels zijn verkeerd geteld')
+assert(summary.facebook == 1, 'openstaande Facebookcontrole is verkeerd geteld')
+
+local help_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(help_buf, 0, -1, false, vim.split(document, '\n', { plain = true }))
+local help_entry = weekly._help_entry(help_buf)
+assert(help_entry.status:find('3 artikel', 1, true), 'dynamische selectiestatus ontbreekt')
+assert(vim.inspect(help_entry):find('<leader>kv', 1, true), 'vervolgstap voor geldige selectie ontbreekt')
+
 local photo_items = weekly._photo_menu_items {
   { article_id = 1, headline = 'Gekozen onderwerp', choice = 'overzicht' },
   { article_id = 2, headline = 'Reserveonderwerp', choice = 'overslaan' },

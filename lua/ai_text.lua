@@ -3,6 +3,7 @@ local notifications = require("texttools_notify")
 local article_recognition = require("article_recognition")
 local texttools_paths = require("texttools_paths")
 local pubble_duplicates = require("pubble_duplicates")
+local context_help = require("context_help")
 
 -- Nieuwe pv-imports leven in de gedeelde werkmap. Desktop blijft als
 -- compatibele invoerroute bestaan voor oude bestanden en handmatig geopende
@@ -304,6 +305,15 @@ end
 
 M._publication_status_from_output = publication_status_from_output
 M._failed_publication_labels = failed_publication_labels
+
+local function active_publication_photo_guard(resolution)
+  if type(resolution) == "table" and resolution.has_photo == false then
+    return false,
+      "Publicatie afgebroken: er is geen foto gekoppeld. Kies ‘Ongepubliceerd plaatsen’ of voeg eerst een foto toe."
+  end
+  return true, nil
+end
+M._active_publication_photo_guard = active_publication_photo_guard
 M._open_published_url = open_published_url
 
 local function shellescape(value)
@@ -1412,6 +1422,237 @@ local edition_review = require("edition_review").setup {
   resolve_editions = resolve_editions_for_content,
   send = function(source_buf) M.pubble_send(source_buf) end,
 }
+
+local function article_context_help(buf)
+  if not vim.api.nvim_buf_is_valid(buf) then return nil end
+
+  local name = vim.api.nvim_buf_get_name(buf)
+  local archive_path = vim.b[buf].published_archive_path
+  if type(archive_path) == "string" and archive_path ~= ""
+      or name:match("^pubble%-nacontrole://") then
+    local lines = {
+      "Deze buffer is bewust alleen-lezen; het verwijderde werkbestand kan niet opnieuw worden opgeslagen.",
+      "Sluit de buffer of tab wanneer de nacontrole klaar is.",
+    }
+    if type(archive_path) == "string" and archive_path ~= "" then
+      table.insert(lines, "Archief: " .. archive_path)
+    end
+    return {
+      title = "Gepubliceerd artikel",
+      status = "Publicatie en archivering zijn afgerond.",
+      sections = { { heading = "Nu doen", lines = lines } },
+    }
+  end
+
+  if vim.b[buf].publication_in_progress == true then
+    return {
+      title = "Publicatie wordt afgerond",
+      status = "De publicatierun loopt. Er kunnen nog media, vervolgen, vormgeving of archivering volgen.",
+      sections = {
+        {
+          heading = "Nu doen",
+          lines = { "Wacht tot de eindmelding verschijnt; start geen tweede verzending." },
+        },
+        {
+          heading = "Let op",
+          lines = { "<leader>aq stopt geen Pubble-writes of andere externe vervolgstappen." },
+        },
+      },
+    }
+  end
+
+  local failed_send_file = vim.b[buf].failed_send_file
+  if type(failed_send_file) == "string" and failed_send_file ~= ""
+      and vim.fn.filereadable(failed_send_file) == 1 then
+    return {
+      title = "Publicatie veilig hervatten",
+      status = "Een eerdere publicatierun is niet volledig afgerond; reeds gemaakte Pubble-ID's zijn bewaard.",
+      sections = {
+        {
+          heading = "Nu doen",
+          lines = { "<leader>aw  Probeer alleen de ontbrekende publicatiestappen opnieuw." },
+        },
+        {
+          heading = "Let op",
+          lines = {
+            "Verwijder of vervang het herstelbestand niet.",
+            "Begin niet opnieuw in een andere buffer; dat kan dubbele artikelen veroorzaken.",
+          },
+        },
+      },
+    }
+  end
+
+  local review_state = vim.b[buf].publication_review_state
+      or vim.b[buf].event_review_state
+  if type(review_state) == "table" then
+    return {
+      title = "Publicatieteksten controleren",
+      status = "Kranttijdversies of evenementvervolgen zijn voorbereid, maar nog niet gepubliceerd.",
+      sections = {
+        {
+          heading = "Nu doen",
+          lines = {
+            "Controleer of bewerk de zichtbare kranttijd- en vervolgsecties.",
+            "<leader>aw  Publiceer daarna alles samen.",
+          },
+        },
+        {
+          heading = "Daarna",
+          lines = { "Hoofdartikel, agenda en gekozen vervolgen worden als één hervatbare run verwerkt." },
+        },
+        {
+          heading = "Let op",
+          lines = { "Een wijziging van bron of planning kan eerst een vernieuwde reviewtekst opleveren." },
+        },
+      },
+    }
+  end
+
+  local pending = tonumber(vim.b[buf].pending_jobs) or 0
+  if pending > 0 then
+    local waiting_send = vim.b[buf].send_requested == true
+    return {
+      title = "Artikelbewerking loopt",
+      status = string.format("%d achtergrondta%s nog actief.%s", pending,
+        pending == 1 and "ak" or "ken", waiting_send and " Verzending staat klaar." or ""),
+      sections = {
+        {
+          heading = "Nu doen",
+          lines = {
+            waiting_send
+                and "Wacht: na de laatste bufferwijziging start de verzending automatisch."
+              or "Wacht tot de artikelbewerking is afgerond.",
+          },
+        },
+        {
+          heading = "Andere hoofdopties",
+          lines = { "<leader>aq  Annuleer alleen de lokale editor-AI van deze buffer." },
+        },
+        {
+          heading = "Let op",
+          lines = { "Annuleren wist ook een eventueel wachtend verzendverzoek." },
+        },
+      },
+    }
+  end
+
+  if vim.b[buf].pubble_duplicate_check_running == true
+      or vim.b[buf].pubble_duplicate_gate_pending == true then
+    return {
+      title = "Doublurecontrole loopt",
+      status = "Het artikel wordt eerst tegen bestaande Pubble-berichten gecontroleerd.",
+      sections = {
+        {
+          heading = "Nu doen",
+          lines = { "Wacht op het overzicht of de afrondingsmelding en beoordeel een gevonden overeenkomst bewust." },
+        },
+        {
+          heading = "Daarna",
+          lines = { "Een uitgestelde kalenderanalyse wordt alleen na doorgaan hervat." },
+        },
+      },
+    }
+  end
+
+  local edition_help = edition_review._source_help_entry(buf)
+  if edition_help then return edition_help end
+
+  local ok_agenda, agenda_page = pcall(require, "agenda_page")
+  if ok_agenda and agenda_page.is_prepared(buf) and agenda_page._help_entry then
+    return agenda_page._help_entry(buf)
+  end
+
+  local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+  local plan = layout_export.pending(buf)
+  local is_article = text:find(ARTICLE_BOUNDARY, 1, true) ~= nil
+      or type(vim.b[buf].send_import_body) == "string"
+      or type(plan) == "table"
+  if not is_article then return nil end
+
+  local entry = {
+    title = "Artikelworkflow",
+    status = "Artikel is in bewerking en nog niet gepubliceerd.",
+    sections = {},
+  }
+  if type(plan) == "table" then
+    local placeholders = layout_export.placeholders(buf)
+    local label = plan.label or "Rubriektemplate"
+    if #placeholders > 0 then
+      entry.status = label .. " is voorbereid, maar heeft nog openstaande templatevelden."
+      table.insert(entry.sections, {
+        heading = "Nu doen",
+        lines = { "Vul eerst in: " .. table.concat(placeholders, ", ") .. "." },
+      })
+    else
+      entry.status = label .. " en de vormgevingsexport zijn voorbereid."
+      table.insert(entry.sections, {
+        heading = "Nu doen",
+        lines = {
+          "Controleer de definitieve tekst en publiceer normaal met <leader>aw.",
+        },
+      })
+    end
+    table.insert(entry.sections, {
+      heading = "Daarna",
+      lines = {
+        "De actuele vormgevingstekst wordt pas na succesvolle publicatie geschreven.",
+        "Bij een fout blijft het exportplan staan voor veilig hervatten.",
+      },
+    })
+    return entry
+  end
+
+
+  local calendar_missing = text:match("<!%-%- Ontbreekt:%s*(.-)%s*%-%->")
+  local has_calendar = text:match("\n## Kalender%s*\n")
+      or text:match("^## Kalender%s*\n")
+  if has_calendar then
+    entry.title = "Artikel met agenda-item"
+    entry.status = calendar_missing
+        and ("Agenda-item is zichtbaar maar nog onvolledig: " .. calendar_missing .. ".")
+      or "Agenda-item staat zichtbaar in de buffer en kan worden gecontroleerd."
+    entry.sections = {
+      {
+        heading = "Nu doen",
+        lines = {
+          calendar_missing
+              and "Vul de genoemde gegevens in onder ## Kalender."
+            or "Controleer titel, datum, tijd, locatie en korte omschrijving.",
+        },
+      },
+      {
+        heading = "Daarna",
+        lines = { "<leader>aw  Start de publicatiestroom met het gecontroleerde agenda-item." },
+      },
+      {
+        heading = "Andere hoofdopties",
+        lines = { "Geen agenda-item gewenst? Verwijder het volledige blok vanaf ## Kalender." },
+      },
+    }
+    return entry
+  end
+
+  table.insert(entry.sections, {
+    heading = "Hoofdroutes",
+    lines = {
+      "<leader>ar  Volledig herschrijven naar krantenstijl.",
+      "<leader>an / <leader>ao  Tekst behouden: neutraliseren of alleen taal controleren.",
+      "<leader>av  Zelf geschreven artikel voorbereiden zonder rewrite.",
+    },
+  })
+  table.insert(entry.sections, {
+    heading = "Publiceren",
+    lines = {
+      "<leader>aw  Start de veilige publicatiestroom.",
+      "Afhankelijk van het artikel kan eerst nog een controle- of reviewstap verschijnen.",
+    },
+  })
+  return entry
+end
+
+M._article_context_help = article_context_help
+context_help.set_fallback(article_context_help)
 
 local function adapt_editorial_address(buf, primary)
   if not primary or not vim.api.nvim_buf_is_valid(buf) then return end
@@ -3784,6 +4025,7 @@ function M.pubble_send(target_buf)
   vim.fn.writefile(pubble_lines, temp_file)
 
   local _do_pubble_send
+  local resolved_publication
 
   local function same_edition_codes(left, right)
     if type(left) ~= "table" or type(right) ~= "table" or #left ~= #right then
@@ -3972,6 +4214,19 @@ function M.pubble_send(target_buf)
     -- vervolgpublicaties voorbereiden. Het hoofdartikel en de agenda-items
     -- worden door pubble-send wel als inactieve concepten aangemaakt.
     _do_pubble_send({}, true, true)
+  end
+
+  -- Geef na een publicatiekeuze direct begrijpelijke feedback. Dezelfde regel
+  -- wordt daarnaast in pubble-send afgedwongen, zodat geen andere client of
+  -- rechtstreekse opdracht hem kan omzeilen.
+  local function send_published(display_dates)
+    local allowed, message = active_publication_photo_guard(resolved_publication)
+    if not allowed then
+      discard_unpublished_temp()
+      vim.notify(message, vim.log.levels.ERROR)
+      return
+    end
+    _do_pubble_send(display_dates or {})
   end
 
   -- Bouw pubble-send-aanroep en voer hem uit (na eventuele planningsdialoog).
@@ -4439,6 +4694,7 @@ function M.pubble_send(target_buf)
         )
         return
       end
+      resolved_publication = resolved
 
       -- Ontbreekt de zichtbare e:-regel, dan legt een betrouwbare dateline- of
       -- regiodetectie zichzelf alsnog vast: die is gezaghebbend en hoort niet
@@ -4545,7 +4801,7 @@ function M.pubble_send(target_buf)
       end
 
       if is_112 then
-        _do_pubble_send({})
+        send_published({})
         return
       end
 
@@ -4644,7 +4900,7 @@ function M.pubble_send(target_buf)
 
       local function ask_edition(idx)
         if idx > #edition_codes then
-          _do_pubble_send(display_dates)
+          send_published(display_dates)
           return
         end
 
@@ -4748,13 +5004,13 @@ function M.pubble_send(target_buf)
           discard_unpublished_temp()
           notify_workflow("Verzending geannuleerd.", vim.log.levels.INFO)
         elseif choice == accept_label then
-          _do_pubble_send(recommended)
+          send_published(recommended)
         elseif choice == adjust_label then
           ask_edition(1)
         elseif choice == unpublished_label then
           send_unpublished()
         else
-          _do_pubble_send({})
+          send_published({})
         end
       end)
     end)

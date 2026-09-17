@@ -26,6 +26,9 @@ assert(ok, error_message)
 assert(notice and notice:find('{{naam}}', 1, true), 'placeholderfout is niet aan de gebruiker gemeld')
 assert(vim.fn.filereadable(tmp .. '/test.txt') == 0, 'preflight schreef al een vormgevingstekst')
 assert(layout_export.pending(buf), 'exportplan verdween na geweigerde preflight')
+local layout_help = ai_text._article_context_help(buf)
+assert(layout_help.status:find('openstaande templatevelden', 1, true), 'rubriekhulp mist openstaande velden')
+assert(vim.inspect(layout_help):find('{{naam}}', 1, true), 'rubriekhulp noemt het ontbrekende veld niet')
 
 local no_export_buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(no_export_buf, 0, -1, false, {

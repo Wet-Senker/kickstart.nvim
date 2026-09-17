@@ -2,6 +2,7 @@ local M = {}
 
 local commands = require 'texttools_commands'
 local notifications = require 'texttools_notify'
+local context_help = require 'context_help'
 
 local python = commands.bin 'python'
 local module = 'texttools.agenda_page_cli'
@@ -25,6 +26,119 @@ function M.is_prepared(buf)
   buf = buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return false end
   return buffer_text(buf):find('=== AGENDAPAGINA ===', 1, true) ~= nil
+end
+
+local function help_entry(buf)
+  if active_send[buf] then
+    return {
+      title = 'Papieren agendapagina',
+      status = 'Controle of verzending naar Pubble loopt.',
+      sections = {
+        {
+          heading = 'Nu doen',
+          lines = { 'Wacht op de eindmelding; start geen tweede verzending.' },
+        },
+      },
+    }
+  end
+  if active_prepare[buf] then
+    return {
+      title = 'Papieren agendapagina',
+      status = 'De ruwe agenda wordt voorbereid.',
+      sections = {
+        {
+          heading = 'Nu doen',
+          lines = { 'Wacht tot de zichtbare agendapagina is opgebouwd.' },
+        },
+        {
+          heading = 'Andere hoofdopties',
+          lines = { ':AgendaPaginaAnnuleren  Stop deze voorbereiding.' },
+        },
+        {
+          heading = 'Let op',
+          lines = { 'Wijzigingen tijdens de bewerking zorgen dat het late resultaat niet wordt toegepast.' },
+        },
+      },
+    }
+  end
+  if not M.is_prepared(buf) then
+    return {
+      title = 'Papieren agendapagina',
+      status = 'Ruwe agendatekst; nog niet voorbereid.',
+      sections = {
+        {
+          heading = 'Nu doen',
+          lines = { 'Plak alle dagen en activiteiten en druk eenmaal <leader>ka.' },
+        },
+        {
+          heading = 'Daarna',
+          lines = { 'De tekst wordt zichtbaar gestructureerd en geredigeerd; er wordt nog niets gepubliceerd.' },
+        },
+      },
+    }
+  end
+
+  local validation = vim.b[buf].agenda_page_validation
+  local published_url = vim.b[buf].agenda_page_published_url
+  if type(published_url) == 'string' and published_url ~= '' then
+    return {
+      title = 'Papieren agendapagina',
+      status = 'Het printconcept bestaat al in Pubble.',
+      sections = {
+        {
+          heading = 'Nu doen',
+          lines = {
+            'Controleer het bestaande concept via de getoonde Pubble-link.',
+            '<leader>aw herstelt veilig wanneer nog een koppeling ontbreekt; het maakt niet zomaar een tweede concept.',
+          },
+        },
+      },
+    }
+  end
+  if type(validation) == 'table' and validation.valid == false then
+    local errors = type(validation.errors) == 'table' and validation.errors or {}
+    return {
+      title = 'Papieren agendapagina',
+      status = 'Nog niet verzendklaar.',
+      sections = {
+        {
+          heading = 'Nu doen',
+          lines = #errors > 0 and errors or { 'Vul de ontbrekende of ongeldige velden in.' },
+        },
+        {
+          heading = 'Daarna',
+          lines = { 'Controleer opnieuw of druk <leader>aw; de technische controle draait vóór verzending.' },
+        },
+      },
+    }
+  end
+  return {
+    title = 'Papieren agendapagina',
+    status = 'Voorbereid en zichtbaar ter redactionele controle.',
+    sections = {
+      {
+        heading = 'Nu doen',
+        lines = { 'Controleer per activiteit datum, titel, tijd, locatie en tekst.' },
+      },
+      {
+        heading = 'Andere hoofdopties',
+        lines = {
+          ':AgendaPaginaControleren  Voer de technische controle los uit.',
+          ':AgendaPaginaPreview      Bekijk de Pubble-blokken.',
+        },
+      },
+      {
+        heading = 'Daarna',
+        lines = {
+          '<leader>aw  Kies de krant en maak uitsluitend het printconcept !agendapagina.',
+        },
+      },
+    },
+  }
+end
+
+local function register_help(buf)
+  context_help.register(buf, function(target) return help_entry(target) end)
 end
 
 local function command(...)
@@ -102,6 +216,13 @@ local function validate_buffer(buf, callback, edition)
         if callback then callback(false) end
         return
       end
+      vim.b[buf].agenda_page_validation = {
+        valid = decoded.valid == true,
+        errors = type(decoded.errors) == 'table' and decoded.errors or {},
+      }
+      if type(decoded.pubble_url) == 'string' and decoded.pubble_url ~= '' then
+        vim.b[buf].agenda_page_published_url = decoded.pubble_url
+      end
       local valid = show_validation(decoded)
       if callback then callback(valid, decoded) end
     end)
@@ -110,6 +231,7 @@ end
 
 function M.prepare(buf)
   buf = buf or vim.api.nvim_get_current_buf()
+  register_help(buf)
   if active_prepare[buf] then
     workflow('De voorbereiding van deze agendapagina draait al.', vim.log.levels.INFO)
     return
@@ -194,6 +316,7 @@ end
 
 function M.send(buf)
   buf = buf or vim.api.nvim_get_current_buf()
+  register_help(buf)
   if active_send[buf] then
     workflow('De verzending van deze agendapagina loopt al.', vim.log.levels.INFO)
     return
@@ -233,6 +356,7 @@ function M.send(buf)
       end
       if decoded.pubble_url then
         active_send[buf] = nil
+        vim.b[buf].agenda_page_published_url = decoded.pubble_url
         workflow('Agendapagina staat klaar voor plaatsing.\n' .. decoded.pubble_url, vim.log.levels.INFO, { ttl = 15 })
         return
       end
@@ -258,6 +382,7 @@ function M.send(buf)
             reload_after_send(buf)
             local article_url = status.article_url
               or ('https://brugmedia.pubble.dev/articles/newspaper/' .. tostring(status.newspaper_article_id))
+            vim.b[buf].agenda_page_published_url = article_url
             workflow('Agendapagina staat klaar voor plaatsing.\n' .. article_url, vim.log.levels.INFO, { ttl = 15 })
           end)
         end)
@@ -320,5 +445,6 @@ M._command = command
 M._decode_validation = decode_validation
 M._replace_buffer = replace_buffer
 M._duplicate_candidate_line = duplicate_candidate_line
+M._help_entry = help_entry
 
 return M

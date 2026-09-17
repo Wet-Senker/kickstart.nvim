@@ -1,5 +1,6 @@
 local M = {}
 local notifications = require('texttools_notify')
+local context_help = require('context_help')
 
 local function trim_text(value, maximum)
   local text = vim.trim(tostring(value or '')):gsub('%s+', ' ')
@@ -160,6 +161,49 @@ function M.show(result, callback, options)
   vim.bo[buf].swapfile = false
   vim.bo[buf].filetype = 'markdown'
   vim.api.nvim_buf_set_name(buf, 'Pubble doublurecontrole')
+  context_help.register(buf, function()
+    local approve_label = (options or {}).approve_label or 'toch verzenden'
+    if state.mode == 'text' then
+      return {
+        title = 'Mogelijke Pubble-doublure',
+        status = 'Volledige tekst en metadata van één bestaande krantversie.',
+        sections = {
+          {
+            heading = 'Nu doen',
+            lines = { 'Vergelijk deze tekst met het nieuwe artikel.' },
+          },
+          {
+            heading = 'Andere hoofdopties',
+            lines = {
+              'o  Open deze bestaande versie in Pubble.',
+              'q  Terug naar het overzicht zonder een besluit te nemen.',
+              'v  Controle afronden en ' .. approve_label .. '.',
+            },
+          },
+        },
+      }
+    end
+    return {
+      title = 'Mogelijke Pubble-doublures',
+      status = string.format('%d bestaand(e) bericht(en) vragen om een bewuste beoordeling.', #(result.candidates or {})),
+      sections = {
+        {
+          heading = 'Eerst beoordelen',
+          lines = {
+            'Enter of t  Bekijk de volledige tekst van de geselecteerde versie.',
+            'o           Open de geselecteerde versie in Pubble.',
+          },
+        },
+        {
+          heading = 'Beslissen',
+          lines = {
+            'v  Controle afronden en ' .. approve_label .. '.',
+            'q  Annuleren; dit registreert niet dat het géén doublure is.',
+          },
+        },
+      },
+    }
+  end)
 
   local function set_lines(lines)
     vim.bo[buf].modifiable = true

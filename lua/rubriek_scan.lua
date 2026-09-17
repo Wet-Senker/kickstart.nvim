@@ -7,6 +7,7 @@ local M = {}
 
 local commands = require 'texttools_commands'
 local notifications = require 'texttools_notify'
+local context_help = require 'context_help'
 
 local python = commands.bin 'python'
 local module = 'texttools.rubriek_scan_cli'
@@ -136,6 +137,31 @@ local function show_report(result, edition, include_reviewed)
   vim.bo[buf].modifiable = false
   vim.bo[buf].bufhidden = 'wipe'
   pcall(vim.api.nvim_buf_set_name, buf, 'Rubriekvoorstellen')
+  context_help.register(buf, {
+    title = 'Rubriekvoorstellen',
+    status = 'Read-only voorstellen; de scan corrigeert zelf geen categorie in Pubble.',
+    sections = {
+      {
+        heading = 'Beoordelen',
+        lines = {
+          'Enter  Bekijk de aanwijzingen en artikeltekst.',
+          'o      Open het artikel in Pubble voor een handmatige correctie.',
+        },
+      },
+      {
+        heading = 'Afronden',
+        lines = {
+          'm  Markeer het voorstel als afgehandeld.',
+          'r  Toon of verberg eerder afgehandelde voorstellen.',
+          'q  Sluit het overzicht.',
+        },
+      },
+      {
+        heading = 'Let op',
+        lines = { 'Afhandelen verbergt het voorstel in volgende scans; het wijzigt geen Pubble-categorie.' },
+      },
+    },
+  })
   vim.cmd 'botright split'
   local win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(win, buf)

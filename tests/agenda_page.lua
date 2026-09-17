@@ -46,6 +46,11 @@ assert(vim.bo[buf].modified == true)
 assert(module.is_prepared(buf) == false)
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '=== AGENDAPAGINA ===' })
 assert(module.is_prepared(buf) == true)
+local prepared_help = module._help_entry(buf)
+assert(prepared_help.status:find('Voorbereid', 1, true), 'voorbereide agendapagina kreeg geen juiste hulpstatus')
+vim.b[buf].agenda_page_validation = { valid = false, errors = { 'Tijd ontbreekt' } }
+local invalid_help = module._help_entry(buf)
+assert(vim.inspect(invalid_help):find('Tijd ontbreekt', 1, true), 'validatiefout ontbreekt in contexthelp')
 
 module.setup()
 assert(vim.fn.exists ':AgendaPagina' == 2)

@@ -74,6 +74,44 @@ assert(
 )
 local write_ok = pcall(vim.api.nvim_buf_call, buf, function() vim.cmd("write") end)
 assert(not write_ok, ":w kon het verwijderde werkbestand opnieuw aanmaken")
+local published_help = ai._article_context_help(buf)
+assert(published_help.status:find('afgerond', 1, true), 'nacontrolebuffer mist afgeronde helpstatus')
+assert(vim.inspect(published_help):find('Archief:', 1, true), 'nacontrolehulp mist archiefpad')
+
+local running_buf = vim.api.nvim_create_buf(false, true)
+vim.b[running_buf].publication_in_progress = true
+assert(
+  ai._article_context_help(running_buf).title == 'Publicatie wordt afgerond',
+  'lopende publicatie kreeg geen dominante hulpstatus'
+)
+
+local recovery_file = test_root .. '/herstelstatus.md'
+vim.fn.writefile({ 'bestaande ids' }, recovery_file)
+local recovery_buf = vim.api.nvim_create_buf(false, true)
+vim.b[recovery_buf].failed_send_file = recovery_file
+local recovery_help = ai._article_context_help(recovery_buf)
+assert(recovery_help.title == 'Publicatie veilig hervatten', 'herstelbuffer kreeg geen hervatadvies')
+assert(vim.inspect(recovery_help):find('<leader>aw', 1, true), 'herstelhulp mist veilige hervatactie')
+
+local review_buf = vim.api.nvim_create_buf(false, true)
+vim.b[review_buf].publication_review_state = { editions = { 'B' } }
+local publication_review_help = ai._article_context_help(review_buf)
+assert(publication_review_help.title == 'Publicatieteksten controleren', 'eventreviewstatus ontbreekt')
+
+local pending_buf = vim.api.nvim_create_buf(false, true)
+vim.b[pending_buf].pending_jobs = 2
+vim.b[pending_buf].send_requested = true
+local pending_help = ai._article_context_help(pending_buf)
+assert(pending_help.status:find('Verzending staat klaar', 1, true), 'wachtende verzending ontbreekt in hulp')
+
+local calendar_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(calendar_buf, 0, -1, false, {
+  '=== ARTIKEL ===', '', 'Kop', '', 'Tekst.', '', '## Kalender', '',
+  '<!-- Ontbreekt: Tijd: HH:MM -->',
+})
+local calendar_help = ai._article_context_help(calendar_buf)
+assert(calendar_help.title == 'Artikel met agenda-item', 'zichtbaar agenda-item kreeg geen eigen hulp')
+assert(calendar_help.status:find('Tijd: HH:MM', 1, true), 'ontbrekende agendagegevens ontbreken in hulp')
 
 local failed_source = paths.work() .. "/kan-niet-weg.md"
 vim.fn.writefile({ "Test" }, failed_source)

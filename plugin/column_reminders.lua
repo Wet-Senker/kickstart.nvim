@@ -9,6 +9,7 @@ local M = {}
 
 local texttools_commands = require('texttools_commands')
 local notifications = require('texttools_notify')
+local context_help = require('context_help')
 local mail_script = texttools_commands.path('nvim', 'raadspraat_mail.applescript')
 
 local RUBRIEKEN = {
@@ -135,50 +136,6 @@ local function copy_mail(item, buf)
   )
 end
 
--- ? in de mailbuffer — zelfde vorm als de texttools-cheatsheet.
-local function show_help()
-  local lines = {
-    ' Rubriekreminders',
-    '',
-    ' <leader>aw   concept openen in Apple Mail',
-    ' c            volledige mail kopiëren; status blijft gelijk',
-    ' s            status handmatig corrigeren (○ / ✓) — alleen reminder',
-    ' ?            deze hulp',
-    ' q            sluiten',
-    '',
-    ' Het menu:    <leader>kp = rubriekplanning',
-    ' Reminders                 de rotatie; ▶ = deze week de deur uit',
-    '                           ○ nog niet verstuurd   ✓ verstuurd',
-    ' Planningsoverzicht        voor één deelnemer of voor allemaal',
-    ' Artikel maken             via <leader>kt (rubriektemplates)',
-    '',
-    ' De tekst hierboven is bewerkbaar; wat je wijzigt gaat mee',
-    ' naar Apple Mail of het klembord.',
-  }
-
-  local width, height = 66, #lines
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
-
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative = 'editor',
-    width = width,
-    height = height,
-    row = math.floor((vim.o.lines - height) / 2),
-    col = math.floor((vim.o.columns - width) / 2),
-    style = 'minimal',
-    border = 'rounded',
-    title = ' Toetsen ',
-    title_pos = 'center',
-  })
-  vim.wo[win].wrap = false
-
-  for _, key in ipairs({ 'q', '<Esc>', '?' }) do
-    vim.keymap.set('n', key, '<cmd>close<cr>', { buffer = buf, silent = true })
-  end
-end
-
 local function open_preview(item)
   local rubriek = RUBRIEKEN[item.series] or { naam = item.series }
   vim.cmd('new')
@@ -193,6 +150,40 @@ local function open_preview(item)
   vim.list_extend(lines, vim.split(item.body, '\n', { plain = true }))
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modified = false
+  context_help.register(buf, function()
+    local reminder = markable(item)
+    local status = reminder
+        and (is_sent(item) and 'Reminder staat als verstuurd gemarkeerd.' or 'Reminder staat nog niet als verstuurd gemarkeerd.')
+      or 'Bewerkbaar planningsoverzicht; hier hoort geen verzendstatus bij.'
+    local actions = {
+      '<leader>aw  Open de actuele tekst als concept in Apple Mail.',
+      'c            Kopieer de volledige mail; de status blijft gelijk.',
+      'q            Sluit deze mailbuffer.',
+    }
+    if reminder then table.insert(actions, 3, 's            Corrigeer de verzendstatus handmatig.') end
+    return {
+      title = 'Rubriekplanning · ' .. item.label,
+      status = status,
+      sections = {
+        {
+          heading = 'Nu doen',
+          lines = { 'Controleer of bewerk Aan, Onderwerp en de berichttekst.' },
+        },
+        {
+          heading = 'Hoofdopties',
+          lines = actions,
+        },
+        {
+          heading = 'Daarna',
+          lines = {
+            reminder
+                and 'Na terugkeer uit Apple Mail wordt gevraagd of de reminder werkelijk is verstuurd.'
+              or 'Een planningsoverzicht wordt nooit als reminder afgevinkt.',
+          },
+        },
+      },
+    }
+  end)
 
   vim.keymap.set('n', 'c', function() copy_mail(item, buf) end,
     { buffer = buf, silent = true, desc = 'Kopieer volledige mail' })
@@ -204,7 +195,7 @@ local function open_preview(item)
   end
   vim.keymap.set('n', 'q', '<cmd>close<cr>',
     { buffer = buf, silent = true, desc = 'Sluiten' })
-  vim.keymap.set('n', '?', show_help,
+  vim.keymap.set('n', '?', function() context_help.show(buf) end,
     { buffer = buf, silent = true, desc = 'Toon toetsen' })
 
   local hint = '<leader>aw = Apple Mail  •  c = volledige mail kopiëren  •  ? = hulp  •  q = sluiten'

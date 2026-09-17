@@ -5,6 +5,7 @@ local M = {}
 local commands = require 'texttools_commands'
 local notifications = require 'texttools_notify'
 local browser = require 'ordered_browser'
+local context_help = require 'context_help'
 
 local python = commands.bin 'python'
 local module = 'texttools.site_duplicates_cli'
@@ -161,6 +162,31 @@ local function show_report(result, edition, include_reviewed)
   vim.bo[buf].modifiable = false
   vim.bo[buf].bufhidden = 'wipe'
   pcall(vim.api.nvim_buf_set_name, buf, 'Webartikel-doublures')
+  context_help.register(buf, {
+    title = 'Webartikel-doublures',
+    status = 'Read-only controle per krantensite; er wordt niets automatisch verwijderd of aangepast.',
+    sections = {
+      {
+        heading = 'Beoordelen',
+        lines = {
+          'Enter  Bekijk een artikeltekst in Neovim.',
+          'o      Open het artikel in Pubble.',
+        },
+      },
+      {
+        heading = 'Afronden',
+        lines = {
+          'm  Markeer het kandidaatpaar als gecontroleerd.',
+          'r  Toon of verberg eerder gecontroleerde paren.',
+          'q  Sluit het overzicht.',
+        },
+      },
+      {
+        heading = 'Let op',
+        lines = { 'Markeren verbergt het paar in volgende scans; het verandert niets in Pubble.' },
+      },
+    },
+  })
   vim.cmd 'botright split'
   local win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(win, buf)

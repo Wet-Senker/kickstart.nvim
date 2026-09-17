@@ -61,6 +61,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |
 | `<leader>ah` | Hiërarchisch hulpmenu voor codes, rubrieken, acties en cheatsheet |
+| `<leader>kh` | Contextuele workflowhulp — toont de actuele status, de aanbevolen volgende stap, andere hoofdopties en wat daarna gebeurt |
 | `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen en Kamper Kiek |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten |
 | `<leader>ka` | Ruwe papieren agendapagina voorbereiden voor eigen tekstcontrole |
@@ -253,6 +254,11 @@ edit op met `:w`, keur haar goed met `<leader>aG` en gebruik `<leader>aV` voor
 het overzicht. `<leader>aw` verstuurt per krant de passende print- én webversie
 en blokkeert bij ontbrekende, verouderde of nog niet goedgekeurde teksten. Kies
 **Nee** om één gezamenlijke tekst te behouden.
+
+In de losse reviewbuffers toont `<leader>kh` steeds de actuele fase: gewijzigd,
+alleen opgeslagen, goedgekeurd, verouderd of volledig verzendklaar. Op de
+gedeelde bron legt dezelfde hulp uit hoeveel unieke tekstversies nog moeten
+worden goedgekeurd en dat de bron zelf niet wordt gepubliceerd.
 
 Bij kalenderartikelen bepaalt `<leader>aw` per krant of het evenement op de
 eerstvolgende verschijningsdag nog toekomstig, inmiddels lopend of afgelopen

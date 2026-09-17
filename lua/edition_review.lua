@@ -2,6 +2,7 @@ local M = {}
 
 local config = {}
 local review_buffers = {}
+local context_help = require("context_help")
 
 local STATUS_LABELS = {
   approved = "goedgekeurd",
@@ -47,6 +48,250 @@ local function review_entry(review_buf)
     return nil
   end
   return source, code
+end
+
+local function variant_edition_count(variant)
+  if type(variant) == "table" and type(variant.editions) == "table"
+      and #variant.editions > 0 then
+    return #variant.editions
+  end
+  return 1
+end
+
+local function workspace_help_summary(workspace)
+  local summary = {
+    total = 0,
+    editions = 0,
+    approved = 0,
+    review = 0,
+    stale = 0,
+    ready = workspace and workspace.ready == true or false,
+    source_stale = workspace and workspace.source_stale == true or false,
+  }
+  for _, variant in ipairs((workspace and workspace.variants) or {}) do
+    summary.total = summary.total + 1
+    summary.editions = summary.editions + variant_edition_count(variant)
+    local status = variant.status or "review"
+    if summary[status] ~= nil then summary[status] = summary[status] + 1 end
+  end
+  return summary
+end
+
+local function progress_label(summary)
+  summary = type(summary) == "table" and summary or {}
+  local total = tonumber(summary.total) or 0
+  local approved = tonumber(summary.approved) or 0
+  if total == 0 then return "Reviewstatus wordt bij het openen opnieuw bepaald." end
+  local label = string.format("%d van %d tekstversies goedgekeurd", approved, total)
+  local editions = tonumber(summary.editions) or total
+  if editions > total then label = label .. string.format(" voor %d kranten", editions) end
+  return label .. "."
+end
+
+local function current_help_summary(source_buf)
+  local stored = vim.b[source_buf].edition_help_summary
+  if type(stored) ~= "table" then return nil end
+  local summary = vim.deepcopy(stored)
+  for _, review_buf in pairs(review_buffers[source_buf] or {}) do
+    if vim.api.nvim_buf_is_valid(review_buf) and vim.bo[review_buf].modified then
+      summary.ready = false
+      local variant = vim.b[review_buf].edition_variant
+      if type(variant) == "table" and variant.status == "approved" then
+        summary.approved = math.max(0, (tonumber(summary.approved) or 0) - 1)
+        summary.review = (tonumber(summary.review) or 0) + 1
+      end
+    end
+  end
+  return summary
+end
+
+local function review_help_entry(review_buf)
+  local source = vim.b[review_buf].edition_source_buf
+  local variant = vim.b[review_buf].edition_variant
+  variant = type(variant) == "table" and variant or {}
+  local summary = type(source) == "number" and vim.api.nvim_buf_is_valid(source)
+      and current_help_summary(source) or {}
+  local name = variant.name or vim.b[review_buf].edition_code or "onbekende krant"
+  local status = variant.status or "review"
+  local modified = vim.bo[review_buf].modified
+  local entry = {
+    title = "Krantversie · " .. name,
+    sections = {},
+  }
+
+  if summary.source_stale == true or status == "stale" then
+    entry.status = "Verouderd. De gedeelde bron is na het maken van de versies gewijzigd."
+    entry.sections = {
+      {
+        heading = "Nu doen",
+        lines = {
+          "Open met <leader>aV de BRON en maak daar met <leader>ar nieuwe versies.",
+        },
+      },
+      {
+        heading = "Let op",
+        lines = {
+          "Deze versie kan niet veilig worden gepubliceerd of opnieuw goedgekeurd.",
+          "De gedeelde bron zelf wordt niet gepubliceerd.",
+        },
+      },
+    }
+    return entry
+  end
+
+  if modified then
+    entry.status = "Gewijzigd en nog niet goedgekeurd. " .. progress_label(summary)
+    entry.sections = {
+      {
+        heading = "Nu doen",
+        lines = {
+          "Controleer de tekst en druk <leader>aG om haar op te slaan én goed te keuren.",
+        },
+      },
+      {
+        heading = "Andere hoofdopties",
+        lines = {
+          "<leader>aV  Overzicht openen of een andere krantversie kiezen.",
+          ":tabclose   De review voorlopig verlaten.",
+        },
+      },
+      {
+        heading = "Daarna",
+        lines = {
+          "Na goedkeuring opent automatisch de volgende openstaande versie.",
+        },
+      },
+    }
+    return entry
+  end
+
+  if status == "approved" and summary.ready == true then
+    entry.status = "Goedgekeurd. Alle krantversies zijn verzendklaar."
+    entry.sections = {
+      {
+        heading = "Nu doen",
+        lines = {
+          "<leader>aw  Publiceer het bronartikel met de passende versie per krant.",
+        },
+      },
+      {
+        heading = "Andere hoofdopties",
+        lines = {
+          "<leader>aV  Bekijk de bron en alle goedkeuringsstatussen.",
+        },
+      },
+      {
+        heading = "Let op",
+        lines = {
+          "Een nieuwe wijziging aan deze tekst trekt de goedkeuring weer in.",
+        },
+      },
+    }
+    return entry
+  end
+
+  if status == "approved" then
+    entry.status = "Deze tekst is goedgekeurd. " .. progress_label(summary)
+    entry.sections = {
+      {
+        heading = "Nu doen",
+        lines = {
+          "<leader>aV  Ga naar de volgende nog te controleren krantversie.",
+        },
+      },
+      {
+        heading = "Let op",
+        lines = {
+          "Een nieuwe wijziging aan deze tekst trekt de goedkeuring weer in.",
+        },
+      },
+    }
+    return entry
+  end
+
+  entry.status = "Opgeslagen, maar nog niet goedgekeurd. " .. progress_label(summary)
+  entry.sections = {
+    {
+      heading = "Nu doen",
+      lines = {
+        "Controleer de tekst en druk <leader>aG om deze exacte versie goed te keuren.",
+      },
+    },
+    {
+      heading = "Andere hoofdopties",
+      lines = {
+        "<leader>aV  Overzicht openen of een andere krantversie kiezen.",
+      },
+    },
+    {
+      heading = "Let op",
+      lines = {
+        ":w slaat alleen op; het keurt de versie niet goed.",
+      },
+    },
+  }
+  return entry
+end
+
+local function source_help_entry(source_buf)
+  local summary = current_help_summary(source_buf)
+  if type(summary) ~= "table" then return nil end
+  local entry = {
+    title = "Gedeelde bron van krantversies",
+    sections = {},
+  }
+  if summary.source_stale == true or (tonumber(summary.stale) or 0) > 0 then
+    entry.status = "De bron is gewijzigd; de bestaande krantversies zijn verouderd."
+    entry.sections = {
+      {
+        heading = "Nu doen",
+        lines = {
+          "Gebruik <leader>ar om vanuit deze actuele bron nieuwe krantversies te maken.",
+        },
+      },
+      {
+        heading = "Andere hoofdopties",
+        lines = { "<leader>aV  Bekijk welke versies verouderd zijn." },
+      },
+      {
+        heading = "Let op",
+        lines = { "Deze gedeelde bron wordt zelf niet gepubliceerd." },
+      },
+    }
+  elseif summary.ready == true then
+    entry.status = "Alle krantversies zijn goedgekeurd en verzendklaar."
+    entry.sections = {
+      {
+        heading = "Nu doen",
+        lines = { "<leader>aw  Publiceer met de passende tekst per krant." },
+      },
+      {
+        heading = "Andere hoofdopties",
+        lines = { "<leader>aV  Bekijk de versies en hun status." },
+      },
+      {
+        heading = "Let op",
+        lines = { "Wijzigingen in deze bron maken de versies opnieuw verouderd." },
+      },
+    }
+  else
+    entry.status = progress_label(summary)
+    entry.sections = {
+      {
+        heading = "Nu doen",
+        lines = { "<leader>aV  Open de nog te controleren krantversies." },
+      },
+      {
+        heading = "Daarna",
+        lines = { "Keur iedere unieke tekst goed met <leader>aG." },
+      },
+      {
+        heading = "Let op",
+        lines = { "Deze gedeelde bron wordt zelf niet gepubliceerd." },
+      },
+    }
+  end
+  return entry
 end
 
 local function names_by_code(codes, names)
@@ -168,6 +413,7 @@ local function configure_review_buffer(review_buf)
   vim.bo[review_buf].bufhidden = "hide"
   vim.bo[review_buf].swapfile = false
   vim.bo[review_buf].filetype = "markdown"
+  context_help.register(review_buf, function() return review_help_entry(review_buf) end)
 
   local group = vim.api.nvim_create_augroup(
     "TexttoolsEditionReview" .. review_buf,
@@ -205,7 +451,7 @@ local function configure_review_buffer(review_buf)
     local source = source_buffer(review_buf)
     if vim.bo[review_buf].modified then
       vim.notify(
-        "Deze krantversie heeft onopgeslagen wijzigingen. Gebruik eerst :w en keur haar goed.",
+        "Deze krantversie heeft wijzigingen. Controleer haar en gebruik <leader>aG om op te slaan en goed te keuren.",
         vim.log.levels.ERROR
       )
       return
@@ -261,6 +507,7 @@ local function refresh_review_buffers(source_buf, workspace, options)
   end
   vim.b[source_buf].edition_workspace_ready = workspace.ready == true
   vim.b[source_buf].edition_workspace_source_stale = workspace.source_stale == true
+  vim.b[source_buf].edition_help_summary = workspace_help_summary(workspace)
   return ordered
 end
 
@@ -561,11 +808,19 @@ end
 
 function M.close(source_buf, force)
   local entries = review_buffers[source_buf]
-  if not entries then return true end
+  if not entries then
+    if vim.api.nvim_buf_is_valid(source_buf) then
+      vim.b[source_buf].edition_help_summary = nil
+    end
+    return true
+  end
   if not force and M.has_unsaved(source_buf) then
     return false
   end
   review_buffers[source_buf] = nil
+  if vim.api.nvim_buf_is_valid(source_buf) then
+    vim.b[source_buf].edition_help_summary = nil
+  end
   for _, review_buf in pairs(entries) do
     if vim.api.nvim_buf_is_valid(review_buf) then
       pcall(vim.api.nvim_buf_delete, review_buf, { force = force == true })
@@ -591,5 +846,9 @@ end
 M._review_buffers = review_buffers
 M._refresh_review_buffers = refresh_review_buffers
 M._source_buffer = source_buffer
+M._workspace_help_summary = workspace_help_summary
+M._current_help_summary = current_help_summary
+M._review_help_entry = review_help_entry
+M._source_help_entry = source_help_entry
 
 return M

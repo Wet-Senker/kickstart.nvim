@@ -12,6 +12,7 @@ local M = {}
 local commands = require 'texttools_commands'
 local notifications = require 'texttools_notify'
 local browser = require 'ordered_browser'
+local context_help = require 'context_help'
 
 local python = commands.bin 'python'
 local module = 'texttools.agenda_cli'
@@ -76,6 +77,87 @@ local function open_editable(name, text)
   vim.cmd 'botright vsplit'
   vim.api.nvim_win_set_buf(0, buf)
   return buf
+end
+
+local function website_scan_help()
+  return {
+    title = 'Websiteartikelen zonder agenda-item',
+    status = 'Overzicht van recente artikelen die mogelijk nog een agenda-item nodig hebben.',
+    sections = {
+      {
+        heading = 'Beoordelen',
+        lines = { 'o  Open het bronartikel in Pubble.' },
+      },
+      {
+        heading = 'Agenda-item maken',
+        lines = { 'Enter  Maak eerst een bewerkbaar voorstel; er wordt nog niets geplaatst.' },
+      },
+      {
+        heading = 'Geen agenda nodig',
+        lines = { 'x  Sla die beslissing op. Het websiteartikel zelf blijft bestaan.' },
+      },
+    },
+  }
+end
+
+local function website_proposal_help(buf)
+  local state = vim.b[buf].website_agenda_status
+  if state == 'created' then
+    return {
+      title = 'Agenda-voorstel uit websiteartikel',
+      status = 'Agenda-item is aangemaakt en aan het artikel gekoppeld.',
+      sections = {
+        {
+          heading = 'Nu doen',
+          lines = { 'Controleer desgewenst het geopende agenda-item in Pubble.' },
+        },
+      },
+    }
+  elseif state == 'already-created' then
+    return {
+      title = 'Agenda-voorstel uit websiteartikel',
+      status = 'Dit agenda-item bestond al; er is geen tweede item aangemaakt.',
+      sections = {
+        {
+          heading = 'Nu doen',
+          lines = { 'Controleer het bestaande item via de geopende Pubble-link.' },
+        },
+      },
+    }
+  elseif state == 'partial' then
+    return {
+      title = 'Agenda-voorstel uit websiteartikel',
+      status = 'Een deel is geplaatst; herstelmarkeringen staan in deze buffer.',
+      sections = {
+        {
+          heading = 'Nu doen',
+          lines = { '<leader>kA  Hervat uitsluitend de ontbrekende plaatsingsstappen.' },
+        },
+        {
+          heading = 'Let op',
+          lines = { 'Verwijder de herstelmarkeringen niet en maak geen nieuw voorstel.' },
+        },
+      },
+    }
+  end
+  return {
+    title = 'Agenda-voorstel uit websiteartikel',
+    status = 'Bewerkbaar voorstel; er is nog niets in de agenda geplaatst.',
+    sections = {
+      {
+        heading = 'Nu doen',
+        lines = { 'Controleer editie, titel, datum, tijd, locatie en omschrijving.' },
+      },
+      {
+        heading = 'Daarna',
+        lines = { '<leader>kA  Plaats het agenda-item en koppel het aan het bronartikel.' },
+      },
+      {
+        heading = 'Let op',
+        lines = { 'Het oorspronkelijke websiteartikel wordt hierbij niet herschreven.' },
+      },
+    },
+  }
 end
 
 -- Pure renderers (headless testbaar).
@@ -274,6 +356,7 @@ function M.website_voorstel(candidate)
     end
     local buf = open_editable('Agenda aanvullen ' .. tostring(candidate.article_id), document)
     vim.b[buf].website_agenda_proposal = true
+    context_help.register(buf, function(target) return website_proposal_help(target) end)
     vim.keymap.set('n', '<leader>kA', function() M.website_plaatsen(buf) end, {
       buffer = buf,
       desc = '[K]rant ontbrekende [A]genda-item plaatsen',
@@ -288,6 +371,7 @@ function M.website_scan()
   run(command('website-scan', '--editie', 'all'), nil, function(decoded)
     local lines, by_line = M._render_website_candidates(decoded)
     local buf = open_scratch('Website zonder agenda', lines)
+    context_help.register(buf, website_scan_help)
     local function selected()
       return by_line[vim.api.nvim_win_get_cursor(0)[1]]
     end
@@ -346,6 +430,8 @@ function M.website_plaatsen(buf)
   local changedtick = vim.api.nvim_buf_get_changedtick(buf)
   workflow('Agenda · gecontroleerd item plaatsen…', vim.log.levels.INFO)
   run(command('website-plaatsen'), text, function(decoded)
+    vim.b[buf].website_agenda_status = decoded.status
+    vim.b[buf].website_agenda_reason = decoded.reason
     if type(decoded.updated_document) == 'string'
       and vim.api.nvim_buf_is_valid(buf)
       and vim.api.nvim_buf_get_changedtick(buf) == changedtick then
@@ -390,7 +476,7 @@ function M.weekendbericht()
         if result.error and result.error ~= vim.NIL then
           vim.notify(string.format('%s: agenda niet gelezen — %s', result.edition or '?', result.error), vim.log.levels.ERROR)
         elseif type(result.message) == 'string' and result.message ~= '' then
-          open_scratch('Weekendbericht ' .. tostring(result.edition), vim.split(result.message, '\n', { plain = true }))
+          open_editable('Weekendbericht ' .. tostring(result.edition), result.message)
           opened = opened + 1
         end
       end
@@ -444,5 +530,7 @@ end
 
 M._command = command
 M._sanitize_lines = sanitize_lines
+M._website_scan_help = website_scan_help
+M._website_proposal_help = website_proposal_help
 
 return M

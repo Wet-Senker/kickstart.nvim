@@ -136,11 +136,26 @@ assert(entries and entries.B and entries.SW and entries.ST, "niet iedere editie 
 assert(text(entries.B):find("B kop", 1, true), "B-buffer heeft verkeerde inhoud")
 assert(text(entries.SW):find("SW kop", 1, true), "SW-buffer heeft verkeerde inhoud")
 assert(vim.bo[entries.B].buftype == "acwrite", "reviewbuffer is niet schrijfbaar gekoppeld")
+local initial_help = review._review_help_entry(entries.B)
+assert(initial_help.status:find('nog niet goedgekeurd', 1, true), 'reviewstatus ontbreekt in contexthelp')
+local source_help = review._source_help_entry(buf)
+assert(vim.inspect(source_help):find('<leader>aV', 1, true), 'bronhulp mist route naar versies')
 
 local approved = false
 review.sync(entries.B, true, function(ok) approved = ok end)
 assert(approved, "B-versie kon niet worden goedgekeurd")
 assert(vim.b[entries.B].edition_variant.status == "approved", "B-status bleef controleren")
+local approved_help = review._review_help_entry(entries.B)
+assert(approved_help.status:find('goedgekeurd', 1, true), 'goedgekeurde versie kreeg geen actuele hulp')
+
+vim.b[buf].edition_help_summary = {
+  total = 3, editions = 3, approved = 3, review = 0, stale = 0,
+  ready = true, source_stale = false,
+}
+vim.api.nvim_buf_set_lines(entries.B, -1, -1, false, { 'Nieuwe onopgeslagen wijziging.' })
+local changed_summary = review._current_help_summary(buf)
+assert(changed_summary.ready == false, 'onopgeslagen edit bleef in hulp verzendklaar')
+assert(changed_summary.approved == 2, 'onopgeslagen edit bleef als goedgekeurd meetellen')
 
 vim.api.nvim_buf_set_lines(entries.SW, 0, -1, false, {
   "Nieuwe SW kop",
@@ -230,6 +245,7 @@ assert(
   "achtergrondwijziging werd door laat resultaat overschreven"
 )
 review.close(race_source, true)
+assert(vim.b[race_source].edition_help_summary == nil, 'gesloten workspace liet verouderde helpstatus achter')
 
 ai._edition_variant_runner = original_runner
 ai._edition_variant_formatter = original_formatter

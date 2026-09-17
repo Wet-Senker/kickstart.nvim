@@ -86,6 +86,15 @@ local mapped
 for _, candidate in pairs(website_by_line) do mapped = candidate end
 assert(mapped and mapped.article_id == 321, 'artikelregel is niet selecteerbaar')
 
+local scan_help = module._website_scan_help()
+assert(vim.inspect(scan_help):find('Enter', 1, true), 'agenda-scanhulp mist voorstelroute')
+local proposal_buf = vim.api.nvim_create_buf(false, true)
+local proposal_help = module._website_proposal_help(proposal_buf)
+assert(vim.inspect(proposal_help):find('<leader>kA', 1, true), 'agenda-voorstel mist plaatsingsstap')
+vim.b[proposal_buf].website_agenda_status = 'partial'
+local recovery_help = module._website_proposal_help(proposal_buf)
+assert(recovery_help.status:find('herstelmarkeringen', 1, true), 'gedeeltelijke agenda-plaatsing mist hersteladvies')
+
 -- Regels met een ingebedde newline (rommelige Pubble-titel) worden platgeslagen,
 -- anders weigert nvim_buf_set_lines ze.
 local sanitized = module._sanitize_lines { 'Alzheimer Café\nZwolle', 'gewoon' }

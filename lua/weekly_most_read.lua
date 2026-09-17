@@ -122,6 +122,76 @@ local function review_text(buf)
   return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
 end
 
+local function selection_summary(document)
+  local selection = tostring(document or ''):match(
+    '<!%-%- selection%-start %-%->(.-)<!%-%- selection%-end %-%->'
+  ) or ''
+  local selected, loose = 0, 0
+  for line in selection:gmatch('[^\n]+') do
+    if line:match('^%s*LOS:%s*%d+%.') then
+      selected = selected + 1
+      loose = loose + 1
+    elseif line:match('^%s*%d+%.') then
+      selected = selected + 1
+    end
+  end
+  return {
+    selected = selected,
+    loose = loose,
+    facebook = #facebook_links_needing_review(document or ''),
+  }
+end
+
+local function help_entry(buf)
+  local text = review_text(buf) or ''
+  local summary = selection_summary(text)
+  local entry = {
+    title = 'Meestgelezen weekoverzicht',
+    sections = {},
+  }
+  if summary.selected > 5 then
+    entry.status = string.format('%d kandidaten geselecteerd; maximaal vijf toegestaan.', summary.selected)
+    table.insert(entry.sections, {
+      heading = 'Nu doen',
+      lines = { string.format('Verwijder met dd nog minimaal %d keuzeregel(s).', summary.selected - 5) },
+    })
+  elseif summary.selected == 0 then
+    entry.status = 'Geen artikelen geselecteerd.'
+    table.insert(entry.sections, {
+      heading = 'Nu doen',
+      lines = { 'Laat bovenaan één tot vijf genummerde keuzeregels staan.' },
+    })
+  else
+    entry.status = string.format('%d artikel(en) geselecteerd%s.', summary.selected,
+      summary.loose > 0 and string.format(', waarvan %d als LOS', summary.loose) or '')
+    table.insert(entry.sections, {
+      heading = 'Nu doen',
+      lines = { '<leader>kv  Maak de gewone artikelbuffers van deze selectie.' },
+    })
+  end
+  if summary.facebook > 0 then
+    table.insert(entry.sections, {
+      heading = 'Facebookcontrole',
+      lines = {
+        string.format('%d gekozen artikel(en) hebben nog handmatig te bekijken reacties.', summary.facebook),
+        'Bij <leader>kv kunnen de Facebooklinks eerst worden geopend.',
+      },
+    })
+  end
+  table.insert(entry.sections, {
+    heading = 'Andere hoofdopties',
+    lines = {
+      '<leader>kf  Download één hoofdfoto per gekozen artikel.',
+      'Zet LOS: voor een zelfstandig reactieartikel; dit mag vanaf 41 reacties.',
+    },
+  })
+  table.insert(entry.sections, {
+    heading = 'Daarna',
+    lines = { 'De uiteindelijke artikelvolgorde volgt automatisch de kijkcijfers.' },
+  })
+  return entry
+end
+
 function M.prepare(edition)
   local cmd = vim.list_extend(vim.deepcopy(command), { 'prepare', '--edition', edition })
   workflow('Meestgelezen · artikelen en cijfers ophalen…', vim.log.levels.INFO)
@@ -130,19 +200,7 @@ function M.prepare(edition)
       local data = decode(result, 'Meestgelezen weekoverzicht voorbereiden mislukt.')
       if not data or type(data.document) ~= 'string' then return end
       local buf = open_editable('Meestgelezen review ' .. edition, data.document, true)
-      context_help.register(buf, {
-        title = 'Meestgelezen weekoverzicht',
-        lines = {
-          '• Bovenaan staan maximaal tien kandidaten met alleen nummer en kop.',
-          '• Verwijder ongewenste regels met dd; laat maximaal vijf regels staan.',
-          '• De uiteindelijke volgorde wordt bepaald door het aantal keer bekeken.',
-          '• Zet LOS: voor een regel voor een zelfstandig reactieartikel.',
-          '• LOS: is alleen toegestaan vanaf 41 Facebookreacties.',
-          '• Vanaf 15 reacties staat in het dossier een Facebooklink en plakvak.',
-          '• Druk opnieuw <leader>kv om de overgebleven selectie te verwerken.',
-          '• <leader>kf downloadt één hoofdfoto per gekozen artikel naar Bureaublad/meestgelezen.',
-        },
-      })
+      context_help.register(buf, function(target) return help_entry(target) end)
       vim.keymap.set('n', '<leader>kv', function() M.generate(buf) end, {
         buffer = buf,
         desc = '[K]rant [v]eelgelezen review verwerken',
@@ -298,5 +356,7 @@ end
 
 M._facebook_links_needing_review = facebook_links_needing_review
 M._photo_menu_items = photo_menu_items
+M._selection_summary = selection_summary
+M._help_entry = help_entry
 
 return M
