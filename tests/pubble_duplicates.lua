@@ -106,6 +106,8 @@ assert(duplicates._entry_at_cursor(ranges, ranges[1].first).variant.publication 
 assert(duplicates._candidate_at_cursor(ranges, 1) == nil, 'rubriekkop kiest stil een artikel')
 local early_lines = duplicates.report_lines(result, { approve_label = 'doorgaan met bewerken' })
 assert(table.concat(early_lines, '\n'):find('doorgaan met bewerken', 1, true), 'vroege actietekst ontbreekt')
+assert(table.concat(early_lines, '\n'):find('negeren en doorgaan met bewerken', 1, true),
+  'de blijvende betekenis van doorgaan wordt niet uitgelegd')
 
 local duplicate_site = vim.deepcopy(result)
 table.insert(duplicate_site.candidates[1].variants, vim.deepcopy(duplicate_site.candidates[1].variants[1]))

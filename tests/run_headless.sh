@@ -15,6 +15,7 @@ for test_file in "$repo_root"/tests/*.lua; do
   env \
     PUBBLE_TOKEN= \
     PUBBLE_DATADB= \
+    TEXTTOOLS_LOG_DIR="$test_state_dir/log" \
     XDG_STATE_HOME="$test_state_dir/state" \
     XDG_CACHE_HOME="$test_state_dir/cache" \
     "$nvim_bin" \

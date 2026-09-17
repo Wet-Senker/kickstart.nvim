@@ -4,6 +4,8 @@ local article_recognition = require("article_recognition")
 local texttools_paths = require("texttools_paths")
 local pubble_duplicates = require("pubble_duplicates")
 local context_help = require("context_help")
+local workflow_log = require("workflow_log")
+workflow_log.setup()
 
 -- Nieuwe pv-imports leven in de gedeelde werkmap. Desktop blijft als
 -- compatibele invoerroute bestaan voor oude bestanden en handmatig geopende
@@ -197,8 +199,44 @@ local function finish_buffer_job(buf)
   end)
 end
 
+local function workflow_system(cmd, opts, callback, action, buf)
+  local trace_buf = buf
+  if not trace_buf or not vim.api.nvim_buf_is_valid(trace_buf) then
+    trace_buf = vim.api.nvim_get_current_buf()
+  end
+  local trace = workflow_log.start(trace_buf, action, {
+    command = vim.fn.fnamemodify(tostring(cmd[1] or ''), ':t'),
+  })
+  opts = workflow_log.with_environment(opts, trace)
+  local started, process_or_error = pcall(vim.system, cmd, opts, function(result)
+    local ok, callback_error = pcall(callback, result)
+    workflow_log.finish(trace, ok and (result.code == 0 and 'succeeded' or 'failed') or 'failed', {
+      exit_code = result.code,
+      signal = result.signal,
+      error = ok and nil or 'LuaCallbackError',
+    })
+    if not ok then
+      vim.schedule(function()
+        vim.notify('Achtergrondtaak gaf een Lua-fout: ' .. tostring(callback_error), vim.log.levels.ERROR)
+      end)
+    end
+  end)
+  if started then return process_or_error end
+  workflow_log.finish(trace, 'failed', { error = 'ProcessStartError' })
+  error(process_or_error)
+end
+
 local function ai_system(cmd, opts, callback, title, job_buf, on_cancel)
   start_buffer_job(job_buf)
+  local trace_buf = job_buf
+  if not trace_buf or not vim.api.nvim_buf_is_valid(trace_buf) then
+    trace_buf = vim.api.nvim_get_current_buf()
+  end
+  local action = title or ('Texttools · ' .. vim.fn.fnamemodify(tostring(cmd[1] or 'taak'), ':t'))
+  local trace = workflow_log.start(trace_buf, action, {
+    command = vim.fn.fnamemodify(tostring(cmd[1] or ''), ':t'),
+  })
+  opts = workflow_log.with_environment(opts, trace)
   local handle = require("fidget.progress").handle.create {
     title   = title or "AI",
     message = "",
@@ -207,7 +245,7 @@ local function ai_system(cmd, opts, callback, title, job_buf, on_cancel)
   local ai_job = job_buf and is_cancellable_ai_command(cmd)
       and register_ai_job(job_buf, title)
       or nil
-  local process = vim.system(cmd, opts, function(result)
+  local started, process = pcall(vim.system, cmd, opts, function(result)
     handle:finish()
     if ai_job then unregister_ai_job(ai_job) end
     -- Een geannuleerde call mag zijn late resultaat nooit meer in de buffer
@@ -224,13 +262,39 @@ local function ai_system(cmd, opts, callback, title, job_buf, on_cancel)
     else
       local ok, err = pcall(callback, result)
       if not ok then
+        workflow_log.finish(trace, 'failed', {
+          exit_code = result.code,
+          signal = result.signal,
+          error = 'LuaCallbackError',
+        })
         vim.schedule(function()
           vim.notify("Achtergrondtaak gaf een Lua-fout: " .. tostring(err), vim.log.levels.ERROR)
         end)
+      else
+        workflow_log.finish(trace, result.code == 0 and 'succeeded' or 'failed', {
+          exit_code = result.code,
+          signal = result.signal,
+        })
       end
+    end
+    if ai_job and ai_job.cancelled then
+      workflow_log.finish(trace, 'cancelled', {
+        exit_code = result.code,
+        signal = result.signal,
+      })
     end
     finish_buffer_job(job_buf)
   end)
+  if not started then
+    handle:finish()
+    if ai_job then unregister_ai_job(ai_job) end
+    workflow_log.finish(trace, 'failed', { error = 'ProcessStartError' })
+    finish_buffer_job(job_buf)
+    vim.schedule(function()
+      vim.notify('AI-taak kon niet starten: ' .. tostring(process), vim.log.levels.ERROR)
+    end)
+    return nil
+  end
   if ai_job then ai_job.process = process end
   return process
 end
@@ -1060,7 +1124,7 @@ local function fill_editions_line(buf, content, done)
   local tmp = vim.fn.tempname() .. ".md"
   vim.fn.writefile(vim.split(content, "\n", { plain = true }), tmp)
   start_buffer_job(buf)
-  vim.system(
+  workflow_system(
     { pubble_send, tmp, "--resolve-editions", "--require-article-boundary" },
     { text = true },
     function(res)
@@ -1130,7 +1194,9 @@ local function fill_editions_line(buf, content, done)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, out)
       complete(true)
     end)
-    end
+    end,
+    'Artikel · Edities bepalen',
+    buf
   )
 end
 
@@ -1194,6 +1260,39 @@ M._mark_duplicate_check_done = function(buf)
     editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
 end
 
+local function ignored_duplicate_keys(buf)
+  local stored = vim.b[buf].pubble_duplicate_ignored_keys
+  if type(stored) ~= "table" then return {} end
+  local keys, seen = {}, {}
+  for _, value in ipairs(stored) do
+    local key = vim.trim(tostring(value or ""))
+    if key ~= "" and not seen[key] then
+      seen[key] = true
+      table.insert(keys, key)
+    end
+  end
+  table.sort(keys)
+  return keys
+end
+M._ignored_duplicate_keys = ignored_duplicate_keys
+
+local function remember_ignored_duplicates(buf, data)
+  if type(data) ~= "table" or type(data.candidates) ~= "table" then return end
+  local keys = ignored_duplicate_keys(buf)
+  local seen = {}
+  for _, key in ipairs(keys) do seen[key] = true end
+  for _, candidate in ipairs(data.candidates) do
+    local key = type(candidate) == "table" and vim.trim(tostring(candidate.key or "")) or ""
+    if key ~= "" and not seen[key] then
+      seen[key] = true
+      table.insert(keys, key)
+    end
+  end
+  table.sort(keys)
+  vim.b[buf].pubble_duplicate_ignored_keys = keys
+end
+M._remember_ignored_duplicates = remember_ignored_duplicates
+
 local function check_duplicate_stage(buf, codes, stage, done, existing_file)
   if not vim.api.nvim_buf_is_valid(buf) then
     if done then done(false) end
@@ -1234,14 +1333,19 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file)
   vim.b[buf].pubble_duplicate_check_running = true
   start_buffer_job(buf)
   local early = stage ~= "verzenden"
+  local command = {
+    pubble_duplicates_command,
+    file,
+    "--json",
+    "--editions",
+    table.concat(codes, ","),
+  }
+  for _, key in ipairs(ignored_duplicate_keys(buf)) do
+    table.insert(command, "--ignore-key")
+    table.insert(command, key)
+  end
   M._duplicate_stage_runner(
-    {
-      pubble_duplicates_command,
-      file,
-      "--json",
-      "--editions",
-      table.concat(codes, ","),
-    },
+    command,
     function(approved, data)
       if temporary then vim.fn.delete(file) end
       if not is_current() then
@@ -1264,6 +1368,7 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file)
       if vim.api.nvim_buf_is_valid(buf) then
         vim.b[buf].pubble_duplicate_check_running = false
         if not approved then vim.b[buf].send_requested = false end
+        if approved then remember_ignored_duplicates(buf, data) end
         if approved and type(data) == "table" and data.performed ~= false then
           -- De gecontroleerde tekst, niet de huidige: bij een wijziging tijdens
           -- het ophalen is `approved` al op false gezet.
@@ -1282,6 +1387,7 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file)
       failure_continue_label = early
           and "Doorgaan; later opnieuw controleren"
         or "Toch verzenden",
+      buf = buf,
     }
   )
 end
@@ -1442,7 +1548,7 @@ local function resolve_editions_for_content(buf, content, done)
   local tmp = vim.fn.tempname() .. ".md"
   vim.fn.writefile(vim.split(content, "\n", { plain = true }), tmp)
   start_buffer_job(buf)
-  vim.system(
+  workflow_system(
     { pubble_send, tmp, "--resolve-editions", "--require-article-boundary" },
     { text = true },
     function(res)
@@ -1463,7 +1569,9 @@ local function resolve_editions_for_content(buf, content, done)
       end
       complete(resolved)
     end)
-    end
+    end,
+    'Artikel · Edities bepalen',
+    buf
   )
 end
 
@@ -2031,7 +2139,7 @@ M._edition_variant_formatter = function(source_buf, code, variant, done)
   if not vim.api.nvim_buf_is_valid(source_buf) then done(false); return end
   -- De lokale inspectie ook async: N krantversies blokkeren geen editorthread.
   start_buffer_job(source_buf)
-  vim.system({ article_headline, "inspect" }, { text = true, stdin = variant }, function(result)
+  workflow_system({ article_headline, "inspect" }, { text = true, stdin = variant }, function(result)
     vim.schedule(function()
       finish_buffer_job(source_buf)
       local decoded, headline = pcall(vim.json.decode, result.stdout or "")
@@ -2054,7 +2162,7 @@ M._edition_variant_formatter = function(source_buf, code, variant, done)
             "opmaak van krantversie " .. code .. " kon niet veilig worden afgerond")
         end })
     end)
-  end)
+  end, 'Artikel · Kop controleren', source_buf)
 end
 
 local function generate_edition_versions(buf, source, origin, codes, names, tasks, seo_context)
@@ -2064,11 +2172,8 @@ local function generate_edition_versions(buf, source, origin, codes, names, task
     tasks = {}
     for _, code in ipairs(codes) do table.insert(tasks, { code = code, editions = { code }, prompt = "krantversie" }) end
   end
-  local variants, errors, shared_groups = {}, {}, {}
+  local variants, errors = {}, {}
   local remaining = #tasks
-  for _, task in ipairs(tasks) do
-    if #task.editions > 1 then table.insert(shared_groups, task.editions) end
-  end
   for _, task in ipairs(tasks) do
     local code = task.code
     local function finish_variant(ok, variant, err)
@@ -2096,7 +2201,7 @@ local function generate_edition_versions(buf, source, origin, codes, names, task
             vim.log.levels.ERROR
           )
         end
-      end, shared_groups) then
+      end, {}) then
         notify_workflow("Aparte krantversies konden niet veilig worden ingevoegd.", vim.log.levels.ERROR)
       end
     end
@@ -3900,6 +4005,11 @@ M._finalize_published_buffer = finalize_published_buffer
 function M.pubble_send(target_buf)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  local review_block = edition_review.send_block_reason(buf)
+  if review_block then
+    vim.notify(review_block, vim.log.levels.ERROR)
+    return
+  end
   local agenda_page = require("agenda_page")
   if agenda_page.is_prepared(buf) then
     agenda_page.send(buf)
@@ -4745,7 +4855,7 @@ function M.pubble_send(target_buf)
     "--require-article-boundary",
   }
   if skip_calendar then table.insert(resolve_cmd, "--without-calendar") end
-  vim.system(
+  workflow_system(
     resolve_cmd,
     { text = true },
     function(resolve_result)
@@ -5126,7 +5236,9 @@ function M.pubble_send(target_buf)
     end)
       end)
     end)
-    end
+    end,
+    'Publicatie · Voorbereiden',
+    buf
   )
 end
 
@@ -5294,8 +5406,9 @@ event_prepare = function(buf, file, display_dates, edition_codes, done)
         return
       end
 
-      -- Twee ja/nee-vragen na elkaar (vim.ui.select kent geen multi-select);
-      -- Esc telt als nee.
+      -- Twee nee/ja-vragen na elkaar (vim.ui.select kent geen multi-select).
+      -- Nee staat bewust vooraan en is de veilige startkeuze; Esc telt ook
+      -- als nee.
       local keuzes = { kort = false, reminder = false }
 
       local function klaar()
@@ -5361,8 +5474,9 @@ event_prepare = function(buf, file, display_dates, edition_codes, done)
           omschrijving = korte_datum(dagen[1]) .. " t/m " .. korte_datum(dagen[#dagen])
             .. " (" .. #dagen .. " dagen)"
         end
-        vim.ui.select({ "Ja", "Nee" }, {
+        vim.ui.select({ "Nee", "Ja" }, {
           prompt = "Dagreminder(s) op " .. omschrijving .. "?",
+          default = 1,
         }, function(choice)
           keuzes.reminder = (choice == "Ja")
           klaar()
@@ -5373,9 +5487,10 @@ event_prepare = function(buf, file, display_dates, edition_codes, done)
         if not (type(opties.kort) == "table" and opties.kort.mogelijk) then
           return vraag_reminder()
         end
-        vim.ui.select({ "Ja", "Nee" }, {
+        vim.ui.select({ "Nee", "Ja" }, {
           prompt = "Korte versie op " .. korte_datum(opties.kort.datum)
             .. " (10 dagen vooraf)?",
+          default = 1,
         }, function(choice)
           keuzes.kort = (choice == "Ja")
           vraag_reminder()
@@ -5715,8 +5830,30 @@ end
 -- Klein headless testpunt voor het samenvoegen van gelijktijdige socialtaken.
 M._upsert_tail_section = upsert_tail_section
 
+local function social_command(prompt, buf)
+  local command = { aitext, prompt }
+  local edition_code = vim.b[buf].edition_code
+  if type(edition_code) == "string" and edition_code ~= "" then
+    table.insert(command, "--edition")
+    table.insert(command, edition_code)
+  end
+  return command
+end
+
+M._social_command = social_command
+
 local function generate_social_section(opts)
   local buf = vim.api.nvim_get_current_buf()
+  local review_variant = vim.b[buf].edition_variant
+  if type(review_variant) == "table" and type(review_variant.editions) == "table"
+      and #review_variant.editions > 1 then
+    vim.notify(
+      "Deze oudere reviewbuffer deelt één tekst met meerdere kranten. "
+        .. "Maak met <leader>ar nieuwe losse krantbuffers voordat je socialteksten toevoegt.",
+      vim.log.levels.ERROR
+    )
+    return
+  end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   -- Alleen de kale artikelbody als AI-input — geen frontmatter, kopcodes of
   -- eerder gegenereerde secties (voorkomt dat bijv. "Fotograaf:" in de post lekt).
@@ -5727,8 +5864,10 @@ local function generate_social_section(opts)
     prompt = opts.prompt_112
   end
 
+  local command = social_command(prompt, buf)
+
   ai_system(
-    { aitext, prompt },
+    command,
     { text = true, stdin = article_text },
     function(result)
       vim.schedule(function()
@@ -6666,6 +6805,10 @@ local help_categories = {
   {
     label = "Volledige cheatsheet",
     action = function() M.show_cheatsheet() end,
+  },
+  {
+    label = "Uitvoeringslogboek",
+    action = function() workflow_log.show() end,
   },
 }
 

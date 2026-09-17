@@ -59,18 +59,21 @@ assert(not review._review_buffers[buf], 'review startte vóór complete opmaak')
 for code, callback in pairs(callbacks) do callback { code = 0, stdout = 'Streamer ' .. code, stderr = '' } end
 wait(function() return review._review_buffers[buf] ~= nil end)
 local entries = review._review_buffers[buf]
-assert(vim.tbl_count(entries) == 3 and entries.B and entries.D and entries.SW, 'niet één reviewbuffer per unieke tekst')
-assert(#vim.api.nvim_tabpage_list_wins(0) == 3)
+assert(vim.tbl_count(entries) == 6 and entries.B and entries.D and entries.SW
+  and entries.ST and entries.Z and entries.K, 'niet één reviewbuffer per krant')
+assert(#vim.api.nvim_tabpage_list_wins(0) == 6)
 local general = vim.b[entries.SW].edition_variant
-assert(table.concat(general.editions, ',') == 'SW,ST,Z,K')
-assert(general.name:find('De Swollenaer', 1, true) and general.name:find('Nieuwsbode de Kop', 1, true))
+assert(table.concat(general.editions, ',') == 'SW')
+assert(general.name:find('De Swollenaer', 1, true))
 assert(text(entries.SW):find('> Streamer SW', 1, true))
-for _, code in ipairs { 'B', 'D', 'SW' } do
+assert(text(entries.ST) == text(entries.SW) and text(entries.Z) == text(entries.SW)
+  and text(entries.K) == text(entries.SW), 'algemene tekst werd niet naar iedere krantbuffer gekopieerd')
+for _, code in ipairs { 'B', 'D', 'SW', 'ST', 'Z', 'K' } do
   local done = false
   review.sync(entries[code], true, function(ok) assert(ok); done = true end)
   wait(function() return done end)
 end
-assert(vim.b[buf].edition_workspace_ready, 'drie goedkeuringen maakten niet alle zes kranten klaar')
+assert(vim.b[buf].edition_workspace_ready, 'zes goedkeuringen maakten niet alle zes kranten klaar')
 assert(ai._send_safeguard_reason(buf, vim.api.nvim_buf_get_lines(buf, 0, -1, false)) == nil,
   'gereviewde varianten vroegen onterecht goedkeuring voor de ongewijzigde gedeelde bron')
 local done = false
@@ -78,7 +81,7 @@ vim.api.nvim_buf_set_lines(entries.SW, -1, -1, false, { 'Redactionele wijziging.
 review.sync(entries.SW, false, function(ok) assert(ok); done = true end)
 wait(function() return done end)
 assert(not vim.b[buf].edition_workspace_ready, 'edit bleef stil goedgekeurd')
-assert(text(buf):find('shared-editions: SW,ST,Z,K', 1, true))
+assert(not text(buf):find('shared-editions:', 1, true), 'nieuwe flow maakte toch een gedeelde reviewbuffer')
 review.close(buf, true)
 vim.system, dialog.select = original_system, original_select
 print 'rewrite mixed: OK'

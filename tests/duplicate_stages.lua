@@ -1,9 +1,15 @@
 local ai = require 'ai_text'
 local original_runner = ai._duplicate_stage_runner
-local runs, pending, temporary, options = 0, nil, nil, nil
+local runs, pending, temporary, options, last_command = 0, nil, nil, nil, nil
 ai._duplicate_stage_runner = function(command, callback, opts)
-  runs, pending, temporary, options = runs + 1, callback, command[2], opts
+  runs, pending, temporary, options, last_command = runs + 1, callback, command[2], opts, command
   assert(command[3] == '--json' and command[4] == '--editions', 'actiecontract ontbreekt')
+end
+local function command_has_pair(command, flag, value)
+  for index, item in ipairs(command or {}) do
+    if item == flag and command[index + 1] == value then return true end
+  end
+  return false
 end
 local function buffer()
   local buf = vim.api.nvim_create_buf(false, true)
@@ -125,9 +131,15 @@ end
 
 local with_candidates = buffer()
 ai._check_duplicate_stage(with_candidates, { 'B', 'D' }, 'herschrijven', function(ok) approved = ok end)
-pending(false, { version = 1, performed = true, candidates = { { headline = 'Batavia aan land' } } })
+pending(false, {
+  version = 1,
+  performed = true,
+  candidates = { { key = 'join:899', headline = 'Batavia aan land' } },
+})
 settled(with_candidates)
 assert(not approved, 'geannuleerde doublure gold als goedkeuring')
+assert(#ai._ignored_duplicate_keys(with_candidates) == 0,
+  'annuleren onthield de kandidaat ten onrechte als genegeerd')
 assert(#cancel_calls == 1 and cancel_calls[1] == with_candidates,
   'geannuleerde doublure met kandidaten brak de andere AI-taken niet af')
 
@@ -136,6 +148,36 @@ ai._check_duplicate_stage(empty_cancel, { 'B', 'D' }, 'herschrijven', function(o
 pending(false, { version = 1, performed = true, candidates = {} })
 settled(empty_cancel)
 assert(#cancel_calls == 1, 'annulering zonder kandidaten brak ten onrechte AI-taken af')
+
+-- Doorgaan met een getoonde kandidaat onthoudt diens stabiele sleutel. Na een
+-- inhoudswijziging draait de controle opnieuw, maar de oude kandidaat gaat als
+-- uitsluiting mee. Een nieuwe kandidaat kan wel worden getoond en toegevoegd.
+local remembered = buffer()
+ai._check_duplicate_stage(remembered, { 'B', 'D' }, 'importeren', function(ok) approved = ok end)
+pending(true, {
+  version = 1,
+  performed = true,
+  candidates = { { key = 'join:900', headline = 'Eerder beoordeeld bericht' } },
+})
+settled(remembered)
+assert(approved, 'doorgaan na kandidaat werd niet geaccepteerd')
+assert(vim.deep_equal(ai._ignored_duplicate_keys(remembered), { 'join:900' }),
+  'genegeerde kandidaatsleutel werd niet onthouden')
+
+vim.api.nvim_buf_set_lines(remembered, -1, -1, false, { 'Nieuwe inhoud voor hercontrole.' })
+ai._check_duplicate_stage(remembered, { 'B', 'D' }, 'verzenden', function(ok) approved = ok end)
+assert(command_has_pair(last_command, '--ignore-key', 'join:900'),
+  'latere controle sloot de eerder genegeerde kandidaat niet uit')
+pending(true, {
+  version = 1,
+  performed = true,
+  candidates = { { key = 'article:B:901', headline = 'Nieuwe kandidaat' } },
+})
+settled(remembered)
+assert(vim.deep_equal(
+  ai._ignored_duplicate_keys(remembered),
+  { 'article:B:901', 'join:900' }
+), 'nieuwe kandidaat werd niet naast de eerdere uitsluiting onthouden')
 
 
 -- Een herschreven artikel moet opnieuw langs de controle. Een ruwe importmail

@@ -140,6 +140,11 @@ local initial_help = review._review_help_entry(entries.B)
 assert(initial_help.status:find('nog niet goedgekeurd', 1, true), 'reviewstatus ontbreekt in contexthelp')
 local source_help = review._source_help_entry(buf)
 assert(vim.inspect(source_help):find('<leader>aV', 1, true), 'bronhulp mist route naar versies')
+vim.b[entries.B].pending_jobs = 1
+assert(review.send_block_reason(buf):find('nog door AI bijgewerkt', 1, true),
+  'lopende AI in een krantbuffer blokkeerde de centrale verzending niet')
+vim.b[entries.B].pending_jobs = 0
+assert(review.send_block_reason(buf) == nil, 'afgeronde reviewtaak bleef verzending blokkeren')
 
 local approved = false
 review.sync(entries.B, true, function(ok) approved = ok end)
@@ -153,6 +158,8 @@ vim.b[buf].edition_help_summary = {
   ready = true, source_stale = false,
 }
 vim.api.nvim_buf_set_lines(entries.B, -1, -1, false, { 'Nieuwe onopgeslagen wijziging.' })
+assert(review.send_block_reason(buf):find('niet opgeslagen', 1, true),
+  'onopgeslagen krantversie blokkeerde de centrale verzending niet')
 local changed_summary = review._current_help_summary(buf)
 assert(changed_summary.ready == false, 'onopgeslagen edit bleef in hulp verzendklaar')
 assert(changed_summary.approved == 2, 'onopgeslagen edit bleef als goedgekeurd meetellen')

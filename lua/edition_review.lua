@@ -151,6 +151,7 @@ local function review_help_entry(review_buf)
       {
         heading = "Andere hoofdopties",
         lines = {
+          "<leader>af/al  Maak Facebook- of LinkedIn-tekst voor alleen deze krant.",
           "<leader>aV  Overzicht openen of een andere krantversie kiezen.",
           ":tabclose   De review voorlopig verlaten.",
         },
@@ -177,6 +178,7 @@ local function review_help_entry(review_buf)
       {
         heading = "Andere hoofdopties",
         lines = {
+          "<leader>af/al  Vervang de socialtekst voor deze krant; keur daarna opnieuw goed.",
           "<leader>aV  Bekijk de bron en alle goedkeuringsstatussen.",
         },
       },
@@ -220,6 +222,7 @@ local function review_help_entry(review_buf)
     {
       heading = "Andere hoofdopties",
       lines = {
+        "<leader>af/al  Maak Facebook- of LinkedIn-tekst voor alleen deze krant.",
         "<leader>aV  Overzicht openen of een andere krantversie kiezen.",
       },
     },
@@ -804,6 +807,20 @@ function M.has_unsaved(source_buf)
     end
   end
   return false
+end
+
+function M.send_block_reason(source_buf)
+  for _, review_buf in pairs(review_buffers[source_buf] or {}) do
+    if vim.api.nvim_buf_is_valid(review_buf) then
+      if (tonumber(vim.b[review_buf].pending_jobs) or 0) > 0 then
+        return "Een krantversie wordt nog door AI bijgewerkt. Wacht op het resultaat, controleer het en keur het goed met <leader>aG."
+      end
+      if vim.bo[review_buf].modified then
+        return "Een krantversie heeft nog niet opgeslagen of goedgekeurde wijzigingen. Controleer haar en gebruik <leader>aG."
+      end
+    end
+  end
+  return nil
 end
 
 function M.close(source_buf, force)

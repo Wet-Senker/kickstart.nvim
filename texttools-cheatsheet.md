@@ -15,11 +15,13 @@ In Neovim:
   <leader>ac    kalenderdata; onvolledige items tonen wat nog ontbreekt
   <leader>an    kop/lead waar nodig herstellen; rest minimaal neutraliseren
   <leader>af    Facebook-post genereren — verschijnt als ## Facebook sectie
+  <leader>al    LinkedIn-post genereren — verschijnt als ## LinkedIn sectie
   <leader>aV    overzicht van bron en losse krantversiebuffers
   <leader>aG    huidige krantversie opslaan en goedkeuren
   <leader>aw    importcontrole, planning, doublures en versturen
                 ↳ zo nodig eerst kranttijd-/vervolgteksten controleren
   <leader>kd    actieve webartikelen per site op doublures controleren
+  :TexttoolsLog veilige tijdlijn met duur en uitkomst per hoofdhandeling
 ```
 
 Na volledig succes verhuist het artikel naar `Pubble Archief`; het werkbestand
@@ -46,14 +48,15 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 
 | Leader | Actie |
 |---|---|
-| `<leader>ar` | **Herschrijven** — zonder onderscheidende plaats/provincie stil één algemene versie. Anders keuze tussen de voorgestelde gerichte varianten + algemene rest, één algemene versie of Annuleren. De gebiedsscan doet alleen een voorstel. Direct uit het origineel met tussenkopjes, daarna losse streamer; één review/goedkeuring per unieke tekst |
+| `<leader>ar` | **Herschrijven** — zonder onderscheidende plaats/provincie stil één algemene versie. Anders keuze tussen de voorgestelde gerichte varianten + algemene rest, één algemene versie of Annuleren. De gebiedsscan doet alleen een voorstel. Direct uit het origineel met tussenkopjes, daarna losse streamer; iedere krant krijgt een eigen reviewbuffer, ook als de artikeltekst gelijk is |
 | `<leader>ad` | **Doublurecontrole opnieuw** — draait de controle nog eens voor dit artikel, ook als je eerder "toch verzenden" koos. Wegdrukken met `q` laat hem vanzelf terugkomen; deze toets is voor de keer dat je hem al had goedgekeurd |
 | *automatisch bij import* | **Agenda-doublurecontrole** — staat het evenement al in de eigen online agenda, dan volgt vóór elke verwerking de vraag of er tóch een agenda-item moet komen, met de optie het bestaande item in de browser te bekijken. Nee laat alleen het agenda-item vervallen; web en print gaan door. Uit te zetten met `TEXTTOOLS_AGENDA_DOUBLURECHECK=0` |
 | `<leader>ao` | **Tekstcheck** — alleen taalfouten (spelling/grammatica); tekst blijft verder gelijk (twijfel → `## Suggesties`) |
 | `<leader>an` | **Opschonen + neutraliseren** — eerst zekere persbericht-/mailruis als volledige regels weg, daarna reclame/'u'-taal eruit + kop/lead publicatieklaar; rest zo dicht mogelijk bij origineel |
 | `<leader>ac` | Metadata + kalenderitem — ontbrekende velden tonen het formaat, zoals `Tijd: HH:MM` |
 | `<leader>at` | Tussenkopjes, optionele streamer en 2 kopopties; gekozen kop wordt zo nodig vóór de lead ingevoegd |
-| `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie |
+| `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie; in een krantreview alleen voor die krant |
+| `<leader>al` | LinkedIn-post genereren — toont bewerkbare `## LinkedIn` sectie; in een krantreview alleen voor die krant |
 | `<leader>aV` | Overzicht van bron en afzonderlijke krantversiebuffers |
 | `<leader>aG` | Huidige krantversie opslaan en expliciet goedkeuren |
 | `<leader>aw` | Publicatie voorbereiden; vangnet voor doublures en onbewerkte import; toont zo nodig eerst `## Kranttijdsversies` en eventvervolgen |
@@ -62,6 +65,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |
 | `<leader>ah` | Hiërarchisch hulpmenu voor codes, rubrieken, acties en cheatsheet |
 | `<leader>kh` | Contextuele workflowhulp — toont de actuele status, de aanbevolen volgende stap, andere hoofdopties en wat daarna gebeurt |
+| `:TexttoolsLog` | Veilige tijdlijn voor het huidige artikel; `:TexttoolsLog!` toont de laatste workflow ongeacht de buffer |
 | `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen en Kamper Kiek |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten |
 | `<leader>ka` | Ruwe papieren agendapagina voorbereiden voor eigen tekstcontrole |
@@ -116,16 +120,18 @@ staat voorlopig **altijd controleren** aan. De testvarianten blijven beschikbaar
 `codex/doublure-voorwaardelijk` zodra een andere krant is gekozen, ook alleen
 De Kop. Onbevestigde `SUGGESTIE`-codes zijn geen gekozen edities.
 De controle start na import/editieresolutie, anders na herschrijven, anders
-vóór verzenden. Een afgeronde controle wordt in deze
-buffersessie niet herhaald. Zij doorzoekt altijd alle zes sites, vanaf veertien
+vóór verzenden. Ongewijzigde tekst wordt niet opnieuw gecontroleerd; na een
+inhoudswijziging wel. Kandidaten waarbij je met `v` doorging worden in dezelfde
+buffer niet opnieuw voorgesteld; `q`/Escape onthoudt niets. Zij doorzoekt altijd alle zes sites, vanaf veertien
 dagen geleden en onbeperkt vooruit, ongeacht status.
 
 Mogelijke Pubble-doublure: het overzicht toont alleen koppen, gegroepeerd per
 krant. Zet de cursor op een kop en druk Enter, of dubbelklik, voor de volledige
 tekst en metadata van precies die krantversie. De onderste terugregel, `q` of
 Escape keert terug naar het overzicht. `o` opent de gekozen siteversie in
-Pubble, `v` gaat door (bij import/herschrijven: bewerken; bij verzenden: toch
-verzenden) en `q`/Escape annuleert vanuit het overzicht. In het detail staan
+Pubble, `v` gaat door en onthoudt de getoonde kandidaten (bij
+import/herschrijven: bewerken; bij verzenden: toch verzenden) en `q`/Escape
+annuleert zonder iets te onthouden. In het detail staan
 publicatiedatum, aanmaakdatum en de persoon die het artikel aanmaakte.
 
 ---
@@ -247,17 +253,21 @@ rewrite zelf is veranderd. Staat
 bij `<leader>aw` nog geen `e:`, dan moet de afgeleide bestemming eerst worden
 bevestigd; daarna blijft de regel boven het artikel staan.
 
-Na `<leader>ar` met meerdere gekozen edities verschijnt de vraag of iedere
-krant een eigen versie moet krijgen. Kies je **Ja**, dan blijft de gewone body
-de niet te publiceren bron en krijgt iedere krant een eigen buffer. Sla een
-edit op met `:w`, keur haar goed met `<leader>aG` en gebruik `<leader>aV` voor
-het overzicht. `<leader>aw` verstuurt per krant de passende print- én webversie
-en blokkeert bij ontbrekende, verouderde of nog niet goedgekeurde teksten. Kies
-**Nee** om één gezamenlijke tekst te behouden.
+Na `<leader>ar` met meerdere gekozen edities verschijnt alleen bij een
+onderscheidend gebiedssignaal een keuze over de tekststrategie. Als er
+krantversies worden gemaakt, blijft de gewone body de niet te publiceren bron
+en krijgt iedere krant een eigen buffer — ook wanneer meerdere buffers eerst
+dezelfde algemene artikeltekst bevatten. Maak in zo'n buffer met `<leader>af`
+en `<leader>al` desgewenst de socialteksten voor precies die krant. Sla een edit
+op met `:w`, keur haar goed met `<leader>aG` en gebruik `<leader>aV` voor het
+overzicht. `<leader>aw` verstuurt daarna alle kranten in één keer met de
+passende print-, web- en socialtekst. De foto wordt eenmaal geüpload en voor de
+verschillende doelen hergebruikt. De socialteksten worden in Pubble opgeslagen;
+ze worden niet automatisch op Facebook of LinkedIn gepubliceerd.
 
 In de losse reviewbuffers toont `<leader>kh` steeds de actuele fase: gewijzigd,
 alleen opgeslagen, goedgekeurd, verouderd of volledig verzendklaar. Op de
-gedeelde bron legt dezelfde hulp uit hoeveel unieke tekstversies nog moeten
+gedeelde bron legt dezelfde hulp uit hoeveel krantversies nog moeten
 worden goedgekeurd en dat de bron zelf niet wordt gepubliceerd.
 
 Bij kalenderartikelen bepaalt `<leader>aw` per krant of het evenement op de

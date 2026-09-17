@@ -1,6 +1,7 @@
 local M = {}
 local notifications = require('texttools_notify')
 local context_help = require('context_help')
+local workflow_log = require('workflow_log')
 
 local function trim_text(value, maximum)
   local text = vim.trim(tostring(value or '')):gsub('%s+', ' ')
@@ -116,7 +117,7 @@ function M.report_lines(result, options)
     table.insert(lines, '')
   end
   local approve_label = options.approve_label or 'toch verzenden'
-  table.insert(lines, 'Enter/dubbelklik = tekst  •  o = Pubble  •  v = '
+  table.insert(lines, 'Enter/dubbelklik = tekst  •  o = Pubble  •  v = negeren en '
     .. approve_label .. '  •  q = annuleren')
   return lines, ranges
 end
@@ -177,7 +178,7 @@ function M.show(result, callback, options)
             lines = {
               'o  Open deze bestaande versie in Pubble.',
               'q  Terug naar het overzicht zonder een besluit te nemen.',
-              'v  Controle afronden en ' .. approve_label .. '.',
+              'v  Getoonde doublures negeren en ' .. approve_label .. '.',
             },
           },
         },
@@ -197,8 +198,8 @@ function M.show(result, callback, options)
         {
           heading = 'Beslissen',
           lines = {
-            'v  Controle afronden en ' .. approve_label .. '.',
-            'q  Annuleren; dit registreert niet dat het géén doublure is.',
+            'v  Getoonde doublures negeren en ' .. approve_label .. '.',
+            'q  Annuleren; de getoonde doublures kunnen later terugkomen.',
           },
         },
       },
@@ -360,15 +361,33 @@ end
 function M.check(command, callback, options)
   options = options or {}
   notifications.workflow('Pubble wordt gecontroleerd op mogelijke doublures…', vim.log.levels.INFO)
+  local trace_buf = options.buf
+  if type(trace_buf) ~= 'number' or not vim.api.nvim_buf_is_valid(trace_buf) then
+    trace_buf = vim.api.nvim_get_current_buf()
+  end
+  local trace = workflow_log.start(trace_buf, 'Pubble · Doublurecontrole', {
+    command = vim.fn.fnamemodify(tostring(command[1] or ''), ':t'),
+  })
+  local trace_finished = false
+  local function finish_trace(outcome, detail)
+    if trace_finished then return end
+    trace_finished = true
+    workflow_log.finish(trace, outcome, detail)
+  end
   local function handle_result(result)
     vim.schedule(function()
       if options.is_current and not options.is_current() then
+        finish_trace('cancelled', { reason = 'stale_result', exit_code = result.code })
         callback(false, nil)
         return
       end
       local ok, data = pcall(vim.fn.json_decode, result.stdout or '')
       if result.code ~= 0 or not ok or type(data) ~= 'table'
           or data.version ~= 1 or type(data.candidates) ~= 'table' then
+        finish_trace('failed', {
+          exit_code = result.code,
+          error = result.code ~= 0 and 'ProcessExit' or 'InvalidResult',
+        })
         local detail = vim.trim(result.stderr or result.stdout or '')
         local continue_label = options.failure_continue_label or 'Toch verzenden'
         local prompt = 'Doublurecontrole mislukt'
@@ -388,6 +407,10 @@ function M.check(command, callback, options)
         end)
         return
       end
+      finish_trace('succeeded', {
+        exit_code = result.code,
+        candidate_count = #data.candidates,
+      })
       if #data.candidates == 0 then
         callback(true, data)
         return
@@ -397,8 +420,12 @@ function M.check(command, callback, options)
       end, options)
     end)
   end
-  local started, err = pcall(vim.system, command, { text = true }, handle_result)
-  if not started then handle_result({ code = 1, stderr = tostring(err) }) end
+  local process_options = workflow_log.with_environment({ text = true }, trace)
+  local started, err = pcall(vim.system, command, process_options, handle_result)
+  if not started then
+    finish_trace('failed', { error = 'ProcessStartError' })
+    handle_result({ code = 1, stderr = tostring(err) })
+  end
 end
 
 return M

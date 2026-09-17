@@ -67,6 +67,16 @@ assert(rendered(replaced):find("LinkedIn-tekst.", 1, true), "LinkedIntekst werd 
 local empty_linkedin = ai_text._upsert_tail_section(base, "LinkedIn", "")
 assert(count_heading(empty_linkedin, "## LinkedIn") == 1, "lege handmatige LinkedInsectie ontbreekt")
 
+local review_buf = vim.api.nvim_create_buf(false, true)
+vim.b[review_buf].edition_code = "SW"
+local review_command = ai_text._social_command("facebook_bericht", review_buf)
+assert(review_command[#review_command - 1] == "--edition" and review_command[#review_command] == "SW",
+  "socialtaak uit reviewbuffer kreeg geen doelkrant")
+local source_buf = vim.api.nvim_create_buf(false, true)
+local source_command = ai_text._social_command("linkedin_bericht", source_buf)
+assert(not vim.tbl_contains(source_command, "--edition"),
+  "gedeelde socialtekst kreeg ten onrechte een doelkrant")
+
 local original_topics_runner = ai_text._kamper_kiek_topics_runner
 local kiek_buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(kiek_buf, 0, -1, false, {
