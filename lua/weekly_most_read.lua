@@ -96,30 +96,41 @@ local function facebook_links_needing_review(document)
   return links
 end
 
-local function photo_menu_items(photos)
-  local items = {}
-  local selected_count = 0
-  for _, photo in ipairs(photos or {}) do
-    if photo.choice ~= 'overslaan' then selected_count = selected_count + 1 end
-  end
-  if selected_count > 0 then
-    table.insert(items, {
-      label = string.format("Eén hoofdfoto van elk van de %d gekozen artikelen", selected_count),
-      all_selected = true,
-    })
-  end
-  for _, photo in ipairs(photos or {}) do
-    table.insert(items, {
-      label = string.format('%s · %s', tostring(photo.headline), tostring(photo.choice)),
-      article_id = photo.article_id,
-    })
-  end
-  return items
-end
-
 local function review_text(buf)
   if not vim.api.nvim_buf_is_valid(buf) then return nil end
   return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+end
+
+local function dossier_ranges(lines)
+  local starts = {}
+  for index, line in ipairs(lines or {}) do
+    if line:match('^## Dossier %d+%.') then table.insert(starts, index) end
+  end
+  local ranges = {}
+  for index, start_line in ipairs(starts) do
+    table.insert(ranges, {
+      start_line,
+      (starts[index + 1] or (#lines + 1)) - 1,
+    })
+  end
+  return ranges
+end
+
+local function fold_dossiers(buf)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local ranges = dossier_ranges(lines)
+  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+    vim.api.nvim_win_call(win, function()
+      vim.wo.foldmethod = 'manual'
+      vim.cmd 'silent! normal! zE'
+      for _, range in ipairs(ranges) do
+        if range[2] > range[1] then
+          vim.cmd(string.format('silent! %d,%dfold', range[1], range[2]))
+        end
+      end
+      vim.cmd 'silent! normal! zM'
+    end)
+  end
 end
 
 local function selection_summary(document)
@@ -182,7 +193,8 @@ local function help_entry(buf)
     heading = 'Andere hoofdopties',
     lines = {
       '<leader>kf  Download één hoofdfoto per gekozen artikel.',
-      'Zet LOS: voor een zelfstandig reactieartikel; dit mag vanaf 41 reacties.',
+      'Zet LOS: voor een zelfstandig reactieartikel; dit mag vanaf 41 reacties én met reactietekst.',
+      'Open een technisch dossier zo nodig met zo; sluit het weer met zc.',
     },
   })
   table.insert(entry.sections, {
@@ -209,6 +221,7 @@ function M.prepare(edition)
         buffer = buf,
         desc = '[K]rant meestgelezen [f]oto downloaden',
       })
+      fold_dossiers(buf)
       workflow(
         'Review geopend. Kies maximaal vijf regels; <leader>kv schrijft, <leader>kf downloadt hoofdfoto\'s. Hulp: <leader>kh.',
         vim.log.levels.INFO,
@@ -282,46 +295,37 @@ function M.photos(buf)
   end
   local text = review_text(buf)
   if not text then return end
-  local list_cmd = vim.list_extend(vim.deepcopy(command), { 'photos', '--list' })
-  workflow("Meestgelezen · beschikbare hoofdfoto's ophalen…", vim.log.levels.INFO)
-  vim.system(list_cmd, { text = true, stdin = text }, function(result)
+  local summary = selection_summary(text)
+  if summary.selected == 0 or summary.selected > 5 then
+    vim.notify('Laat eerst één tot vijf keuzeregels staan.', vim.log.levels.WARN)
+    return
+  end
+  local args = {
+    'photos',
+    '--all-selected',
+    '--destination',
+    vim.fn.expand('~/Desktop/meestgelezen'),
+  }
+  local download_cmd = vim.list_extend(vim.deepcopy(command), args)
+  workflow("Meestgelezen · alle beschikbare hoofdfoto's downloaden…", vim.log.levels.INFO)
+  vim.system(download_cmd, { text = true, stdin = text }, function(result)
     vim.schedule(function()
-      local data = decode(result, "Hoofdfoto's uitlezen mislukt.")
-      if not data then return end
-      local items = photo_menu_items(data.photos)
-      if #items == 0 then
-        vim.notify("Geen hoofdfoto's beschikbaar bij deze onderwerpen.", vim.log.levels.WARN)
-        return
-      end
-      vim.ui.select(items, {
-        prompt = "Van welke artikelen wil je één hoofdfoto?",
-        format_item = function(item) return item.label end,
-      }, function(choice)
-        if not choice then return end
-        local args = { 'photos' }
-        if choice.all_selected then
-          table.insert(args, '--all-selected')
-        else
-          vim.list_extend(args, { '--article-id', tostring(choice.article_id) })
-        end
-        vim.list_extend(args, { '--destination', vim.fn.expand('~/Desktop/meestgelezen') })
-        local download_cmd = vim.list_extend(vim.deepcopy(command), args)
-        workflow("Meestgelezen · hoofdfoto's downloaden…", vim.log.levels.INFO)
-        vim.system(download_cmd, { text = true, stdin = text }, function(download_result)
-          vim.schedule(function()
-            local downloaded = decode(download_result, "Hoofdfoto's downloaden mislukt.")
-            if not downloaded then return end
-            workflow(
-              string.format(
-                "%d hoofdfoto('s) in Bureaublad/meestgelezen gezet.",
-                tonumber(downloaded.count) or 0
-              ),
-              vim.log.levels.INFO,
-              { ttl = 10 }
-            )
-          end)
-        end)
-      end)
+      local downloaded = decode(result, "Hoofdfoto's downloaden mislukt.")
+      if not downloaded then return end
+      local count = tonumber(downloaded.count) or 0
+      local suffix = count < summary.selected
+          and string.format(' Voor %d selectie(s) was geen hoofdfoto beschikbaar.', summary.selected - count)
+        or ''
+      workflow(
+        string.format(
+          "%d van %d hoofdfoto('s) in Bureaublad/meestgelezen gezet.%s",
+          count,
+          summary.selected,
+          suffix
+        ),
+        vim.log.levels.INFO,
+        { ttl = 12 }
+      )
     end)
   end)
 end
@@ -355,8 +359,8 @@ function M.setup()
 end
 
 M._facebook_links_needing_review = facebook_links_needing_review
-M._photo_menu_items = photo_menu_items
 M._selection_summary = selection_summary
 M._help_entry = help_entry
+M._dossier_ranges = dossier_ranges
 
 return M

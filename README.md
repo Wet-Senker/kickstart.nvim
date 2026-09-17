@@ -43,7 +43,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | Leader | Actie |
 |---|---|
 | `<leader>z` | Rustige Zen-weergave met een bredere tekstkolom, zonder regelnummers, tekens in de marge of zichtbare witruimte. Markdown loopt alleen visueel om bij woordgrenzen; het bestand krijgt geen extra regeleinden. |
-| `<leader>ar` | Herschrijven naar krantenartikel (AI). Bij meerdere bestemmingen verschijnt alleen een vraag als een gevonden plaats of prominente provincie de gekozen gebieden werkelijk onderscheidt. De standaardkeuze maakt gerichte lokale of provinciale versies en één algemene voor de overige kranten; zonder onderscheidend signaal ontstaat stil één algemene versie. Bestemmingen blijven gelijk. Iedere unieke tekst komt direct uit het origineel, inclusief tussenkopjes; daarna een losse ontbrekende streamer. Complete versies openen in een reviewtab, één goedkeuring per unieke tekst met alle bestemmingen zichtbaar. Geen tussenrewrite of opmaak van de gedeelde bron. |
+| `<leader>ar` | Herschrijven naar krantenartikel (AI). Een reeds bevestigde 112-rubriek of geaccepteerde agenda krijgt in dezelfde call natuurlijke zoekintentie voor kop en lead; andere artikelen niet. Bij meerdere bestemmingen verschijnt alleen een vraag als een gevonden plaats of prominente provincie de gekozen gebieden werkelijk onderscheidt. De standaardkeuze maakt gerichte lokale of provinciale versies en één algemene voor de overige kranten; zonder onderscheidend signaal ontstaat stil één algemene versie. Bestemmingen blijven gelijk. Iedere unieke tekst komt direct uit het origineel, inclusief tussenkopjes; daarna een losse ontbrekende streamer. Complete versies openen in een reviewtab, één goedkeuring per unieke tekst met alle bestemmingen zichtbaar. Geen tussenrewrite of opmaak van de gedeelde bron. |
 | `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. Tijdens een doublurecontrole wordt deze actie eenmaal uitgesteld en alleen na doorgaan hervat. Een herkend maar onvolledig item toont `<!-- Ontbreekt: … -->` inclusief invoerformaat, bijvoorbeeld `Tijd: HH:MM`. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
 | `<leader>an` | Minimaal publicatieklaar maken in twee fasen: eerst uitsluitend zekere persbericht-/mailruis als volledige regels verwijderen, daarna kop en nieuwsgerichte lead herstellen en reclametaal, directe aanspreekvormen en lokale taalfouten minimaal neutraliseren. |
@@ -61,8 +61,8 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | `<leader>ka` | Ruwe papieren agendapagina structureren en gewone items redigeren; daarna zelf de tekst controleren. |
 | `<leader>kg` | Agenda-onlinemenu. Bij **Websiteartikelen zonder agenda-item zoeken** maakt Enter een bewerkbaar voorstel, opent `o` het bronartikel en markeert `x` een artikel duurzaam als geen agenda nodig. Afwijzingen synchroniseren via de gedeelde Texttools-map. |
 | `<leader>kd` | Actieve webartikelen van alle kranten of één gekozen krant intern op doublures controleren. Kijkt standaard veertien dagen terug, vergelijkt alleen berichten die maximaal zeven dagen uiteen staan en opent kandidaten geordend in de browser. Sites worden nooit onderling vergeleken; agenda-schaduwartikelen tellen niet mee. |
-| `<leader>kv` / `:Meestgelezen` | Haalt voor één krant tien meest bekeken kandidaten uit de afgelopen zeven voltooide dagen op. Verwijder bovenaan regels met `dd`, laat maximaal vijf staan en zet eventueel `LOS:` voor een zelfstandig reactieartikel vanaf 41 reacties. De artikelvolgorde volgt de kijkcijfers. Druk opnieuw `<leader>kv`; daarna openen gewone artikelbuffers. Vanaf 15 reacties wordt Meta eerst geprobeerd en anders de handmatige link-/plakroute aangeboden. |
-| buffer-lokaal `<leader>kf` / `:MeestgelezenFotos` | Kies één artikel of alle overgebleven keuzeregels. Per artikel wordt precies één hoofdfoto gedownload naar `Bureaublad/meestgelezen`; volledige galerijen worden niet opgehaald. |
+| `<leader>kv` / `:Meestgelezen` | Haalt voor één krant tien meest bekeken kandidaten uit de afgelopen zeven voltooide dagen op. Iedere keuzeregel toont kop, woorden, hits en Facebookreacties; technische dossiers zijn ingeklapt (`zo` opent, `zc` sluit). Verwijder regels met `dd`, laat maximaal vijf staan en zet eventueel `LOS:` voor een zelfstandig reactieartikel vanaf 41 reacties én met toegevoegde reactietekst. De artikelvolgorde volgt de kijkcijfers. Druk opnieuw `<leader>kv`; daarna openen gewone artikelbuffers. Vanaf 15 reacties wordt Meta eerst geprobeerd en anders de handmatige link-/plakroute aangeboden. Zonder reactietekst wordt niets over reacties geschreven. |
+| buffer-lokaal `<leader>kf` / `:MeestgelezenFotos` | Downloadt direct voor alle overgebleven keuzeregels precies één hoofdfoto naar `Bureaublad/meestgelezen`; er volgt geen tweede keuzemenu en volledige galerijen worden niet opgehaald. |
 | `<leader>kh` / `:ContextHelp` | Toont dynamische hulp voor de huidige workflowfase: status, aanbevolen vervolgstap, andere hoofdopties en het gevolg daarvan. Werkt onder meer bij krantversies, publicatiereview/-herstel, agenda, rubriekexport, doublurecontrole en Meestgelezen. Zonder herkende context verwijst de melding naar de algemene `<leader>ah`-hulp. |
 | `<leader>aq` | Annuleer alle actieve editor-AI-taken van de huidige buffer. |
 | `:AICancel` | Zelfde expliciete annulering als `<leader>aq`. |
@@ -222,7 +222,17 @@ voor de getroffen krant. De website houdt de oorspronkelijke tekst. Controleer
 de tijdsvorm en druk opnieuw `<leader>aw`; feiten, absolute data, tijden,
 getallen en citaten mogen niet veranderen.
 
-**112-detectie** — scoort tekst op signaalwoorden (politie, brandweer, ambulance, incident, etc.). De combinatie van minimaal één hulpdienst en één concreet incident krijgt één extra punt. Bij score ≥ 6 verschijnt een bevestigingsvraag. Bij "Ja": 112-template toegepast, `rubriek: 112` en `prio: 1` bovenaan gezet. Bij "Nee" blijft die keuze voor de huidige buffer staan en mag detectie na `<leader>ar` het template niet alsnog toepassen. De kop gebruikt via `pubble-places` de eerste bekende plaats uit de centrale verspreidingsgebiedentabel; zonder treffer wordt het `112:`.
+**112-detectie** — scoort tekst op signaalwoorden (politie, brandweer, ambulance, incident, etc.). De combinatie van minimaal één hulpdienst en één concreet incident krijgt één extra punt. Bij score ≥ 6 verschijnt een bevestigingsvraag. Bij "Ja": 112-template toegepast, `rubriek: 112` en `prio: 2` bovenaan gezet. Bij "Nee" blijft die keuze voor de huidige buffer staan en mag detectie na `<leader>ar` het template niet alsnog toepassen. De kop gebruikt via `pubble-places` de eerste bekende plaats uit de centrale verspreidingsgebiedentabel; zonder treffer wordt het `112:`.
+
+**Krantprioriteit vóór verzending** — `<leader>aw` toont in het
+publicatieplanningsmenu de automatisch gekozen prioriteit en de reden. De
+deterministische volgorde is: handmatige `prio:` wint; 112 krijgt 2;
+auteursregels en vaste rubrieken krijgen 1; een agenda-artikel onder 150
+inhoudelijke woorden krijgt 4; een concrete plaats uit een gekozen
+verspreidingsgebied geeft 3; alleen provinciebrede, landelijke of niet-lokale
+inhoud geeft 4. Kies **Prioriteit aanpassen** om 1–4 te selecteren. NeoVim zet
+die keuze zichtbaar als `prio:` boven `=== ARTIKEL ===` en start dezelfde
+voorbereiding opnieuw.
 
 **Kalenderdetectie** — scoort tekst op datum/tijd/deelname-signalen. Bij score
 ≥ 8 wordt `articlemeta --calendar` gestart en een bewerkbare `## Kalender`-
@@ -252,6 +262,17 @@ Pubble Inbox moet daarvoor leeg zijn. Een losse aangeleverde regel
 
 Kalender en 112 worden ook na `<leader>ar` op de herschreven tekst beoordeeld. 112 vraagt daar
 alleen opnieuw om bevestiging als bij import nog geen keuze is gemaakt.
+
+Het weeknummer in een gegenereerde Pubble-werktitel is de uiterste bruikbare
+krant. Na die krant kan het artikel weg; een hoger nummer kan worden
+doorgeschoven en `x` heeft geen automatische deadline. Voor actueel nieuws
+kiest de bestaande metadata-call 0–2 extra bruikbare edities. Dit voegt geen
+extra AI-call toe; `week:` blijft de handmatige override.
+
+De lichte SEO-instructie loopt alleen mee wanneer de keuze vóór de rewrite al
+vaststaat: een 112-template/`rubriek: 112`, `agenda: ja` of een zichtbare
+`## Kalender`-sectie. `agenda: nee` sluit evenement-SEO uit. Een pas na de
+rewrite herkend onderwerp veroorzaakt geen tweede AI-aanroep.
 
 **Column Natuurvereniging IJsseldelta** — een auteursregel met Suzanne Beurmanjer of een afsluitend mailadres op `natuurverenigingijsseldelta.nl` geeft een voorstel. Ook bij beide signalen vraagt NeoVim altijd bevestiging. Een losse vermelding van de vereniging of haar website is onvoldoende. Na akkoord wordt het bestaande column-template toegepast; tekst en auteursregel blijven behouden. Een al toegepaste rubriekkop wordt niet opnieuw ingepakt. De nieuwe regels staan configureerbaar in de Python-core (`column_recognition.json`); per import komt er één asynchrone lokale Python-call bij, zonder AI; Raadspraat en Ondernemen gebruiken daarnaast hun eigen fotomappen.
 

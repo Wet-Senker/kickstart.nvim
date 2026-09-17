@@ -51,13 +51,8 @@ local help_entry = weekly._help_entry(help_buf)
 assert(help_entry.status:find('3 artikel', 1, true), 'dynamische selectiestatus ontbreekt')
 assert(vim.inspect(help_entry):find('<leader>kv', 1, true), 'vervolgstap voor geldige selectie ontbreekt')
 
-local photo_items = weekly._photo_menu_items {
-  { article_id = 1, headline = 'Gekozen onderwerp', choice = 'overzicht' },
-  { article_id = 2, headline = 'Reserveonderwerp', choice = 'overslaan' },
-}
-assert(#photo_items == 3, 'menu hoort alles-optie en twee losse foto’s te bevatten')
-assert(photo_items[1].all_selected == true, 'eerste optie hoort alle gekozen hoofdfoto’s te downloaden')
-assert(photo_items[2].article_id == 1, 'eerste losse foto hoort bij artikel 1')
-assert(photo_items[3].article_id == 2, 'ook een overgeslagen reservefoto moet los gekozen kunnen worden')
+local ranges = weekly._dossier_ranges(vim.split(document, '\n', { plain = true }))
+assert(#ranges == 4, 'ieder technisch dossier hoort één inklapbaar bereik te krijgen')
+assert(ranges[1][1] < ranges[1][2], 'een dossierfold moet de volledige technische inhoud omvatten')
 
 print 'weekly most read: OK'

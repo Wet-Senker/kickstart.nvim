@@ -913,6 +913,39 @@ local function _parse_112_template(lines)
   }
 end
 
+-- Zoekintentie is alleen actief op basis van een al genomen redactionele
+-- beslissing: een 112-template/rubriek of een expliciet geaccepteerde agenda.
+-- Inhoudelijke heuristieken starten SEO nooit zelfstandig.
+local function rewrite_seo_context(controls, sections, is_112_template)
+  if is_112_template then return "112" end
+  for _, line in ipairs(controls or {}) do
+    local key, value = line:match("^(%a[%a%d_]*)%s*:%s*(.-)%s*$")
+    if key and key:lower() == "rubriek" and value:lower() == "112" then
+      return "112"
+    end
+  end
+  local agenda = _agenda_mode_from_lines(controls or {})
+  if agenda == "off" then return nil end
+  if agenda == "on" then return "evenement" end
+  for _, line in ipairs(sections or {}) do
+    if line:match("^## Kalender%s*$") or line:match("^#### Kalender%s*$") then
+      return "evenement"
+    end
+  end
+  return nil
+end
+
+local function append_seo_context(command, context)
+  if context then vim.list_extend(command, { "--seo-context", context }) end
+  return command
+end
+
+local function shell_seo_context(context)
+  return context and (" --seo-context " .. vim.fn.shellescape(context)) or ""
+end
+
+M._rewrite_seo_context = rewrite_seo_context
+
 -- ---------------------------------------------------------------------------
 -- Deterministische kalenderdetectie. De centrale herkenningsmodule bezit de
 -- scorelogica; ai_text voert alleen de eventuele metadata-actie uit.
@@ -1307,6 +1340,32 @@ local function set_edition_codes(buf, codes)
   if type(codes) ~= "table" or #codes == 0 then return false end
   return replace_edition_control_lines(buf, { "e: " .. table.concat(codes, ", ") })
 end
+
+local function set_priority_control(buf, priority)
+  if not vim.api.nvim_buf_is_valid(buf) or not tonumber(priority) then return false end
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local fm, controls, body, sections, has_boundary = split_article_parts(lines)
+  local new_controls = { "prio: " .. tostring(priority) }
+  for _, line in ipairs(controls) do
+    local key = vim.trim(line):match("^([%a][%a%d_]*)%s*:")
+    key = key and key:lower() or nil
+    if key ~= "p" and key ~= "prio" then table.insert(new_controls, line) end
+  end
+  vim.api.nvim_buf_set_lines(
+    buf, 0, -1, false,
+    reassemble_article(fm, new_controls, body, sections, has_boundary)
+  )
+  return true
+end
+M._set_priority_control = set_priority_control
+
+local function priority_message(resolved)
+  local priority = type(resolved) == "table" and resolved.priority or nil
+  if type(priority) ~= "table" or tonumber(priority.value) == nil then return nil end
+  local reason = type(priority.reason) == "string" and priority.reason or "automatisch bepaald"
+  return "Krantprioriteit " .. tostring(priority.value) .. " — " .. reason
+end
+M._priority_message = priority_message
 
 -- Vul de e:-regel aan met plaats-suggesties voor edities die niet gekozen zijn,
 -- zonder de gekozen kranten te wijzigen. Werkt óók bij een expliciete e:-regel:
@@ -1940,6 +1999,7 @@ M._edition_variant_runner = function(buf, code, source, done, task)
   if task and task.prompt == "krantversie_algemeen" then
     command = { aitext, task.prompt, "--editions", table.concat(task.editions, ",") }
   end
+  append_seo_context(command, task and task.seo_context)
   ai_system(
     command,
     { text = true, stdin = source },
@@ -1997,7 +2057,7 @@ M._edition_variant_formatter = function(source_buf, code, variant, done)
   end)
 end
 
-local function generate_edition_versions(buf, source, origin, codes, names, tasks)
+local function generate_edition_versions(buf, source, origin, codes, names, tasks, seo_context)
   if type(codes) ~= "table" or #codes < 2 then return end
 
   if not tasks then
@@ -2040,10 +2100,12 @@ local function generate_edition_versions(buf, source, origin, codes, names, task
         notify_workflow("Aparte krantversies konden niet veilig worden ingevoegd.", vim.log.levels.ERROR)
       end
     end
+    local variant_task = vim.tbl_extend("force", {}, task)
+    variant_task.seo_context = seo_context
     M._edition_variant_runner(buf, code, origin, function(ok, variant, err)
       if not ok then finish_variant(false, nil, err); return end
       M._edition_variant_formatter(buf, code, variant, finish_variant)
-    end, task)
+    end, variant_task)
   end
 end
 
@@ -2088,6 +2150,7 @@ function M.rewrite_article_buffer()
   -- Detecteer 112-templatestructuur: stuur alleen titel + body naar AI,
   -- niet de plaatsafhankelijke `112 <PLAATS>:` prefix en disclaimer.
   local is_112_template = _parse_112_template(body_lines)
+  local seo_context = rewrite_seo_context(saved_ctrl, saved_sections, is_112_template)
   local input
   if is_112_template then
     input = "# " .. is_112_template.titel .. "\n\n" .. table.concat(is_112_template.body_lines, "\n")
@@ -2101,7 +2164,8 @@ function M.rewrite_article_buffer()
   -- door de tweede stap gemaskeerd wordt.
   local rewrite_cmd = { "bash", "-c",
     "set -o pipefail; " .. vim.fn.shellescape(aitext)
-      .. " journalistiek_schrijven | " .. vim.fn.shellescape(kampen_fix) }
+      .. " journalistiek_schrijven" .. shell_seo_context(seo_context)
+      .. " | " .. vim.fn.shellescape(kampen_fix) }
   local edition_mode = "single"
   local edition_tasks
   local function source_body_unchanged()
@@ -2319,7 +2383,9 @@ function M.rewrite_article_buffer()
                 -- De gedeelde bron blijft onopgemaakt; elke definitieve
                 -- krantversie krijgt opmaak vóór workspacecreatie/review.
                 if edition_mode == "splitsen" then
-                  generate_edition_versions(buf, rewritten_body_str, input, codes, names, edition_tasks)
+                  generate_edition_versions(
+                    buf, rewritten_body_str, input, codes, names, edition_tasks, seo_context
+                  )
                 end
                 start_calendar_after_duplicate()
               end
@@ -2386,6 +2452,7 @@ function M.rewrite_article_buffer()
             "set -o pipefail; " .. vim.fn.shellescape(aitext)
               .. " krantversie_algemeen --editions "
               .. vim.fn.shellescape(table.concat(codes, ","))
+              .. shell_seo_context(seo_context)
               .. " | " .. vim.fn.shellescape(kampen_fix) }
         else
           edition_mode = "splitsen"
@@ -4800,6 +4867,13 @@ function M.pubble_send(target_buf)
         notify_workflow(msg)
       end
 
+      local resolved_priority_message = priority_message(resolved)
+      if resolved_priority_message then
+        notify_workflow(
+          resolved_priority_message .. ". Pas zo nodig aan met prio: 1, 2, 3 of 4."
+        )
+      end
+
       if is_112 then
         send_published({})
         return
@@ -4898,6 +4972,32 @@ function M.pubble_send(target_buf)
         return items, item_values, base
       end
 
+      local function choose_priority_and_restart()
+        vim.ui.select({ 1, 2, 3, 4 }, {
+          prompt = "Krantprioriteit kiezen:",
+          format_item = function(value)
+            local labels = {
+              [1] = "moet mee",
+              [2] = "mag mee",
+              [3] = "rest",
+              [4] = "nood",
+            }
+            return tostring(value) .. " — " .. labels[value]
+          end,
+        }, function(priority)
+          if priority == nil then
+            discard_unpublished_temp()
+            notify_workflow("Verzending geannuleerd.", vim.log.levels.INFO)
+          elseif set_priority_control(buf, priority) then
+            discard_unpublished_temp()
+            vim.schedule(function() M.pubble_send(buf) end)
+          else
+            discard_unpublished_temp()
+            notify_workflow("Prioriteit kon niet worden aangepast.", vim.log.levels.ERROR)
+          end
+        end)
+      end
+
       local function ask_edition(idx)
         if idx > #edition_codes then
           send_published(display_dates)
@@ -4917,6 +5017,8 @@ function M.pubble_send(target_buf)
           table.insert(item_values, "__next__")
           table.insert(items, "Direct plaatsen")
           table.insert(item_values, "direct")
+          table.insert(items, "Prioriteit aanpassen")
+          table.insert(item_values, "__priority__")
           table.insert(items, "Ongepubliceerd plaatsen")
           table.insert(item_values, "__unpublished__")
 
@@ -4938,6 +5040,8 @@ function M.pubble_send(target_buf)
               show_week(week_offset - 1)
             elseif value == "__unpublished__" then
               send_unpublished()
+            elseif value == "__priority__" then
+              choose_priority_and_restart()
             else
               display_dates[code] = value
               ask_edition(idx + 1)
@@ -4991,14 +5095,18 @@ function M.pubble_send(target_buf)
 
       local accept_label = #edition_codes == 1 and "Aanbevolen datum accepteren" or "Aanbevolen datums accepteren"
       local adjust_label = #edition_codes == 1 and "Datum aanpassen" or "Datums per editie aanpassen"
+      local priority_label = "Prioriteit aanpassen"
       local unpublished_label = "Ongepubliceerd plaatsen"
       vim.ui.select({
         accept_label,
         adjust_label,
         "Direct plaatsen",
+        priority_label,
         unpublished_label,
       }, {
-        prompt = "Publicatieplanning — " .. table.concat(summary, ", ") .. ":",
+        prompt = "Publicatieplanning"
+          .. (resolved_priority_message and (" — " .. resolved_priority_message) or "")
+          .. " — " .. table.concat(summary, ", ") .. ":",
       }, function(choice)
         if choice == nil then
           discard_unpublished_temp()
@@ -5007,6 +5115,8 @@ function M.pubble_send(target_buf)
           send_published(recommended)
         elseif choice == adjust_label then
           ask_edition(1)
+        elseif choice == priority_label then
+          choose_priority_and_restart()
         elseif choice == unpublished_label then
           send_unpublished()
         else

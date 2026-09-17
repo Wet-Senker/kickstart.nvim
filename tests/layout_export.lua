@@ -87,7 +87,10 @@ local nature_text = table.concat(vim.fn.readfile(layout_dir .. '/nature.txt'), '
 assert(nature_text:find('FOTOBIJSCHRIFT: Gedeeld bijschrift', 1, true), 'bijschrift ontbreekt')
 local _, fotobijschrift_count = nature_text:gsub('FOTOBIJSCHRIFT', '')
 assert(fotobijschrift_count == 1, 'bijschrift staat dubbel in de export')
-assert(nature_text:find('Gepubliceerde tekst.', 1, true), 'Markdownlink werd niet platte tekst')
+assert(
+  nature_text:find('Gepubliceerde tekst (example.nl).', 1, true),
+  'Markdownlink kreeg geen leesbaar printadres'
+)
 assert(not nature_text:find('Facebook', 1, true), 'Facebooksectie lekte naar vormgeving')
 
 -- Een foto die na upload verdwijnt blokkeert afronding en behoudt het plan.
