@@ -33,7 +33,7 @@ local weekend_editions = {
   { code = 'D', label = 'De Drontenaar (D)' },
   { code = 'Z', label = 'Zeewolde Actueel (Z)' },
   { code = 'K', label = 'Nieuwsbode de Kop (K)' },
-  { code = 'all', label = 'Alle kranten (aparte buffers)' },
+  { code = 'all', label = 'Alle kranten (één verzendbatch)' },
 }
 
 local function workflow(message, level, options) notifications.workflow(message, level, options) end
@@ -472,16 +472,23 @@ function M.weekendbericht()
     run(command('weekendbericht', '--editie', choice.code), nil, function(decoded)
       local results = decoded.results or {}
       local opened = 0
+      if type(decoded.batch_message) == 'string' and decoded.batch_message ~= '' then
+        open_editable('Weekendberichten ' .. table.concat(decoded.batch_editions or {}, '-'), decoded.batch_message)
+        opened = 1
+      end
       for _, result in ipairs(results) do
         if result.error and result.error ~= vim.NIL then
           vim.notify(string.format('%s: agenda niet gelezen — %s', result.edition or '?', result.error), vim.log.levels.ERROR)
-        elseif type(result.message) == 'string' and result.message ~= '' then
+        elseif opened == 0 and type(result.message) == 'string' and result.message ~= '' then
           open_editable('Weekendbericht ' .. tostring(result.edition), result.message)
           opened = opened + 1
         end
       end
       if opened > 0 then
-        workflow(string.format('%d weekendbericht(en) geopend; controleer en bewerk ze vóór publicatie.', opened), vim.log.levels.INFO, { ttl = 8 })
+        local message = decoded.batch_message
+            and 'Weekendbatch geopend; controleer de editieblokken en publiceer alles met <leader>aw.'
+          or string.format('%d weekendbericht(en) geopend; controleer en bewerk ze vóór publicatie.', opened)
+        workflow(message, vim.log.levels.INFO, { ttl = 8 })
       end
     end)
   end)

@@ -5048,6 +5048,9 @@ function M.pubble_send(target_buf)
         return
       end
       resolved_publication = resolved
+      if type(resolved.skip_newspaper_editions) == "table" then
+        vim.b[buf].skip_newspaper_editions = resolved.skip_newspaper_editions
+      end
 
       -- Ontbreekt de zichtbare e:-regel, dan legt een betrouwbare dateline- of
       -- regiodetectie zichzelf alsnog vast: die is gezaghebbend en hoort niet
@@ -5103,7 +5106,10 @@ function M.pubble_send(target_buf)
         return
       end
 
-      if not review_late_newspapers(buf, resolved.newspaper_deadline_review) then
+      local resolved_web_only = type(vim.b[buf].skip_newspaper_editions) == "table"
+          and #vim.b[buf].skip_newspaper_editions == #resolved.editions
+      if not resolved_web_only
+          and not review_late_newspapers(buf, resolved.newspaper_deadline_review) then
         discard_unpublished_temp()
         notify_workflow("Verzending geannuleerd.", vim.log.levels.INFO)
         return

@@ -22,7 +22,7 @@ local valid_without_id = module._decode_validation '{"valid":true,"errors":[],"n
 assert(valid_without_id.newspaper_article_id == nil, 'JSON-null werd aangezien voor een bestaand printconcept')
 assert(valid_without_id.article_join_id == nil, 'JSON-null werd aangezien voor een bestaande article join')
 assert(valid_without_id.pubble_url == nil, 'JSON-null werd aangezien voor een gereed Pubbleconcept')
-local ready = module._decode_validation '{"valid":true,"newspaper_article_id":106200,"pubble_url":"https://brugmedia.pubble.dev/articles/newspaper/106200"}'
+local ready = module._decode_validation '{"valid":true,"newspaper_article_id":106200,"pubble_url":"https://brugmedia.pubble.nl/articles/newspaper/106200"}'
 assert(ready.pubble_url:match '/articles/newspaper/106200$')
 assert(
   module._duplicate_candidate_line {
@@ -135,7 +135,7 @@ vim.system = function(system_cmd, _, callback)
     duplicate_sent = true
     callback {
       code = 0,
-      stdout = 'AGENDA_PAGE_RESULT_JSON:{"newspaper_article_id":106201,"article_url":"https://brugmedia.pubble.dev/articles/newspaper/106201"}',
+      stdout = 'AGENDA_PAGE_RESULT_JSON:{"newspaper_article_id":106201,"article_url":"https://brugmedia.pubble.nl/articles/newspaper/106201"}',
     }
   else
     error('onverwacht agenda-commando: ' .. table.concat(system_cmd, ' '))

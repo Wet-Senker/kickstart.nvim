@@ -23,7 +23,7 @@ local data = {
       bestaand_titel = 'Open dag zorgboerderij',
       bestaand_datum = '2026-07-08',
       bestaand_locatie = 'De Groene Hoeve',
-      url = 'https://brugmedia.pubble.dev/articles/internet/371677',
+      url = 'https://brugmedia.pubble.nl/articles/internet/371677',
     },
   },
 }

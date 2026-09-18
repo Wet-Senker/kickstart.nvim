@@ -52,8 +52,8 @@ local pair_lines = module._render_pairs {
   edities = {
     { editie = 'B', aantal_items = 104, fout = vim.NIL, paren = {} },
     { editie = 'SW', aantal_items = 134, fout = vim.NIL, paren = {
-      { left = { title = 'Nazomer Fair', date = '2026-09-11', editor_url = 'https://brugmedia.pubble.dev/articles/internet/a1' },
-        right = { title = 'Nazomer Fair Het 8ste Werk', editor_url = 'https://brugmedia.pubble.dev/articles/internet/a2' },
+      { left = { title = 'Nazomer Fair', date = '2026-09-11', editor_url = 'https://brugmedia.pubble.nl/articles/internet/a1' },
+        right = { title = 'Nazomer Fair Het 8ste Werk', editor_url = 'https://brugmedia.pubble.nl/articles/internet/a2' },
         reason = 'zelfde datum; zelfde locatie en gelijkende titel', score = 88 },
     } },
     { editie = 'ST', aantal_items = 0, fout = 'Kan Pubble niet bereiken', paren = {} },
@@ -72,7 +72,7 @@ local website_lines, website_by_line = module._render_website_candidates {
       candidates = {
         { edition = 'B', article_id = 321, headline = 'Concert in Kampen',
           display_date = '2026-09-10T10:00:00+02:00', score = 11,
-          editor_url = 'https://brugmedia.pubble.dev/articles/internet/321' },
+          editor_url = 'https://brugmedia.pubble.nl/articles/internet/321' },
       } },
     { edition = 'D', scanned = 0, details_checked = 0, error = 'timeout', candidates = {} },
   },

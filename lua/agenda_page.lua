@@ -20,6 +20,11 @@ local editions = {
 
 local function workflow(message, level, options) notifications.workflow(message, level, options) end
 
+local function editor_base_url()
+  local configured = vim.trim(vim.env.PUBBLE_EDITOR_BASE_URL or '')
+  return (configured ~= '' and configured or 'https://brugmedia.pubble.nl'):gsub('/+$', '')
+end
+
 local function buffer_text(buf) return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n') end
 
 function M.is_prepared(buf)
@@ -381,7 +386,7 @@ function M.send(buf)
             end
             reload_after_send(buf)
             local article_url = status.article_url
-              or ('https://brugmedia.pubble.dev/articles/newspaper/' .. tostring(status.newspaper_article_id))
+              or (editor_base_url() .. '/articles/newspaper/' .. tostring(status.newspaper_article_id))
             vim.b[buf].agenda_page_published_url = article_url
             workflow('Agendapagina staat klaar voor plaatsing.\n' .. article_url, vim.log.levels.INFO, { ttl = 15 })
           end)
