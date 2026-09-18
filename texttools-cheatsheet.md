@@ -60,7 +60,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>al` | LinkedIn-post genereren — toont bewerkbare `## LinkedIn` sectie; in een krantreview alleen voor die krant |
 | `<leader>aV` | Overzicht van bron en afzonderlijke krantversiebuffers |
 | `<leader>aG` | Huidige krantversie opslaan en expliciet goedkeuren |
-| `<leader>aw` | Publicatie voorbereiden; vangnet voor doublures en onbewerkte import; toont zo nodig eerst `## Kranttijdsversies` en eventvervolgen |
+| `<leader>aw` | Publicatie voorbereiden; vangnet voor doublures en onbewerkte import; toont zo nodig eerst `## Kranttijdsversies` en eventvervolgen. Bij een verstreken krantdeadline: alleen web, expliciet toch krant, of annuleren. Vanaf twee foto's krijgt de Pubble-kop `(n foto's)`, behalve bij 112 |
 | `<leader>ax` | Vormgevingstekst (FOTO/FOTOBIJSCHRIFT/STREAMER + vette intro) + foto('s) naar het Bureaublad; vraagt een bestandsnaam |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |
@@ -117,6 +117,11 @@ primaire datum. Een duidelijk verkeerd geplaatst item verhuist mee, secundaire
 data niet. Dit maakt alleen
 het printconcept `!agendapagina`.
 
+Embargo: bij de eerste import van een tekst met het losse woord `embargo` zet
+het programma automatisch een duidelijke `EMBARGO:`-regel boven
+`=== ARTIKEL ===`. Zolang die regel staat kan `<leader>aw` niet verzenden.
+Verwijder de volledige regel pas nadat het bericht is vrijgegeven.
+
 De doublurecontrole volgt het beleid van de Texttools-branch. Op `master`
 staat voorlopig **altijd controleren** aan. De testvarianten blijven beschikbaar:
 `codex/doublure-altijd` controleert ieder artikel, ook alleen De Brug;
@@ -146,7 +151,7 @@ Werken via **Neovim** (`<leader>ar`/`<leader>aw`) én via **pubble-batch**:
 ```
 editie: B          # of SW, ST, Z, D, K, all, overijssel, flevoland (fuzzy)
 prio: 2            # 1=moet mee  2=mag mee  3=rest(standaard)  4=nood  (p: ook)
-rubriek: sport     # categorie (fuzzy: 'spo'→sport). r: is alias
+rubriek: sport     # categorie (fuzzy: sp/spo/sprt→sport). r: is alias
 b: Bijschrift      # fotobijschrift
 c: Naam fotograaf  # fotocredit
 @John Boodschap    # alleen voor actuele Teams-ontvanger John
@@ -155,7 +160,7 @@ c: Naam fotograaf  # fotocredit
 @ Boodschap        # kale @ = alle ontvangers (gelijk aan @all)
 ```
 
-- **Rubriek** (`rubriek:` of `r:`, fuzzy): algemeen, sport, politiek, financieel,
+- **Rubriek** (`rubriek:` of `r:`, fuzzy via unieke prefix of één typfout): algemeen, sport, politiek, financieel,
   ingezonden, verenigingen, cultuur, politie, toerisme, historie, gemeente, kerk,
   nieuws, zorg en welzijn, provincie, zakelijk, 112. Prefix mag (`spo`→sport);
   alleen bij twijfel (`politi` = Politiek óf Politie) een foutmelding.

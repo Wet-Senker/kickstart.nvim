@@ -75,4 +75,33 @@ local skipped_command = ai._temporal_print_command(
 )
 assert(vim.tbl_contains(skipped_command, '--skip-past-newspaper'), 'web-onlykeuze ontbrak')
 
+local deadline_review = {
+  signature = 'D:2026-09-27:2026-10-14:1',
+  late_editions = { 'D' },
+  items = {
+    {
+      edition = 'D',
+      name = 'De Drontenaar',
+      content_deadline_week = '39',
+      next_publication_date = '2026-10-14',
+      next_publication_week = '42',
+      too_late = true,
+    },
+  },
+}
+local deadline_message = ai._late_newspaper_message(deadline_review)
+assert(deadline_message:find('De Drontenaar', 1, true), 'krantnaam ontbreekt')
+assert(deadline_message:find('14-10-2026', 1, true), 'krantdatum ontbreekt')
+assert(deadline_message:find('week 42', 1, true), 'verschijningsweek ontbreekt')
+assert(deadline_message:find('week 39', 1, true), 'inhoudelijke deadline ontbreekt')
+
+local deadline_buf = vim.api.nvim_create_buf(false, true)
+local original_confirm = ai._late_newspaper_confirm
+ai._late_newspaper_confirm = function() return 1 end
+assert(ai._review_late_newspapers(deadline_buf, deadline_review), 'websitekeuze geweigerd')
+assert(vim.b[deadline_buf].late_newspaper_decision.mode == 'website', 'websitekeuze niet onthouden')
+ai._late_newspaper_confirm = function() error('onthouden keuze vroeg opnieuw') end
+assert(ai._review_late_newspapers(deadline_buf, deadline_review), 'onthouden keuze geweigerd')
+ai._late_newspaper_confirm = original_confirm
+
 print 'newspaper timing: OK'

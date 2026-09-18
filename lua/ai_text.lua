@@ -417,6 +417,7 @@ local _control_keys = {
   agenda=true, calendar=true, cal=true,
   facebook=true, facebook_tekst=true,
   rewrite=true,
+  embargo=true,
   -- Credit-/bijschriftlabels — gelijk aan photo_credit's vocabulaire in Python.
   bijschrift=true, fotobijschrift=true, onderschrift=true,
   foto=true, fotograaf=true, fotografie=true, credit=true,
@@ -3538,12 +3539,56 @@ local function rubric_autodetect(buf, text, evaluation, done)
   end
 end
 
--- Eén asynchrone lokale Python-call; auteurs- en contactregels blijven in de
--- core en kunnen zo ook door een andere client worden gebruikt.
+local function insert_import_control_line(buf, key, line)
+  if not vim.api.nvim_buf_is_valid(buf) or type(line) ~= "string"
+      or vim.trim(line) == "" then return false end
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local boundary_index
+  for index, current in ipairs(lines) do
+    if vim.trim(current) == ARTICLE_BOUNDARY then
+      boundary_index = index
+      break
+    end
+  end
+  if not boundary_index then return false end
+  local pattern = "^%s*" .. vim.pesc(key) .. "%s*:"
+  for index = 1, boundary_index - 1 do
+    if lines[index]:lower():match(pattern) then return false end
+  end
+  local insert_at = 0
+  if lines[1] == "---" then
+    for index = 2, boundary_index - 1 do
+      if lines[index] == "---" then
+        insert_at = index
+        break
+      end
+    end
+  end
+  vim.api.nvim_buf_set_lines(buf, insert_at, insert_at, false, { line })
+  return true
+end
+M._insert_import_control_line = insert_import_control_line
+
+local function apply_import_embargo(buf, embargo)
+  if type(embargo) ~= "table" or embargo.detected ~= true
+      or type(embargo.control_line) ~= "string" then
+    return false, nil
+  end
+  if not insert_import_control_line(buf, "embargo", embargo.control_line) then
+    return false, embargo.message
+  end
+  vim.b[buf].embargo_import_detected = true
+  return true, embargo.message
+end
+M._apply_import_embargo = apply_import_embargo
+
+-- Eén asynchrone lokale Python-call; auteurs-/contactregels en veiligheids-
+-- signalen blijven in de core en kunnen zo ook door een andere client worden
+-- gebruikt zonder een tweede importproces.
 M._column_recognition_runner = function(buf, body, done)
   start_buffer_job(buf)
   local started = pcall(vim.system,
-    { texttools_commands.bin("python"), "-m", "texttools.column_recognition",
+    { texttools_commands.bin("python"), "-m", "texttools.import_inspection",
       "--photo-root", require("krant").config.photo_root },
     { text = true, stdin = body, timeout = 5000 },
     function(result)
@@ -3552,18 +3597,18 @@ M._column_recognition_runner = function(buf, body, done)
         local ok, payload = pcall(vim.json.decode, result.stdout or "", { luanil = { object = true, array = true } })
         if result.code ~= 0 or not ok or type(payload) ~= "table"
             or payload.schema_version ~= 1 or type(payload.candidates) ~= "table" then
-          notify_workflow("Columnherkenning mislukt; kies zo nodig het template via <leader>kt.", vim.log.levels.WARN)
-          done({})
+          notify_workflow("Importinspectie mislukt; controleer embargo en kies zo nodig het template via <leader>kt.", vim.log.levels.WARN)
+          done({}, nil)
           return
         end
-        done(payload.candidates)
+        done(payload.candidates, payload.embargo)
       end)
     end
   )
   if not started then
     finish_buffer_job(buf)
-    notify_workflow("Columnherkenning kon niet starten; kies zo nodig via <leader>kt.", vim.log.levels.WARN)
-    done({})
+    notify_workflow("Importinspectie kon niet starten; controleer embargo en kies zo nodig via <leader>kt.", vim.log.levels.WARN)
+    done({}, nil)
   end
 end
 
@@ -3661,9 +3706,21 @@ local function article_autodetect(buf)
   local text = table.concat(lines, "\n")
   vim.b[buf].pubble_duplicate_gate_pending = true
   local recognition_tick = vim.api.nvim_buf_get_changedtick(buf)
-  M._column_recognition_runner(buf, editorial_body_text(lines), function(column_candidates)
+  M._column_recognition_runner(buf, editorial_body_text(lines), function(column_candidates, embargo)
     if not vim.api.nvim_buf_is_valid(buf) then return end
-    if vim.api.nvim_buf_get_changedtick(buf) ~= recognition_tick then
+    local changed_while_inspecting = vim.api.nvim_buf_get_changedtick(buf) ~= recognition_tick
+    -- Het embargosignaal hoort bij de oorspronkelijke importbody en blijft
+    -- daarom geldig wanneer de gebruiker tijdens deze lokale inspectie al is
+    -- gaan typen. Alleen de overige herkenning wordt dan wegens de race gestopt.
+    local embargo_inserted, embargo_message = apply_import_embargo(buf, embargo)
+    if embargo_inserted then
+      notify_workflow(
+        type(embargo_message) == "string" and embargo_message
+          or "Embargo gevonden; verzending is geblokkeerd.",
+        vim.log.levels.WARN
+      )
+    end
+    if changed_while_inspecting then
       vim.b[buf].article_recognition_done = nil
       settle_duplicate_calendar_gate(buf, false)
       notify_workflow("Artikel gewijzigd tijdens columnherkenning; herkenning overgeslagen. Kies zo nodig via <leader>kt.", vim.log.levels.INFO)
@@ -3931,6 +3988,102 @@ local function needs_edition_send_confirmation(resolved)
 end
 
 M._needs_edition_send_confirmation = needs_edition_send_confirmation
+
+local function merged_edition_codes(...)
+  local result = {}
+  local seen = {}
+  for _, values in ipairs({ ... }) do
+    if type(values) == "table" then
+      for _, code in ipairs(values) do
+        if type(code) == "string" and code ~= "" and not seen[code] then
+          seen[code] = true
+          table.insert(result, code)
+        end
+      end
+    end
+  end
+  return result
+end
+
+local function late_newspaper_codes(buf, mode)
+  local decision = vim.b[buf].late_newspaper_decision
+  if type(decision) ~= "table" or decision.mode ~= mode then return {} end
+  return type(decision.editions) == "table" and decision.editions or {}
+end
+
+local function effective_skipped_newspapers(buf)
+  return merged_edition_codes(
+    vim.b[buf].skip_newspaper_editions,
+    late_newspaper_codes(buf, "website")
+  )
+end
+
+local function late_newspaper_message(review)
+  local lines = { "De krantdeadline is verstreken:" }
+  for _, item in ipairs(type(review.items) == "table" and review.items or {}) do
+    if item.too_late == true then
+      local name = type(item.name) == "string" and item.name or tostring(item.edition or "krant")
+      local issue = type(item.next_publication_date) == "string"
+          and item.next_publication_date:gsub("^(%d%d%d%d)%-(%d%d)%-(%d%d)$", "%3-%2-%1")
+        or "onbekend"
+      local next_week = type(item.next_publication_week) == "string"
+          and item.next_publication_week
+        or nil
+      local issue_label = next_week and (issue .. " (week " .. next_week .. ")") or issue
+      table.insert(
+        lines,
+        "• " .. name .. " verschijnt pas op " .. issue_label
+          .. "; dit artikel is uiterlijk week "
+          .. tostring(item.content_deadline_week or "?") .. " plaatsbaar."
+      )
+    end
+  end
+  table.insert(lines, "Wat wil je doen?")
+  return table.concat(lines, "\n")
+end
+
+M._late_newspaper_message = late_newspaper_message
+M._late_newspaper_confirm = function(review)
+  return require('user_dialog').confirm(
+    late_newspaper_message(review),
+    "&Alleen website voor te late krant(en)\n&Toch ook naar de krant\n&Annuleren",
+    1
+  )
+end
+
+local function review_late_newspapers(buf, review)
+  local late = type(review) == "table" and review.late_editions or nil
+  if type(late) ~= "table" or #late == 0 then
+    vim.b[buf].late_newspaper_decision = nil
+    return true
+  end
+
+  local signature = type(review.signature) == "string" and review.signature or ""
+  local remembered = vim.b[buf].late_newspaper_decision
+  if type(remembered) == "table" and remembered.signature == signature then
+    return remembered.mode == "website" or remembered.mode == "force"
+  end
+
+  local choice = M._late_newspaper_confirm(review)
+  if choice == 1 then
+    vim.b[buf].late_newspaper_decision = {
+      signature = signature,
+      mode = "website",
+      editions = late,
+    }
+    return true
+  elseif choice == 2 then
+    vim.b[buf].late_newspaper_decision = {
+      signature = signature,
+      mode = "force",
+      editions = late,
+    }
+    return true
+  end
+  return false
+end
+
+M._review_late_newspapers = review_late_newspapers
 
 local function path_is_in_directory(path, directory, recursive)
   local candidate = normalized_path(path)
@@ -4496,7 +4649,7 @@ function M.pubble_send(target_buf)
             local code = vim.trim(token)
             table.insert(verzonden, editie_namen[code] or code)
           end
-          local skipped_newspapers = vim.b[buf].skip_newspaper_editions
+          local skipped_newspapers = effective_skipped_newspapers(buf)
           local all_web_only = type(skipped_newspapers) == "table"
               and #skipped_newspapers == #resolved_editions
           local some_web_only = type(skipped_newspapers) == "table"
@@ -4571,6 +4724,7 @@ function M.pubble_send(target_buf)
             vim.b[buf].publication_review_state = nil
             vim.b[buf].event_review_state = nil
             vim.b[buf].skip_newspaper_editions = nil
+            vim.b[buf].late_newspaper_decision = nil
 
             local sent_marker = "**Verstuurd naar Pubble op " .. os.date("%d-%m-%Y %H:%M") .. "**"
             local marker_block = { sent_marker }
@@ -4635,10 +4789,15 @@ function M.pubble_send(target_buf)
     end
 
     local function run_main_send()
-      local skipped = vim.b[buf].skip_newspaper_editions
+      local skipped = effective_skipped_newspapers(buf)
       if type(skipped) == "table" and #skipped > 0 then
         table.insert(cmd, "--skip-newspaper-editions")
         table.insert(cmd, vim.fn.json_encode(skipped))
+      end
+      local allowed_late = late_newspaper_codes(buf, "force")
+      if #allowed_late > 0 then
+        table.insert(cmd, "--allow-late-newspaper-editions")
+        table.insert(cmd, vim.fn.json_encode(allowed_late))
       end
       ai_system(cmd, { text = true }, function(result)
         handle_send_result(result, false, nil)
@@ -4699,6 +4858,7 @@ function M.pubble_send(target_buf)
               vim.b[buf].publication_review_state = {
                 display_dates = display_dates,
                 editions = resolved_editions,
+                late_newspaper_decision = vim.b[buf].late_newspaper_decision,
               }
               discard_unpublished_temp()
               notify_workflow(
@@ -4758,6 +4918,7 @@ function M.pubble_send(target_buf)
                 display_dates = display_dates,
                 editions = resolved_editions,
                 skip_newspaper_editions = vim.b[buf].skip_newspaper_editions,
+                late_newspaper_decision = vim.b[buf].late_newspaper_decision,
               }
               discard_unpublished_temp()
               local what
@@ -4832,6 +4993,7 @@ function M.pubble_send(target_buf)
     resolved_editions = review_state.editions or {}
     editie = table.concat(resolved_editions, ", ")
     vim.b[buf].skip_newspaper_editions = review_state.skip_newspaper_editions
+    vim.b[buf].late_newspaper_decision = review_state.late_newspaper_decision
     _do_pubble_send(review_state.display_dates or {}, true)
     return
   end
@@ -4924,6 +5086,12 @@ function M.pubble_send(target_buf)
       end
 
       if process_publication_link_actions(resolved.link_actions) then
+        return
+      end
+
+      if not review_late_newspapers(buf, resolved.newspaper_deadline_review) then
+        discard_unpublished_temp()
+        notify_workflow("Verzending geannuleerd.", vim.log.levels.INFO)
         return
       end
 
@@ -5345,12 +5513,19 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
         end
         local skipped = type(payload.skipped_newspaper_editions) == "table"
             and payload.skipped_newspaper_editions or {}
+        skipped = merged_edition_codes(
+          skipped,
+          late_newspaper_codes(buf, "website")
+        )
         done(true, nil, payload.requires_review == true, skipped)
       end)
     end, "Krant · Tijdsvorm controleren", buf, function()
       vim.schedule(function() done(false, AI_CANCELLED) end)
     end)
   end
+  -- Alleen de aparte evenementkeuze mag alle kranttijdversies overslaan.
+  -- Een te-late-editie die web-only wordt, blijft editie-specifiek en mag
+  -- daarom niet via deze globale boolean ook andere kranten uitschakelen.
   local remembered_skip = vim.b[buf].skip_newspaper_editions
   run(false, type(remembered_skip) == "table" and #remembered_skip > 0)
 end

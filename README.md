@@ -53,7 +53,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | `<leader>al` | LinkedIn-post genereren → bewerkbare `## LinkedIn` sectie. In een krantreview geldt de tekst alleen voor die krant. |
 | `<leader>aV` / `:Krantversies` | Overzicht van de gedeelde bron en alle afzonderlijke krantversiebuffers openen. |
 | `<leader>aG` / `:KrantversieGoedkeuren` | Huidige krantversie terugschrijven en de exacte tekst expliciet goedkeuren. |
-| `<leader>aw` | Versturen naar Pubble. Vanuit bron of reviewbuffer is dit één centrale verzending voor alle kranten: iedere krant krijgt haar eigen artikel- en socialtekst; dezelfde foto wordt eenmaal geüpload en aan alle doelen gekoppeld. Socialtekst wordt alleen in het bijbehorende Pubble-webartikel opgeslagen, niet automatisch op Facebook of LinkedIn geplaatst. Bij een import vraagt een extra safeguard alleen om bevestiging wanneer de body nog nauwelijks afwijkt van de import. Een substantiële handmatige bewerking is dus voldoende; AI is niet verplicht. Vóór de eerste Pubble-write volgt zo nodig de doublurecontrole volgens het Python-branchbeleid, tenzij die al bij import of herschrijven is afgerond. `codex/doublure-altijd` controleert ook alleen De Brug; `codex/doublure-voorwaardelijk` controleert zodra een andere krant is gekozen, ook alleen De Kop. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Wanneer de eerstvolgende krant in een andere evenementfase valt, toont de eerste druk alleen voor die editie een `## Kranttijdsversies`-tekst. Eventvervolgen verschijnen in dezelfde reviewstap; de tweede druk publiceert alles samen. |
+| `<leader>aw` | Versturen naar Pubble. Vanuit bron of reviewbuffer is dit één centrale verzending voor alle kranten: iedere krant krijgt haar eigen artikel- en socialtekst; dezelfde foto wordt eenmaal geüpload en aan alle doelen gekoppeld. Vanaf twee meegezonden foto's eindigt de web- en krantenkop in Pubble op `(n foto's)`; 112-koppen zijn uitgezonderd. Socialtekst wordt alleen in het bijbehorende Pubble-webartikel opgeslagen, niet automatisch op Facebook of LinkedIn geplaatst. Bij een import vraagt een extra safeguard alleen om bevestiging wanneer de body nog nauwelijks afwijkt van de import. Een substantiële handmatige bewerking is dus voldoende; AI is niet verplicht. Vóór de eerste Pubble-write volgt zo nodig de doublurecontrole volgens het Python-branchbeleid, tenzij die al bij import of herschrijven is afgerond. `codex/doublure-altijd` controleert ook alleen De Brug; `codex/doublure-voorwaardelijk` controleert zodra een andere krant is gekozen, ook alleen De Kop. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Wanneer de eerstvolgende krant in een andere evenementfase valt, toont de eerste druk alleen voor die editie een `## Kranttijdsversies`-tekst. Eventvervolgen verschijnen in dezelfde reviewstap; de tweede druk publiceert alles samen. |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen. |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder. |
 | `<leader>aa` | **Archiefzoeker** — zoekt het hele Pubble-archief af naar eerder verschenen artikelen over hetzelfde onderwerp, voor langlopende zaken. Je krijgt vijf verhalen per keer: koppen met datum en krant bovenin, per jaar gegroepeerd, de volledige teksten eronder. Nogmaals drukken geeft de volgende vijf. Zoeken gebeurt zonder AI. Uit te zetten met `TEXTTOOLS_ARCHIEFZOEKER=0`. |
@@ -139,6 +139,7 @@ prio: 2            # 1=moet mee  2=mag mee  3=rest(standaard)  4=nood
 rubriek: 112       # markeert als 112-bericht
 calendar: x        # kalendermetadata ophalen bij <leader>ar of <leader>aw
 facebook: x        # Facebook-post genereren bij <leader>ar
+EMBARGO: NIET VERSTUREN — VERWIJDER DEZE REGEL PAS NA VRIJGAVE  # automatisch bij import
 b: Bijschrift      # globaal fotobijschrift
 c: Naam fotograaf  # globale fotocredit
 b1: / c1:          # bijschrift/credit voor foto 1 specifiek
@@ -156,6 +157,13 @@ Ook een visuele AI-selectie die de marker kruist wordt geweigerd.
 Bij `<leader>aw` valideert Python iedere regel daar strikt. `f:` is geen tag;
 gebruik `c:` of `Foto:`. `***` is bewust iets anders: die regel blijft voor
 inline AI-prompts en gesprekken gereserveerd.
+
+Vindt de eerste importinspectie het losse woord `embargo` in de oorspronkelijke
+artikelbody, dan verschijnt direct een waarschuwing en de bovenstaande
+`EMBARGO:`-regel. Zolang die regel staat, stopt `<leader>aw` vóór AI- of
+Pubble-werk. Rewrites en metadata-acties bewaren hem. Verwijder de volledige
+regel pas na vrijgave; de detectie draait alleen bij de eerste import van de
+buffer en wordt niet na iedere bewerking opnieuw uitgevoerd.
 
 Teams-selectors zijn hoofdletterongevoelig en mogen worden gecombineerd als
 `@Joop, @Saskia Boodschap`. Ze volgen de actuele ontvanger uit
@@ -272,8 +280,14 @@ alleen opnieuw om bevestiging als bij import nog geen keuze is gemaakt.
 Het weeknummer in een gegenereerde Pubble-werktitel is de uiterste bruikbare
 krant. Na die krant kan het artikel weg; een hoger nummer kan worden
 doorgeschoven en `x` heeft geen automatische deadline. Voor actueel nieuws
-kiest de bestaande metadata-call 0–2 extra bruikbare edities. Dit voegt geen
+kiest de bestaande metadata-call 0–2 extra wekelijkse houdbaarheidscycli. Dit voegt geen
 extra AI-call toe; `week:` blijft de handmatige override.
+
+Valt de eerstvolgende verschijning van een gekozen krant na die inhoudelijke
+grens, dan waarschuwt `<leader>aw` vóór verzending. Kies `Alleen website voor
+te late krant(en)`, `Toch ook naar de krant` of `Annuleren`. Bij toch
+doorzetten blijft de werkelijk laatste bruikbare week in de krantwerktitel
+staan, zodat zichtbaar blijft dat de plaatsing te laat is.
 
 De lichte SEO-instructie loopt alleen mee wanneer de keuze vóór de rewrite al
 vaststaat: een 112-template/`rubriek: 112`, `agenda: ja` of een zichtbare
@@ -313,7 +327,7 @@ vormgevingsexport één extra asynchroon Python-proces plus lokale fotokopieën.
 ## 112-berichten
 
 - Template: `112 <PLAATS>: <titel>` (of `112: <titel>`) + body + disclaimer
-- `rubriek: 112` → `articleCategoryId: 24` op krant én web in Pubble
+- `rubriek: 112` → `articleCategoryId: 24` op krant én web in Pubble; `rubriek:`/`r:` accepteert ook een unieke afkorting of één typfout (`sp`, `spo`, `sprt` → `sport`)
 - `<leader>af` gebruikt zakelijke Facebook-prompt (één zin, geen interactie)
 - `<leader>ar` op een al opgemaakte 112-buffer: herschrijft alleen titel en body, laat prefix en disclaimer intact
 
