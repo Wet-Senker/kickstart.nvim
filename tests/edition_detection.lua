@@ -120,6 +120,25 @@ ai._edition_autodetect(no_dateline, buffer_text(no_dateline), function() default
 assert(vim.wait(5000, function() return default_done end, 20), 'defaulteditie rondde niet af')
 assert(#duplicate_runs == 6, 'altijd-beleid krijgt artikel zonder dateline niet aangeboden')
 
+local local_place = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(local_place, 0, -1, false, {
+  '=== ARTIKEL ===', '',
+  'Hedendaagse artiesten zingen Huub Oosterhuis', '',
+  'De landelijke concertreeks doet onder meer Kampen, Apeldoorn en Amersfoort aan.',
+  'Later volgen ook Dordrecht en Katwijk aan Zee.',
+})
+local local_place_done = false
+ai._edition_autodetect(local_place, buffer_text(local_place), function()
+  local_place_done = true
+end)
+assert(vim.wait(5000, function() return local_place_done end, 20), 'lokale plaatsdetectie rondde niet af')
+local local_place_text = buffer_text(local_place)
+assert(local_place_text:find('e: B\n', 1, true) == 1, 'Kampen legde editie De Brug niet vast')
+assert(local_place_text:find('KAMPEN - De landelijke concertreeks', 1, true),
+  'Kampen werd niet als dateline voor de intro gezet')
+assert(#duplicate_runs == 7 and duplicate_runs[7].command[#duplicate_runs[7].command] == 'B',
+  'lokale plaatsdetectie gebruikte niet de vastgelegde editie')
+
 local empty = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(empty, 0, -1, false, { '=== ARTIKEL ===', '' })
 local original_system = vim.system

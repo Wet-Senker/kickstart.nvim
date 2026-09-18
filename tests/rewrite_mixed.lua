@@ -7,7 +7,7 @@ local review = ai._edition_review
 local dialog = require 'user_dialog'
 local original_system, original_select = vim.system, dialog.select
 local source = 'Bronkop\n\nIn IJsselmuiden en Dronten zijn energieprojecten.'
-local requested, streamers, callbacks = {}, {}, {}
+local requested = {}
 local function wait(predicate) assert(vim.wait(5000, predicate, 10), 'gemengde flow bleef hangen') end
 local function text(buf) return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n') end
 local buf = vim.api.nvim_create_buf(false, true)
@@ -39,12 +39,7 @@ vim.system = function(command, opts, callback)
     return { kill = function() end }
   end
   if command[2] == 'tussenkopjes' then error('losse tussenkopjesaanvraag') end
-  if command[2] == 'streamer' then
-    local code = assert(opts.stdin:match('^([A-Z]+) kop'))
-    streamers[code] = (streamers[code] or 0) + 1
-    callbacks[code] = callback
-    return { kill = function() end }
-  end
+  if command[2] == 'streamer' then error('losse automatische streamer-aanvraag') end
   -- De echte lokale Python-resolver en het echte workspacecontract, geen HTTP.
   if not callback or command[2] == 'inspect' or vim.tbl_contains(command, '--resolve-editions')
       or command[2] == '-m' then return original_system(command, opts, callback) end
@@ -52,12 +47,9 @@ vim.system = function(command, opts, callback)
   return { kill = function() end }
 end
 ai.rewrite_article_buffer()
-wait(function() return callbacks.B and callbacks.D and callbacks.SW end)
-assert(vim.tbl_count(requested) == 3 and vim.tbl_count(streamers) == 3, 'niet precies drie unieke teksten/opmaakaanvragen')
-assert(requested.SW[2] == 'krantversie_algemeen' and requested.SW[4] == 'SW,ST,Z,K')
-assert(not review._review_buffers[buf], 'review startte vóór complete opmaak')
-for code, callback in pairs(callbacks) do callback { code = 0, stdout = 'Streamer ' .. code, stderr = '' } end
 wait(function() return review._review_buffers[buf] ~= nil end)
+assert(vim.tbl_count(requested) == 3, 'niet precies drie unieke teksten aangevraagd')
+assert(requested.SW[2] == 'krantversie_algemeen' and requested.SW[4] == 'SW,ST,Z,K')
 local entries = review._review_buffers[buf]
 assert(vim.tbl_count(entries) == 6 and entries.B and entries.D and entries.SW
   and entries.ST and entries.Z and entries.K, 'niet één reviewbuffer per krant')
@@ -65,7 +57,7 @@ assert(#vim.api.nvim_tabpage_list_wins(0) == 6)
 local general = vim.b[entries.SW].edition_variant
 assert(table.concat(general.editions, ',') == 'SW')
 assert(general.name:find('De Swollenaer', 1, true))
-assert(text(entries.SW):find('> Streamer SW', 1, true))
+assert(not text(entries.SW):match('\n>%s'), 'review kreeg onverwacht een automatische streamer')
 assert(text(entries.ST) == text(entries.SW) and text(entries.Z) == text(entries.SW)
   and text(entries.K) == text(entries.SW), 'algemene tekst werd niet naar iedere krantbuffer gekopieerd')
 for _, code in ipairs { 'B', 'D', 'SW', 'ST', 'Z', 'K' } do

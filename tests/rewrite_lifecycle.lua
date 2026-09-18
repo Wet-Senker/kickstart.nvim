@@ -213,19 +213,60 @@ vim.api.nvim_buf_delete(target, { force = true })
 -- Eén editie vraagt niets. Een late rewrite mag vervolgens geen body-edit wissen.
 target = make_buffer()
 rewrite_callback = nil
+local single_command
+vim.api.nvim_buf_set_lines(target, 0, 1, false, { 'e: B' })
 vim.system = function(command, _, callback)
-  if command[1] == 'bash' then rewrite_callback = callback
-  else callback { code = 0, stdout = '{"editions":["B"]}', stderr = '' } end
+  if command[1] == 'bash' then
+    single_command = command[3]
+    rewrite_callback = callback
+  else
+    callback {
+      code = 0,
+      stdout = '{"editions":["B"],"has_explicit_editions":true,"detection":{"confidence":"none","editions":[]}}',
+      stderr = '',
+    }
+  end
   return {}
 end
 ai.rewrite_article_buffer()
 assert(vim.wait(1000, function() return type(rewrite_callback) == 'function' end, 20))
+assert(single_command:find('krantversie --edition', 1, true)
+  and single_command:find("'B'", 1, true), 'eenkrant-rewrite kreeg geen editiecontext')
 vim.api.nvim_buf_set_lines(target, -1, -1, false, { 'Bewuste bodywijziging.' })
 rewrite_callback { code = 0, stdout = '# Nieuwe kop\n\nNieuwe body.', stderr = '' }
 drained = false
 vim.schedule(function() drained = true end)
 assert(vim.wait(1000, function() return drained end, 20))
 assert(table.concat(vim.api.nvim_buf_get_lines(target, 0, -1, false), '\n'):find('Bewuste bodywijziging.', 1, true))
+vim.api.nvim_buf_delete(target, { force = true })
+
+-- Een stille De-Brug-default zonder betrouwbare tekstherkenning blijft een
+-- algemene rewrite: een ontbrekende keuze mag geen lokale invalshoek afdwingen.
+target = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_set_current_buf(target)
+vim.api.nvim_buf_set_lines(target, 0, -1, false, {
+  '=== ARTIKEL ===', '', 'Algemene kop', '', 'Een bericht zonder lokale plaats.',
+})
+ai._mark_duplicate_check_done(target)
+local default_command
+vim.system = function(command, _, callback)
+  if command[1] == 'bash' then
+    default_command = command[3]
+    callback { code = 1, stdout = '', stderr = 'bewuste teststop' }
+  else
+    callback {
+      code = 0,
+      stdout = '{"editions":["B"],"has_explicit_editions":false,"detection":{"confidence":"none","editions":[]}}',
+      stderr = '',
+    }
+  end
+  return {}
+end
+ai.rewrite_article_buffer()
+assert(vim.wait(1000, function() return type(default_command) == 'string' end, 20))
+assert(default_command:find('journalistiek_schrijven', 1, true)
+  and not default_command:find('krantversie', 1, true),
+  'stille De-Brug-default kreeg onterecht een lokale editieprompt')
 vim.api.nvim_buf_delete(target, { force = true })
 
 ai._edition_mode_choice_async = original_choice

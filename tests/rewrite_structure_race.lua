@@ -8,6 +8,7 @@ local original_system = vim.system
 local original_choice = ai._edition_mode_choice_async
 local original_variant_runner = ai._edition_variant_runner
 local callbacks, requested, workspace_calls = {}, {}, 0
+local defer_variants = false
 local origin = 'Originele kop\n\nOrigineel persbericht.'
 local rewritten = { '# Herschreven kop', '', '**REGIO - Een intro over het onderwerp.**', '' }
 for i = 1, 7 do
@@ -35,9 +36,7 @@ vim.system = function(command, opts, callback)
   elseif vim.tbl_contains(command, '--resolve-editions') then
     callback { code = 0, stdout = '{"editions":["B","SW"],"names":["De Brug","De Swollenaer"]}', stderr = '' }
   elseif command[2] == 'tussenkopjes' or command[2] == 'streamer' then
-    local code = assert(opts.stdin:match('([A-Z]+) kop'), 'opmaak kreeg niet een definitieve krantversie')
-    callbacks[code] = callbacks[code] or {}
-    callbacks[code][command[2]] = callback
+    error('definitieve krantversie startte een losse opmaakaanvraag')
   else
     callback { code = 0, stdout = '', stderr = '' }
   end
@@ -50,7 +49,9 @@ ai._edition_variant_runner = function(_, code, input, done)
   body[1] = code .. ' kop'
   table.insert(body, 9, '**Onderwerp ' .. code .. '**')
   table.insert(body, 10, '')
-  done(true, table.concat(body, '\n'))
+  local output = table.concat(body, '\n')
+  if defer_variants then callbacks[code] = function() done(true, output) end
+  else done(true, output) end
 end
 review._runner = function(_, action, payload, done)
   assert(action == 'create')
@@ -62,9 +63,8 @@ review._runner = function(_, action, payload, done)
   assert(not payload.expected_source:find('> ', 1, true), 'gedeelde tussenversie kreeg opmaak')
   local variants, markdown = {}, payload.markdown .. '\n\n## Editieversies\n'
   for _, code in ipairs(payload.editions) do
-    assert(payload.variants[code]:find('> Streamer ' .. code, 1, true), 'versie mist eigen streamer')
+    assert(not payload.variants[code]:match('\n>%s'), 'versie kreeg onverwacht een automatische streamer')
     assert(payload.variants[code]:find('**Onderwerp ' .. code .. '**', 1, true), 'versie mist eigen tussenkopje')
-    assert(not payload.variants[code]:find('Streamer ' .. (code == 'B' and 'SW' or 'B'), 1, true), 'opmaak van andere krant gebruikt')
     table.insert(variants, { code = code, name = code, content = payload.variants[code], status = 'review' })
     markdown = markdown .. '\n### Editieversie ' .. code .. '\n\n' .. payload.variants[code] .. '\n'
   end
@@ -74,33 +74,24 @@ end
 
 local buf = make_buffer()
 ai.rewrite_article_buffer()
-drain(function() return callbacks.B and callbacks.SW and callbacks.SW.streamer end)
-assert(table.concat(requested, ',') == 'B,SW', 'opmaak viel vóór definitieve versie-generatie')
-assert(workspace_calls == 0, 'review begon vóór opmaak')
-callbacks.B.streamer { code = 0, stdout = 'Streamer B', stderr = '' }
-assert(not callbacks.B.tussenkopjes and not callbacks.SW.tussenkopjes, 'tussenkopjes gingen toch via een losse AI-call')
-local drained = false
-vim.schedule(function() drained = true end)
-drain(function() return drained end)
-assert(workspace_calls == 0, 'review begon vóór opmaak van de laatste krant')
-callbacks.SW.streamer { code = 0, stdout = 'Streamer SW', stderr = '' }
 drain(function() return workspace_calls == 1 end)
 assert(table.concat(requested, ',') == 'B,SW')
 assert(review._review_buffers[buf].B and review._review_buffers[buf].SW, 'reviewbuffers ontbreken')
-assert(table.concat(vim.api.nvim_buf_get_lines(review._review_buffers[buf].B, 0, -1, false), '\n'):find('> Streamer B', 1, true))
+assert(not table.concat(vim.api.nvim_buf_get_lines(review._review_buffers[buf].B, 0, -1, false), '\n'):match('\n>%s'))
 assert(#vim.api.nvim_tabpage_list_wins(0) == 2, 'krantversies staan niet zichtbaar naast elkaar')
 review.close(buf, true)
 
--- Een echte bron-edit tijdens versieopmaak mag niet worden overschreven.
+-- Een echte bron-edit tijdens versie-AI mag niet worden overschreven.
 callbacks, requested = {}, {}
+defer_variants = true
 buf = make_buffer()
 ai.rewrite_article_buffer()
-drain(function() return callbacks.B and callbacks.SW and callbacks.SW.streamer end)
+drain(function() return callbacks.B and callbacks.SW end)
 vim.api.nvim_buf_set_lines(buf, 6, 7, false, { 'Nieuwere tekst van de redacteur.' })
 for _, code in ipairs { 'B', 'SW' } do
-  callbacks[code].streamer { code = 0, stdout = 'Streamer ' .. code, stderr = '' }
+  callbacks[code]()
 end
-drained = false
+local drained = false
 vim.schedule(function() drained = true end)
 drain(function() return drained end)
 assert(workspace_calls == 1 and not review._review_buffers[buf], 'gewijzigde bron kreeg toch late reviewversies')

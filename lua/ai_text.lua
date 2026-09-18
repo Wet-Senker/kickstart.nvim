@@ -2548,6 +2548,21 @@ function M.rewrite_article_buffer()
           vim.b[buf].send_ai_rewrite_completed = false
           edition_tasks = strategy and strategy.options[choice] and strategy.options[choice].tasks
         end
+      elseif #codes == 1 and (
+          resolved.has_explicit_editions == true
+          or high_confidence_detection(resolved) ~= nil
+        )
+      then
+        -- Ook de gewone eenkrant-route krijgt de centrale editiecontext. Zo
+        -- gebruikt een expliciete of betrouwbaar herkende bestemming dezelfde
+        -- verspreidingsgebiedkennis als een gesplitste krantversie. De stille
+        -- De-Brug-default zonder inhoudelijk signaal blijft bewust de algemene
+        -- journalistieke rewrite gebruiken.
+        rewrite_cmd = { "bash", "-c",
+          "set -o pipefail; " .. vim.fn.shellescape(aitext)
+            .. " krantversie --edition " .. vim.fn.shellescape(codes[1])
+            .. shell_seo_context(seo_context)
+            .. " | " .. vim.fn.shellescape(kampen_fix) }
       end
       if duplicate_check_is_current(buf) or #codes == 0 then
         run_rewrite()
