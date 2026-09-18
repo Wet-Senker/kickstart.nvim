@@ -97,10 +97,12 @@ local buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(source_text .. "\n\n---\n\n## Facebook\n\nFacebooktekst.", "\n"))
 
 local original_runner = ai._edition_variant_runner
-local original_formatter = ai._edition_variant_formatter
-ai._edition_variant_formatter = function(_, _, variant, done) done(true, variant) end
+local original_structure = ai.tussenkopjes_streamer
 local requested = {}
 local seen_origin = {}
+ai.tussenkopjes_streamer = function()
+  error("krantversie startte onterecht automatische opmaak")
+end
 ai._edition_variant_runner = function(_, code, origin, done)
   table.insert(requested, code)
   seen_origin[code] = origin
@@ -255,7 +257,7 @@ review.close(race_source, true)
 assert(vim.b[race_source].edition_help_summary == nil, 'gesloten workspace liet verouderde helpstatus achter')
 
 ai._edition_variant_runner = original_runner
-ai._edition_variant_formatter = original_formatter
+ai.tussenkopjes_streamer = original_structure
 review._runner = nil
 
 print("edition versions: OK")

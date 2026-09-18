@@ -83,8 +83,8 @@ dialog.select = original_select
 
 local original_variant_runner = ai._edition_variant_runner
 local original_structure = ai.tussenkopjes_streamer
-ai.tussenkopjes_streamer = function(options)
-  if options.done then options.done(true) end
+ai.tussenkopjes_streamer = function()
+  error('volledige herschrijving startte onterecht automatische opmaak')
 end
 local function make_buffer()
   local target = vim.api.nvim_create_buf(false, true)

@@ -2136,36 +2136,6 @@ end
 -- `origin` is het oorspronkelijke bericht dat de AI per krant herschrijft. Ze
 -- zijn bewust gescheiden: elke krantversie wordt uit het origineel gedestilleerd,
 -- zodat een editie-onbewuste voor-herschrijving geen lokaal vitale info wist.
-M._edition_variant_formatter = function(source_buf, code, variant, done)
-  if not vim.api.nvim_buf_is_valid(source_buf) then done(false); return end
-  -- De lokale inspectie ook async: N krantversies blokkeren geen editorthread.
-  start_buffer_job(source_buf)
-  workflow_system({ article_headline, "inspect" }, { text = true, stdin = variant }, function(result)
-    vim.schedule(function()
-      finish_buffer_job(source_buf)
-      local decoded, headline = pcall(vim.json.decode, result.stdout or "")
-      if result.code ~= 0 or not decoded or type(headline) ~= "table"
-          or not vim.api.nvim_buf_is_valid(source_buf) then
-        done(false, nil, "kopinspectie van krantversie " .. code .. " mislukt")
-        return
-      end
-      -- Tijdelijke werkbuffer, nooit een tweede duurzame bron van waarheid.
-      local working = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(working, 0, -1, false, vim.split(variant, "\n", { plain = true }))
-      M.tussenkopjes_streamer({ automatic = true, streamer_only = true, headline = headline,
-        buf = working, job_buf = source_buf, done = function(ok)
-          local formatted
-          if ok and vim.api.nvim_buf_is_valid(working) then
-            formatted = table.concat(vim.api.nvim_buf_get_lines(working, 0, -1, false), "\n")
-          end
-          if vim.api.nvim_buf_is_valid(working) then vim.api.nvim_buf_delete(working, { force = true }) end
-          done(formatted ~= nil and vim.api.nvim_buf_is_valid(source_buf), formatted,
-            "opmaak van krantversie " .. code .. " kon niet veilig worden afgerond")
-        end })
-    end)
-  end, 'Artikel · Kop controleren', source_buf)
-end
-
 local function generate_edition_versions(buf, source, origin, codes, names, tasks, seo_context)
   if type(codes) ~= "table" or #codes < 2 then return end
 
@@ -2210,7 +2180,7 @@ local function generate_edition_versions(buf, source, origin, codes, names, task
     variant_task.seo_context = seo_context
     M._edition_variant_runner(buf, code, origin, function(ok, variant, err)
       if not ok then finish_variant(false, nil, err); return end
-      M._edition_variant_formatter(buf, code, variant, finish_variant)
+      finish_variant(true, variant)
     end, variant_task)
   end
 end
@@ -2224,6 +2194,167 @@ M._normalized_edition_variant = normalized_edition_variant
 M._apply_edition_versions = apply_edition_versions
 M._generate_edition_versions = generate_edition_versions
 M._edition_review = edition_review
+
+-- Eén gedeelde nacontrole voor iedere actie die de volledige artikelbody
+-- vervangt. Deelbewerkingen (kop, streamer, selectie, social of chatantwoord)
+-- gebruiken dit bewust niet. Zo krijgen <leader>ar, <leader>an en <leader>ap
+-- dezelfde editie-, doublure-, metadata-, agenda- en 112-controles zonder dat
+-- journalistieke regels per clientactie uiteenlopen.
+local function post_full_article_rewrite(options)
+  options = options or {}
+  local buf = options.buf
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+
+  local rewritten_str = options.document or table.concat(
+    vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"
+  )
+  local rewritten_body_str = options.body or editorial_body_text(
+    vim.split(rewritten_str, "\n", { plain = true })
+  )
+  local controls = options.controls or {}
+  local edition_mode = options.edition_mode or "single"
+
+  -- Een eerdere reviewworkspace hoort bij een oudere bronversie. Scratchbuffers
+  -- mogen na geen enkele volledige herschrijving nog terugschrijven.
+  edition_review.close(buf, true)
+  vim.b[buf].edition_workspace_ready = false
+  vim.b[buf].cached_metadata = nil
+  vim.b[buf].cached_calendar_metadata = nil
+  vim.b[buf].cached_facebook_text = nil
+
+  local agenda = _agenda_mode_from_lines(controls)
+  local needs_calendar = agenda == "on"
+  local agenda_denied = agenda == "off"
+  local needs_facebook = false
+  for _, line in ipairs(controls) do
+    local key, value = line:match("^(%a[%a%d_]*)%s*:%s*(.-)%s*$")
+    if key and value and key:lower() == "facebook" and value:lower() == "x" then
+      needs_facebook = true
+    end
+  end
+
+  local already_has_calendar_section = rewritten_str:find("\n## Kalender", 1, true) ~= nil
+    or rewritten_str:match("^## Kalender") ~= nil
+  local function start_calendar_after_duplicate()
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    if not needs_calendar then
+      if not agenda_denied and not already_has_calendar_section
+         and not vim.b[buf].calendar_ai_started
+         and not vim.b[buf].calendar_autodetect_suppressed then
+        local cal_score = _calendar_signal_score(rewritten_body_str)
+        if cal_score >= _CALENDAR_THRESHOLD then
+          notify_workflow(
+            string.format(
+              "Kalenderdetectie (score %d) — kalendermetadata wordt opgehaald.",
+              cal_score
+            ),
+            vim.log.levels.INFO
+          )
+          M._start_calendar_analysis(buf)
+        end
+      end
+      return
+    end
+
+    ai_system({ articlemeta, "--calendar" }, { text = true, stdin = rewritten_str }, function(result)
+      vim.schedule(function()
+        if not vim.api.nvim_buf_is_valid(buf) then return end
+        if result.code ~= 0 then
+          vim.notify("Kalendermetadata ophalen mislukt: " .. (result.stderr or ""), vim.log.levels.WARN)
+          return
+        end
+        local cal_lines = vim.split(result.stdout, "\n", { plain = true })
+        local cal_fm, _ = split_frontmatter_lines(cal_lines)
+        if #cal_fm > 0 then vim.b[buf].cached_calendar_metadata = cal_fm end
+        strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
+      end)
+    end, "AI · Kalender", buf)
+  end
+
+  local function start_metadata_and_facebook_after_duplicate()
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    if not needs_calendar then
+      ai_system({ articlemeta }, { text = true, stdin = rewritten_str }, function(result)
+        vim.schedule(function()
+          if not vim.api.nvim_buf_is_valid(buf) then return end
+          if result.code ~= 0 then
+            vim.notify("Metadata ophalen mislukt: " .. (result.stderr or ""), vim.log.levels.WARN)
+            return
+          end
+          local meta_lines = vim.split(result.stdout, "\n", { plain = true })
+          local new_fm, _ = split_frontmatter_lines(meta_lines)
+          if #new_fm > 0 then vim.b[buf].cached_metadata = new_fm end
+        end)
+      end, "AI · Metadata", buf)
+    end
+
+    if needs_facebook then
+      local prompt = _112_signal_score(rewritten_body_str) >= _112_THRESHOLD
+          and "facebook_bericht_112" or "facebook_bericht"
+      ai_system({ aitext, prompt }, { text = true, stdin = rewritten_body_str }, function(result)
+        vim.schedule(function()
+          if result.code ~= 0 then
+            vim.notify("Facebook-bericht ophalen mislukt: " .. (result.stderr or ""), vim.log.levels.WARN)
+            return
+          end
+          local facebook = vim.trim(result.stdout or "")
+          if facebook ~= "" then vim.b[buf].cached_facebook_text = facebook end
+          strip_leading_control_line(buf, "^[Ff]acebook%s*:%s*x%s*$")
+        end)
+      end, "AI · Facebook", buf)
+    end
+  end
+
+  -- Streamers zijn een bewuste handmatige redactiestap via <leader>at.
+  -- De definitieve herschrijfprompts leveren hun eigen tussenkopjes; hier
+  -- start daarom geen aanvullende opmaak- of streamer-AI meer.
+  if options.after_start then options.after_start() end
+
+  vim.b[buf].pubble_duplicate_gate_pending = true
+  reconcile_editions_after_rewrite(
+    buf,
+    rewritten_str,
+    options.original_content,
+    function(ok, codes, names)
+      if not ok then
+        settle_duplicate_calendar_gate(buf, false)
+        return
+      end
+      check_duplicate_stage(buf, codes, "herschrijven", function(checked)
+        if not checked then return end
+        start_metadata_and_facebook_after_duplicate()
+        if edition_mode == "splitsen" then
+          generate_edition_versions(
+            buf,
+            rewritten_body_str,
+            options.variant_origin,
+            codes,
+            names,
+            options.edition_tasks,
+            options.seo_context
+          )
+        end
+        start_calendar_after_duplicate()
+      end)
+    end
+  )
+
+  if not options.is_112_template then
+    local already_112 = false
+    for _, line in ipairs(controls) do
+      local key, value = line:match("^(%a[%a%d_]*)%s*:%s*(.-)%s*$")
+      if key and value and key:lower() == "rubriek" and value:lower() == "112" then
+        already_112 = true
+        break
+      end
+    end
+    local score = _112_signal_score(rewritten_body_str)
+    if not already_112 and score >= _112_THRESHOLD then
+      _offer_112_template(buf, score, "na herschrijven")
+    end
+  end
+end
+M._post_full_article_rewrite = post_full_article_rewrite
 
 function M.rewrite_article_buffer()
   local buf = vim.api.nvim_get_current_buf()
@@ -2360,166 +2491,18 @@ function M.rewrite_article_buffer()
       local rewritten_str = table.concat(new_lines, "\n")
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
       if edition_mode ~= "splitsen" then mark_ai_rewrite_completed(buf) end
-      -- Een eerdere reviewworkspace is door deze expliciet bevestigde rewrite
-      -- vervangen. Oude scratchbuffers mogen daarna niet meer terugschrijven.
-      edition_review.close(buf, true)
-      vim.b[buf].edition_workspace_ready = false
-      vim.b[buf].cached_metadata = nil
-      vim.b[buf].cached_calendar_metadata = nil
-      vim.b[buf].cached_facebook_text = nil
-
-      -- Agenda-schakelaar (agenda:/cal:/calendar:) + facebook: x lezen.
-      local agenda = _agenda_mode_from_lines(final_ctrl)
-      local needs_calendar = agenda == "on"
-      local agenda_denied = agenda == "off"
-      local needs_facebook = false
-      for _, line in ipairs(final_ctrl) do
-        local k, v = line:match("^(%a[%a%d_]*)%s*:%s*(.-)%s*$")
-        if k and v then
-          k = k:lower(); v = v:lower()
-          if k == "facebook" and v == "x" then needs_facebook = true end
-        end
-      end
-
-      local already_has_calendar_section = rewritten_str:find("\n## Kalender", 1, true) ~= nil
-        or rewritten_str:match("^## Kalender") ~= nil
-      local function start_calendar_after_duplicate()
-        if not vim.api.nvim_buf_is_valid(buf) then return end
-        if not needs_calendar then
-          -- calendar_ai_started: de import-detectie (BufReadPost) kan de
-          -- kalender-AI al gestart hebben; dan niet nog eens draaien.
-          if not agenda_denied and not already_has_calendar_section
-             and not vim.b[buf].calendar_ai_started
-             and not vim.b[buf].calendar_autodetect_suppressed then
-            local cal_score = _calendar_signal_score(rewritten_body_str)
-            if cal_score >= _CALENDAR_THRESHOLD then
-              notify_workflow(
-                string.format(
-                  "Kalenderdetectie (score %d) — kalendermetadata wordt opgehaald.",
-                  cal_score
-                ),
-                vim.log.levels.INFO
-              )
-              M._start_calendar_analysis(buf)
-            end
-          end
-          return
-        end
-
-        -- articlemeta --calendar levert gewone metadata én kalenderdata. De
-        -- losse metadata-call daarnaast is volledig dubbel werk. Deze call
-        -- start bewust pas nadat een mogelijke doublure is beoordeeld.
-        ai_system({ articlemeta, "--calendar" }, { text = true, stdin = rewritten_str }, function(cal_result)
-          vim.schedule(function()
-            if not vim.api.nvim_buf_is_valid(buf) then return end
-            if cal_result.code ~= 0 then
-              vim.notify("Kalendermetadata ophalen mislukt: " .. (cal_result.stderr or ""), vim.log.levels.WARN)
-              return
-            end
-            local cal_lines = vim.split(cal_result.stdout, "\n", { plain = true })
-            local cal_fm, _ = split_frontmatter_lines(cal_lines)
-            if #cal_fm > 0 then
-              vim.b[buf].cached_calendar_metadata = cal_fm
-            end
-            strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
-          end)
-        end, "AI · Kalender", buf)
-      end
-
-      -- Metadata en Facebook zijn niet nodig voor de doublurecontrole. Ze mogen
-      -- daarom pas draaien nadat die is afgehandeld en goedgekeurd — net als de
-      -- kalender-AI (start_calendar_after_duplicate). Bij een geannuleerde
-      -- doublure starten ze dus niet, en breekt de gate lopend werk af.
-      local function start_metadata_and_facebook_after_duplicate()
-        if not vim.api.nvim_buf_is_valid(buf) then return end
-        if not needs_calendar then
-          ai_system({ articlemeta }, { text = true, stdin = rewritten_str }, function(meta_result)
-            vim.schedule(function()
-              if not vim.api.nvim_buf_is_valid(buf) then return end
-              if meta_result.code ~= 0 then
-                vim.notify("Metadata ophalen mislukt: " .. (meta_result.stderr or ""), vim.log.levels.WARN)
-                return
-              end
-
-              local meta_lines = vim.split(meta_result.stdout, "\n", { plain = true })
-              local new_fm, _ = split_frontmatter_lines(meta_lines)
-              if #new_fm > 0 then
-                vim.b[buf].cached_metadata = new_fm
-              end
-            end)
-          end, "AI · Metadata", buf)
-        end
-
-        if needs_facebook then
-          local fb_prompt = _112_signal_score(rewritten_body_str) >= _112_THRESHOLD and "facebook_bericht_112" or "facebook_bericht"
-          ai_system({ aitext, fb_prompt }, { text = true, stdin = rewritten_body_str }, function(fb_result)
-            vim.schedule(function()
-              if fb_result.code ~= 0 then
-                vim.notify("Facebook-bericht ophalen mislukt: " .. (fb_result.stderr or ""), vim.log.levels.WARN)
-                return
-              end
-              local fb_text = vim.trim(fb_result.stdout or "")
-              if fb_text ~= "" then
-                vim.b[buf].cached_facebook_text = fb_text
-              end
-              strip_leading_control_line(buf, "^[Ff]acebook%s*:%s*x%s*$")
-            end)
-          end, "AI · Facebook", buf)
-        end
-      end
-
-      -- Herken opnieuw op basis van de herschreven tekst. Een zichtbare
-      -- e:-keuze blijft stil leidend zolang de betrouwbare inhoudsdetectie
-      -- door de rewrite niet is veranderd. Kalender-AI begint pas vanuit de
-      -- callback van de afgeronde doublurecontrole.
-      local function reconcile_and_continue()
-        vim.b[buf].pubble_duplicate_gate_pending = true
-        reconcile_editions_after_rewrite(
-          buf,
-          rewritten_str,
-          original_for_edition_detection,
-          function(ok, codes, names)
-            if not ok then
-              settle_duplicate_calendar_gate(buf, false)
-              return
-            end
-            check_duplicate_stage(buf, codes, "herschrijven", function(checked)
-              if checked then
-                start_metadata_and_facebook_after_duplicate()
-                -- De gedeelde bron blijft onopgemaakt; elke definitieve
-                -- krantversie krijgt opmaak vóór workspacecreatie/review.
-                if edition_mode == "splitsen" then
-                  generate_edition_versions(
-                    buf, rewritten_body_str, input, codes, names, edition_tasks, seo_context
-                  )
-                end
-                start_calendar_after_duplicate()
-              end
-            end)
-          end
-        )
-      end
-      if edition_mode ~= "splitsen" then
-        M.tussenkopjes_streamer({ automatic = true, streamer_only = true, buf = buf })
-      end
-      reconcile_and_continue()
-
-      -- Als dit nog geen 112-templateartikel was maar de rewritten tekst wél
-      -- als 112 scoort: opnieuw aanbieden als importdetectie dit niet al aan
-      -- de gebruiker heeft gevraagd. Een eerder expliciet "Nee" blijft staan.
-      if not is_112_template then
-        local already_112 = false
-        for _, line in ipairs(final_ctrl) do
-          local k, v = line:match("^(%a[%a%d_]*)%s*:%s*(.-)%s*$")
-          if k and v and k:lower() == "rubriek" and v:lower() == "112" then
-            already_112 = true; break
-          end
-        end
-        local score = _112_signal_score(rewritten_body_str)
-        if not already_112 and score >= _112_THRESHOLD then
-          _offer_112_template(buf, score, "na herschrijven")
-        end
-      end
+      M._post_full_article_rewrite({
+        buf = buf,
+        document = rewritten_str,
+        body = rewritten_body_str,
+        controls = final_ctrl,
+        original_content = original_for_edition_detection,
+        edition_mode = edition_mode,
+        edition_tasks = edition_tasks,
+        variant_origin = input,
+        seo_context = seo_context,
+        is_112_template = is_112_template ~= nil,
+      })
     end)
   end
   if edition_mode == "splitsen" then
@@ -6198,6 +6181,7 @@ function M.journalistic_neutralize()
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
+  local original_content = table.concat(lines, "\n")
   local requested_tick = vim.api.nvim_buf_get_changedtick(buf)
 
   ai_system(
@@ -6232,7 +6216,17 @@ function M.journalistic_neutralize()
         local new_body = vim.split(output, "\n", { plain = true })
         local new_lines = reassemble_article(fm, ctrl, new_body, sections, has_boundary)
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
-        mark_ai_neutrality_completed(buf, new_lines)
+        local rewritten_str = table.concat(new_lines, "\n")
+        M._post_full_article_rewrite({
+          buf = buf,
+          document = rewritten_str,
+          body = table.concat(new_body, "\n"),
+          controls = ctrl,
+          original_content = original_content,
+          after_start = function()
+            if vim.api.nvim_buf_is_valid(buf) then mark_ai_neutrality_completed(buf) end
+          end,
+        })
         notify_workflow(
           "Artikel minimaal publicatieklaar gemaakt. Controleer vooral kop en lead; gebruik u om ongedaan te maken.",
           vim.log.levels.INFO,
@@ -6749,6 +6743,8 @@ function M.ai_prompt_rewrite()
   end
 
   local fm, ctrl, body, sections, has_boundary = split_article_parts(article_lines)
+  local original_content = table.concat(article_lines, "\n")
+  local is_112_template = _parse_112_template(body)
 
   ai_system(
     { aichat, prompt, "--mode", "rewrite" },
@@ -6771,7 +6767,15 @@ function M.ai_prompt_rewrite()
           reassemble_article(fm, ctrl, new_body, sections, has_boundary)
         )
         mark_ai_rewrite_completed(buf)
-        M.tussenkopjes_streamer({ automatic = true, buf = buf })
+        local rewritten_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        M._post_full_article_rewrite({
+          buf = buf,
+          document = table.concat(rewritten_lines, "\n"),
+          body = table.concat(new_body, "\n"),
+          controls = ctrl,
+          original_content = original_content,
+          is_112_template = is_112_template ~= nil,
+        })
         notify_workflow("Klaar. Gebruik u om ongedaan te maken.", vim.log.levels.INFO)
       end)
     end,

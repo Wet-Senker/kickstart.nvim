@@ -44,17 +44,17 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | Leader | Actie |
 |---|---|
 | `<leader>z` | Rustige Zen-weergave met een bredere tekstkolom, zonder regelnummers, tekens in de marge of zichtbare witruimte. Markdown loopt alleen visueel om bij woordgrenzen; het bestand krijgt geen extra regeleinden. |
-| `<leader>ar` | Herschrijven naar krantenartikel (AI). Een reeds bevestigde 112-rubriek of geaccepteerde agenda krijgt in dezelfde call natuurlijke zoekintentie voor kop en lead; andere artikelen niet. Bij meerdere bestemmingen verschijnt alleen een vraag als een gevonden plaats of prominente provincie de gekozen gebieden werkelijk onderscheidt. De standaardkeuze maakt gerichte lokale of provinciale versies en één algemene voor de overige kranten; zonder onderscheidend signaal ontstaat stil één algemene versie. Bestemmingen blijven gelijk. Iedere unieke tekst komt direct uit het origineel, inclusief tussenkopjes; daarna een losse ontbrekende streamer. Ook als meerdere kranten dezelfde algemene tekst krijgen, opent voor iedere krant een eigen reviewbuffer, zodat socialteksten apart kunnen worden gemaakt en goedgekeurd. Geen tussenrewrite of opmaak van de gedeelde bron. |
+| `<leader>ar` | Herschrijven naar krantenartikel (AI). Een reeds bevestigde 112-rubriek of geaccepteerde agenda krijgt in dezelfde call natuurlijke zoekintentie voor kop en lead; andere artikelen niet. Bij meerdere bestemmingen verschijnt alleen een vraag als een gevonden plaats of prominente provincie de gekozen gebieden werkelijk onderscheidt. De standaardkeuze maakt gerichte lokale of provinciale versies en één algemene voor de overige kranten; zonder onderscheidend signaal ontstaat stil één algemene versie. Bestemmingen blijven gelijk. Iedere unieke tekst komt direct uit het origineel, inclusief tussenkopjes. Een streamer maak je alleen bewust handmatig met `<leader>at`. Ook als meerdere kranten dezelfde algemene tekst krijgen, opent voor iedere krant een eigen reviewbuffer, zodat socialteksten apart kunnen worden gemaakt en goedgekeurd. Geen tussenrewrite of opmaak van de gedeelde bron. |
 | `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. Tijdens een doublurecontrole wordt deze actie eenmaal uitgesteld en alleen na doorgaan hervat. Een herkend maar onvolledig item toont `<!-- Ontbreekt: … -->` inclusief invoerformaat, bijvoorbeeld `Tijd: HH:MM`. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
-| `<leader>an` | Minimaal publicatieklaar maken in twee fasen: eerst uitsluitend zekere persbericht-/mailruis als volledige regels verwijderen, daarna kop en nieuwsgerichte lead herstellen en reclametaal, directe aanspreekvormen en lokale taalfouten minimaal neutraliseren. |
+| `<leader>an` | Minimaal publicatieklaar maken in twee fasen: eerst uitsluitend zekere persbericht-/mailruis als volledige regels verwijderen, daarna kop en nieuwsgerichte lead herstellen en reclametaal, directe aanspreekvormen en lokale taalfouten minimaal neutraliseren. Daarna draait dezelfde nacontrole als bij `<leader>ar`. |
 | `<leader>at` | Tussenkopjes, een streamer (als er nog geen eigen `>` staat) en twee kopopties. Een gekozen kop vervangt alleen een bestaande korte kop; bij een dateline, auteursregel of eerste alinea van meer dan tien woorden wordt zij vóór de lead ingevoegd. |
 | `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. In een krantreview geldt de tekst alleen voor die krant en krijgt de AI die sitecontext. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
 | `<leader>al` | LinkedIn-post genereren → bewerkbare `## LinkedIn` sectie. In een krantreview geldt de tekst alleen voor die krant. |
 | `<leader>aV` / `:Krantversies` | Overzicht van de gedeelde bron en alle afzonderlijke krantversiebuffers openen. |
 | `<leader>aG` / `:KrantversieGoedkeuren` | Huidige krantversie terugschrijven en de exacte tekst expliciet goedkeuren. |
 | `<leader>aw` | Versturen naar Pubble. Vanuit bron of reviewbuffer is dit één centrale verzending voor alle kranten: iedere krant krijgt haar eigen artikel- en socialtekst; dezelfde foto wordt eenmaal geüpload en aan alle doelen gekoppeld. Vanaf twee meegezonden foto's eindigt de web- en krantenkop in Pubble op `(n foto's)`; 112-koppen zijn uitgezonderd. Socialtekst wordt alleen in het bijbehorende Pubble-webartikel opgeslagen, niet automatisch op Facebook of LinkedIn geplaatst. Bij een import vraagt een extra safeguard alleen om bevestiging wanneer de body nog nauwelijks afwijkt van de import. Een substantiële handmatige bewerking is dus voldoende; AI is niet verplicht. Vóór de eerste Pubble-write volgt zo nodig de doublurecontrole volgens het Python-branchbeleid, tenzij die al bij import of herschrijven is afgerond. `codex/doublure-altijd` controleert ook alleen De Brug; `codex/doublure-voorwaardelijk` controleert zodra een andere krant is gekozen, ook alleen De Kop. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Wanneer de eerstvolgende krant in een andere evenementfase valt, toont de eerste druk alleen voor die editie een `## Kranttijdsversies`-tekst. Eventvervolgen verschijnen in dezelfde reviewstap; de tweede druk publiceert alles samen. |
-| `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen. |
+| `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen en krijgt daarna dezelfde nacontrole als `<leader>ar`. |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder. |
 | `<leader>aa` | **Archiefzoeker** — zoekt het hele Pubble-archief af naar eerder verschenen artikelen over hetzelfde onderwerp, voor langlopende zaken. Je krijgt vijf verhalen per keer: koppen met datum en krant bovenin, per jaar gegroepeerd, de volledige teksten eronder. Nogmaals drukken geeft de volgende vijf. Zoeken gebeurt zonder AI. Uit te zetten met `TEXTTOOLS_ARCHIEFZOEKER=0`. |
 | `<leader>as` | **Achtergrond schrijven** — in de archieflijst: vat de artikelen die je hebt laten staan samen tot één `## Achtergrond` onderaan je artikel. Die sectie is voor jou zichtbaar en gaat net als `## Kalender` vóór verzending weg. De achtergrond gaat bewust niet automatisch de herschrijfprompt in. |
@@ -201,8 +201,9 @@ centrale importketen.
 Zonder zo'n regel wordt een betrouwbare dateline direct ingevuld. Een exacte
 provincienaam is eveneens betrouwbaar wanneer zij vroeg in het artikel staat
 of meermaals voorkomt: `Overijssel` wordt `e: B, SW, ST, K`, `Flevoland` wordt
-`e: D, Z`. De importcontrole draait eenmaal per buffer. Na `<leader>ar` volgt
-een hercontrole. Een bestaande `e:` blijft zonder vraag leidend wanneer de
+`e: D, Z`. De importcontrole draait eenmaal per buffer. Na iedere volledige
+herschrijving (`<leader>ar`, `<leader>an` en `<leader>ap`) volgt een hercontrole.
+Een bestaande `e:` blijft zonder vraag leidend wanneer de
 betrouwbare plaats-/regiodetectie vóór en na de rewrite gelijk is. Alleen als
 de rewrite die detectie verandert, beslis je zelf welke bestemming blijft. Bij
 `<leader>aw` wordt alleen gevraagd om de bestemming te bevestigen wanneer nog
@@ -274,8 +275,13 @@ signaal zonder tweede aanwijzing opent alleen een bevestigingsmenu. Bij score
 Pubble Inbox moet daarvoor leeg zijn. Een losse aangeleverde regel
 `Hondenhoek:` wordt verwijderd, maar body en auteursregel blijven ongewijzigd.
 
-Kalender en 112 worden ook na `<leader>ar` op de herschreven tekst beoordeeld. 112 vraagt daar
-alleen opnieuw om bevestiging als bij import nog geen keuze is gemaakt.
+Na iedere volledige herschrijving worden ook doublures, metadata, kalender,
+eventuele `facebook: x` en 112 opnieuw volgens dezelfde regels
+beoordeeld. 112 vraagt alleen opnieuw om bevestiging als bij import nog geen
+keuze is gemaakt. Deelacties zoals tekstcheck, een geselecteerde passage,
+streamer, socialtekst of chatantwoord starten deze volledige nacontrole niet.
+Een ontbrekende streamer wordt nooit automatisch gemaakt; gebruik daarvoor
+bewust `<leader>at`.
 
 Het weeknummer in een gegenereerde Pubble-werktitel is de uiterste bruikbare
 krant. Na die krant kan het artikel weg; een hoger nummer kan worden
@@ -527,7 +533,15 @@ cd ~/.config/nvim
 bash tests/run_headless.sh
 ```
 
-GitHub Actions voert dezelfde suite uit bij iedere push naar `master` en bij
-iedere pull request. De tests dekken belangrijke pure logica en contracten;
-interactieve menu's, externe API's en de volledige publicatieflow blijven
-handmatige integratietests.
+De GitHub Actions-workflow voor deze repository is op 16 september 2026
+verwijderd: de runner beschikte niet over de private Texttools-repository en
+faalde daardoor op ontbrekende CLI's. Draai deze suite daarom vóór iedere push
+lokaal. Herstel CI door beide repositories read-only uit te checken en Texttools
+te installeren; zie de actuele prioriteiten in
+`~/workspace/texttools/VERBETERPLAN.md`.
+
+Bekend open punt op 18 september 2026: de volledige suite stopt reproduceerbaar
+in `tests/duplicate_stages.lua` met `pending_jobs bleef hangen`. De nieuwe
+editieresolutie/agenda-doublurerunner van de handmatige kalenderactie moet in dat
+testscenario expliciet worden gestubd en de jobbalans moet daarna voor succes,
+fout en annulering worden vastgezet. Verhoog niet alleen de timeout.
