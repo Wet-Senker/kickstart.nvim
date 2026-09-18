@@ -584,11 +584,27 @@ end
 --   fm        YAML-frontmatter (--- ... ---)
 --   ctrl      kopregels boven het artikel (e:, prio:, b:, c:, Fotograaf:, …)
 --   body      de artikeltekst — het ENIGE dat ooit naar een AI mag
---   sections  staartsecties (elke ## kop: Facebook, Kalender, Suggesties, …)
+--   sections  technische staartsecties (Facebook, Kalender, Suggesties, …)
 --   boundary  of de verplichte zichtbare artikelgrens aanwezig was
 -- Elke AI-leader hoort dit te gebruiken (input = body, resultaat terug via
 -- reassemble_article), zodat een AI-run frontmatter, kopcodes en eerder
 -- gegenereerde secties per constructie nooit kan beschadigen of verwijderen.
+local _TAIL_SECTION_TITLES = {
+  ["Kalender"] = true,
+  ["Facebook"] = true,
+  ["LinkedIn"] = true,
+  ["Suggesties"] = true,
+  ["Editieversies"] = true,
+  ["Korte versie"] = true,
+  ["Dagreminder"] = true,
+  ["Kranttijdsversies"] = true,
+}
+
+local function is_tail_section_heading(line)
+  local title = vim.trim(line):match("^##%s+(.+)$")
+  return title ~= nil and _TAIL_SECTION_TITLES[vim.trim(title)] == true
+end
+
 local function split_article_parts(lines)
   local fm, body_start = split_frontmatter_lines(lines)
 
@@ -600,7 +616,7 @@ local function split_article_parts(lines)
 
   local first_section = nil
   for i = 1, #after_ctrl do
-    if after_ctrl[i]:match("^## %S") then
+    if is_tail_section_heading(after_ctrl[i]) then
       first_section = i
       break
     end

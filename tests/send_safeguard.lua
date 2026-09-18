@@ -29,6 +29,38 @@ assert(
 )
 assert(not ai._substantially_changed_since_import(imported, metadata_only), 'alleen workflowmetadata gold ten onrechte als substantiële wijziging')
 
+local markdown_heading = [[
+=== ARTIKEL ===
+
+## Kamper ondernemers bezoeken Tuschinski
+
+KAMPEN – Leden van VOC Kampen maakten hun jaarlijkse uitstapje.
+
+## Achtergrond
+
+De vereniging organiseert ieder jaar een bedrijfsbezoek.
+
+---
+
+## Facebook
+
+Sociale tekst.
+]]
+local expected_heading_body = [[
+## Kamper ondernemers bezoeken Tuschinski
+
+KAMPEN – Leden van VOC Kampen maakten hun jaarlijkse uitstapje.
+
+## Achtergrond
+
+De vereniging organiseert ieder jaar een bedrijfsbezoek.
+]]
+assert(
+  ai._editorial_body_text(vim.split(markdown_heading, '\n', { plain = true }))
+    == vim.trim(expected_heading_body),
+  'gewone Markdown-koppen werden ten onrechte als technische staartsectie gezien'
+)
+
 local rewritten = [[
 Binnenstad krijgt meer groen en ruimte
 

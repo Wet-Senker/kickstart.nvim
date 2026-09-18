@@ -139,6 +139,26 @@ assert(local_place_text:find('KAMPEN - De landelijke concertreeks', 1, true),
 assert(#duplicate_runs == 7 and duplicate_runs[7].command[#duplicate_runs[7].command] == 'B',
   'lokale plaatsdetectie gebruikte niet de vastgelegde editie')
 
+-- Een uit Word/Pandoc afkomstige Markdown-kop met `##` is artikelinhoud, geen
+-- technische staartsectie. Importherkenning moet dus gewoon de dateline lezen.
+local markdown_heading = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(markdown_heading, 0, -1, false, {
+  '=== ARTIKEL ===', '',
+  '## Kamper ondernemers bezoeken Tuschinski tijdens jaarlijks VOC-uitje', '',
+  'KAMPEN – Leden van VOC Kampen maakten hun jaarlijkse uitstapje.', '',
+  'De ondernemers vertrokken per bus vanuit Kampen.',
+})
+local markdown_heading_done = false
+ai._edition_autodetect(markdown_heading, buffer_text(markdown_heading), function()
+  markdown_heading_done = true
+end)
+assert(vim.wait(5000, function() return markdown_heading_done end, 20),
+  'import met Markdown-kop rondde editieherkenning niet af')
+assert(buffer_text(markdown_heading):find('e: B\n', 1, true) == 1,
+  'Markdown-kop liet de Kampen-dateline ten onrechte verdwijnen')
+assert(#duplicate_runs == 8 and duplicate_runs[8].command[#duplicate_runs[8].command] == 'B',
+  'import met Markdown-kop gebruikte niet de herkende editie')
+
 local empty = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(empty, 0, -1, false, { '=== ARTIKEL ===', '' })
 local original_system = vim.system
