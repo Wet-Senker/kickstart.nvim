@@ -263,17 +263,19 @@ function M._render_website_candidates(decoded)
   return lines, by_line
 end
 
-local function run(cmd, stdin, on_json)
+local function run(cmd, stdin, on_json, on_error)
   vim.system(cmd, { text = true, stdin = stdin }, function(result)
     vim.schedule(function()
       if result.code ~= 0 then
         vim.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr)
           or 'Agenda-actie mislukt.', vim.log.levels.ERROR)
+        if on_error then on_error() end
         return
       end
       local ok, decoded = pcall(vim.json.decode, vim.trim(result.stdout or ''))
       if not ok or type(decoded) ~= 'table' then
         vim.notify('Onleesbare JSON van de agenda-actie.', vim.log.levels.ERROR)
+        if on_error then on_error() end
         return
       end
       on_json(decoded)
@@ -462,6 +464,81 @@ function M.website_plaatsen(buf)
   end)
 end
 
+function M.artikel_plaatsen(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+  if not text:match('\n## Kalender%s*\n') and not text:match('^## Kalender%s*\n') then
+    vim.notify('Geen bewerkbaar ## Kalender-blok gevonden. Maak dit eerst met <leader>ac.', vim.log.levels.WARN)
+    return
+  end
+  local answer = require('user_dialog').confirm(
+    'Alleen het gecontroleerde agenda-item versturen?\n\nKrant, websiteartikel, social en Teams worden niet verstuurd.',
+    '&Ja — alleen agenda\n&Nee',
+    2
+  )
+  if answer ~= 1 then return end
+
+  local path = vim.api.nvim_buf_get_name(buf)
+  local use_file = path ~= '' and vim.bo[buf].buftype == ''
+  if use_file then
+    if vim.bo[buf].modified then
+      local saved = pcall(vim.api.nvim_buf_call, buf, function() vim.cmd 'silent write' end)
+      if not saved then
+        vim.notify('Artikel kon niet worden opgeslagen; agenda-item is niet verstuurd.', vim.log.levels.ERROR)
+        return
+      end
+    end
+    text = nil
+  end
+
+  local cmd = use_file
+      and command('artikel-plaatsen', path, '--write')
+    or command('artikel-plaatsen')
+  local was_modifiable = vim.bo[buf].modifiable
+  vim.bo[buf].modifiable = false
+  workflow('Agenda · alleen kalenderitem plaatsen…', vim.log.levels.INFO)
+
+  local function unlock()
+    if vim.api.nvim_buf_is_valid(buf) then vim.bo[buf].modifiable = was_modifiable end
+  end
+
+  run(cmd, text, function(decoded)
+    if vim.api.nvim_buf_is_valid(buf) then
+      vim.bo[buf].modifiable = true
+      if type(decoded.updated_document) == 'string' then
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false,
+          sanitize_lines(vim.split(decoded.updated_document, '\n', { plain = true })))
+        vim.bo[buf].modified = not use_file
+      end
+      vim.bo[buf].modifiable = was_modifiable
+      vim.b[buf].article_calendar_status = decoded.status
+      vim.b[buf].article_calendar_reason = decoded.reason
+    end
+
+    local urls = {}
+    for _, item in ipairs(decoded.created or {}) do
+      if item.editor_url then table.insert(urls, item.editor_url) end
+    end
+    for _, item in ipairs(decoded.duplicates or {}) do
+      if item.editor_url then table.insert(urls, item.editor_url) end
+    end
+    if #urls > 0 then browser.open_urls(urls) end
+
+    if decoded.status == 'created' then
+      workflow(string.format('%d agenda-item(s) geplaatst; overige publicatiekanalen zijn overgeslagen.',
+        #(decoded.created or {})), vim.log.levels.INFO, { ttl = 10 })
+    elseif decoded.status == 'already-created' then
+      workflow(tostring(decoded.reason), vim.log.levels.INFO)
+    elseif decoded.status == 'partial' then
+      vim.notify('Een deel van de agenda-items is geplaatst. De ontvangen ID’s zijn opgeslagen. '
+        .. tostring(decoded.reason or ''), vim.log.levels.WARN)
+    else
+      vim.notify(tostring(decoded.reason or 'Agenda-item is niet geplaatst.'), vim.log.levels.WARN)
+    end
+  end, unlock)
+end
+
 function M.weekendbericht()
   vim.ui.select(weekend_editions, {
     prompt = 'Weekendbericht maken voor welke krant?',
@@ -525,6 +602,9 @@ function M.setup()
   })
   vim.keymap.set('n', '<leader>kw', M.weekendbericht, {
     desc = '[K]rant [w]eekendbericht uit agenda',
+  })
+  vim.keymap.set('n', '<leader>kA', M.artikel_plaatsen, {
+    desc = '[K]rant alleen [A]genda-item uit huidige buffer plaatsen',
   })
 end
 

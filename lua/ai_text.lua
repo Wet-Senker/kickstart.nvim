@@ -717,6 +717,19 @@ local function mark_ai_neutrality_completed(buf, lines)
 end
 
 local function send_safeguard_reason(buf, lines)
+  -- Een column is bewust auteurskopij en hoeft niet door AI of een
+  -- verschilheuristiek te worden gelegitimeerd. De rubriekmarkering is het
+  -- bestaande, expliciete contract dat alle columntemplates al zetten.
+  local _, controls = split_article_parts(lines)
+  for _, line in ipairs(controls) do
+    local key, value = vim.trim(line):match("^([%a][%a%d_]*)%s*:%s*(.-)%s*$")
+    key = key and key:lower() or nil
+    if (key == "rubriek" or key == "r")
+        and value and value:lower() == "column" then
+      return nil
+    end
+  end
+
   -- De gedeelde bron blijft bij varianten bewust ongeredigeerd. De echte
   -- publicatieteksten zijn expliciet gereviewd; Python valideert hun hashes
   -- opnieuw vóór publicatie, ook als deze afgeleide clientcache verouderd is.
@@ -1807,7 +1820,10 @@ local function article_context_help(buf)
       },
       {
         heading = "Daarna",
-        lines = { "<leader>aw  Start de publicatiestroom met het gecontroleerde agenda-item." },
+        lines = {
+          "<leader>aw  Publiceer artikel en agenda-item via de gewone stroom.",
+          "<leader>kA  Plaats uitsluitend het agenda-item; geen krant, web, social of Teams.",
+        },
       },
       {
         heading = "Andere hoofdopties",
@@ -3588,13 +3604,41 @@ local function apply_import_embargo(buf, embargo)
       or type(embargo.control_line) ~= "string" then
     return false, nil
   end
-  if not insert_import_control_line(buf, "embargo", embargo.control_line) then
-    return false, embargo.message
+  local inserted = false
+  if type(embargo.source_text) == "string" and vim.trim(embargo.source_text) ~= "" then
+    inserted = insert_import_control_line(
+      buf, "embargobron", "embargobron: " .. vim.trim(embargo.source_text)
+    ) or inserted
   end
-  vim.b[buf].embargo_import_detected = true
-  return true, embargo.message
+  if type(embargo.suggested_publication_at) == "string"
+      and vim.trim(embargo.suggested_publication_at) ~= "" then
+    inserted = insert_import_control_line(
+      buf,
+      "publicatiedatum",
+      "publicatiedatum: " .. vim.trim(embargo.suggested_publication_at)
+    ) or inserted
+  end
+  inserted = insert_import_control_line(buf, "embargo", embargo.control_line) or inserted
+  if inserted then vim.b[buf].embargo_import_detected = true end
+  return inserted, embargo.message
 end
 M._apply_import_embargo = apply_import_embargo
+
+local function embargo_publication_suggestion(lines)
+  for _, line in ipairs(lines or {}) do
+    if vim.trim(line) == ARTICLE_BOUNDARY then break end
+    local value = line:match("^%s*[Pp]ublicatiedatum%s*:%s*(.-)%s*$")
+    if value then
+      local day, hour, minute = value:match("^(%d%d%d%d%-%d%d%-%d%d)%s+(%d%d):(%d%d)$")
+      if day then return day .. "T" .. hour .. ":" .. minute end
+      day = value:match("^(%d%d%d%d%-%d%d%-%d%d)$")
+      if day then return day end
+      return nil
+    end
+  end
+  return nil
+end
+M._embargo_publication_suggestion = embargo_publication_suggestion
 
 -- Eén asynchrone lokale Python-call; auteurs-/contactregels en veiligheids-
 -- signalen blijven in de core en kunnen zo ook door een andere client worden
@@ -4253,6 +4297,7 @@ function M.pubble_send(target_buf)
     return
   end
   if not confirm_send_safeguard(buf, lines) then return end
+  local embargo_publication_at = embargo_publication_suggestion(lines)
 
   -- Inject cached metadata (from background rewrite chain) if the buffer
   -- has no frontmatter yet. Calendar-metadata heeft voorrang: het is een
@@ -5232,6 +5277,12 @@ function M.pubble_send(target_buf)
           if type(pd) == "string" then krant_set[pd] = true end
         end
 
+        if embargo_publication_at then
+          local label = embargo_publication_at:gsub("T", " ")
+          table.insert(items, "Na embargo plaatsen: " .. label .. " ← voorgesteld")
+          table.insert(item_values, embargo_publication_at)
+        end
+
         -- Startdag: vandaag + week_offset * 7 dagen, afgerond naar middernacht.
         local base = os.time() + week_offset * 7 * 86400
         local bt = os.date("*t", base)
@@ -5349,10 +5400,11 @@ function M.pubble_send(target_buf)
       -- accepteren; alleen "Datums aanpassen" opent de bestaande detailmenu's.
       local recommended = {}
       local summary = {}
-      local all_recommended = has_data
+      local embargo_day = embargo_publication_at and embargo_publication_at:sub(1, 10) or nil
+      local all_recommended = embargo_publication_at ~= nil or has_data
       for _, code in ipairs(edition_codes) do
         local info = schedule_info(code)
-        local suggested = optional_string(info and info.suggested)
+        local suggested = embargo_day or optional_string(info and info.suggested)
         local latest_date = optional_string(info and info.latest_date)
         if not suggested then
           all_recommended = false
@@ -5372,10 +5424,20 @@ function M.pubble_send(target_buf)
             if publication_date == suggested then is_krant = true; break end
           end
           local count = optional_table(info and info.counts)[suggested] or 0
-          recommended[code] = suggested .. ":" .. (is_krant and "krant" or tostring(count))
-          local date_label = suggested == os.date("%Y-%m-%d")
-              and "vandaag"
-              or (suggested:sub(9, 10) .. "-" .. suggested:sub(6, 7))
+          recommended[code] = embargo_publication_at
+              or (suggested .. ":" .. (is_krant and "krant" or tostring(count)))
+          local date_label
+          if embargo_publication_at then
+            date_label = embargo_publication_at:sub(9, 10)
+                .. "-" .. embargo_publication_at:sub(6, 7)
+            local time_label = embargo_publication_at:match("T(%d%d:%d%d)$")
+            if time_label then date_label = date_label .. " " .. time_label end
+            date_label = date_label .. " (embargo)"
+          else
+            date_label = suggested == os.date("%Y-%m-%d")
+                and "vandaag"
+                or (suggested:sub(9, 10) .. "-" .. suggested:sub(6, 7))
+          end
           table.insert(summary, code .. " " .. date_label)
         end
       end
@@ -5385,7 +5447,14 @@ function M.pubble_send(target_buf)
         return
       end
 
-      local accept_label = #edition_codes == 1 and "Aanbevolen datum accepteren" or "Aanbevolen datums accepteren"
+      local accept_label
+      if embargo_publication_at then
+        accept_label = #edition_codes == 1
+            and "Voorgestelde embargodatum accepteren"
+            or "Voorgestelde embargodatum voor alle edities accepteren"
+      else
+        accept_label = #edition_codes == 1 and "Aanbevolen datum accepteren" or "Aanbevolen datums accepteren"
+      end
       local adjust_label = #edition_codes == 1 and "Datum aanpassen" or "Datums per editie aanpassen"
       local priority_label = "Prioriteit aanpassen"
       local unpublished_label = "Ongepubliceerd plaatsen"

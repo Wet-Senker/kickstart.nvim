@@ -82,6 +82,26 @@ assert(vim.b[scheduled_buf].send_import_body == vim.trim(imported), 'de importpl
 local unchanged_reason = ai._send_safeguard_reason(buf, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
 assert(unchanged_reason and unchanged_reason:find('niet volledig door AI herschreven', 1, true), 'een onbewerkte import gaf geen gerichte waarschuwing')
 
+local column_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(column_buf, 0, -1, false, vim.split(imported, '\n', { plain = true }))
+ai._capture_import_baseline(column_buf)
+local column_text = 'rubriek: column\n\n=== ARTIKEL ===\n\n' .. imported
+vim.api.nvim_buf_set_lines(column_buf, 0, -1, false, vim.split(column_text, '\n', { plain = true }))
+assert(
+  ai._send_safeguard_reason(column_buf, vim.api.nvim_buf_get_lines(column_buf, 0, -1, false)) == nil,
+  'een expliciet gemarkeerde column activeerde de importwaarschuwing'
+)
+
+local short_column_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(short_column_buf, 0, -1, false, vim.split(imported, '\n', { plain = true }))
+ai._capture_import_baseline(short_column_buf)
+local short_column_text = 'r: column\n\n=== ARTIKEL ===\n\n' .. imported
+vim.api.nvim_buf_set_lines(short_column_buf, 0, -1, false, vim.split(short_column_text, '\n', { plain = true }))
+assert(
+  ai._send_safeguard_reason(short_column_buf, vim.api.nvim_buf_get_lines(short_column_buf, 0, -1, false)) == nil,
+  'de korte r:-markering voor een column activeerde de importwaarschuwing'
+)
+
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(rewritten, '\n', { plain = true }))
 local manual_reason = ai._send_safeguard_reason(buf, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
 assert(

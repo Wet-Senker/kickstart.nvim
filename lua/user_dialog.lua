@@ -1,13 +1,28 @@
--- One native floating presentation, independent of fuzzy-picker providers.
+-- Required questions and text input use a native floating presentation.
+-- Manually opened choice lists may use an injected fuzzy-picker provider.
 local M = {}
 local queue, active = {}, false
 local suspend_active
+local manual_select_provider
 
 local function next_dialog()
   if active or #queue == 0 then return end
   active = true
   local request = table.remove(queue, 1)
   local opts, items = request.opts, request.items
+  if request.provider then
+    local finished = false
+    local ok = pcall(request.provider, items, opts, function(item, index)
+      if finished then return end
+      finished = true
+      active = false
+      vim.schedule(next_dialog)
+      request.done(item, index)
+    end)
+    if ok then return end
+    -- A missing/broken optional picker must never make a menu unusable.
+    -- Continue below with the native overlay for this request.
+  end
   vim.cmd('stopinsert')
   local buf = vim.api.nvim_create_buf(false, true)
   local width = math.max(1, math.min(90, vim.o.columns - 4))
@@ -106,7 +121,13 @@ end
 
 function M.select(items, opts, done)
   if #items == 0 then done(nil); return end
-  table.insert(queue, { items = items, opts = opts or {}, done = done })
+  opts = opts or {}
+  table.insert(queue, {
+    items = items,
+    opts = opts,
+    done = done,
+    provider = not opts.required and manual_select_provider or nil,
+  })
   vim.schedule(next_dialog)
 end
 
@@ -116,9 +137,11 @@ end
 -- venster waar het overlay-scherm op sommige Neovim-versies de eventloop
 -- wedgede. De interactieve lijst-menu's (select/input) houden wél hun overlay;
 -- die roept de redacteur zelf op, buiten dat kwetsbare moment.
--- `required` betekent hier: een reflexmatige Escape mag de vraag niet
--- beantwoorden. `vim.fn.confirm` geeft 0 bij Escape; voor een verplichte vraag
--- stellen we hem dan opnieuw, net als het oude overlay-gedrag.
+-- Handmatige keuzelijsten mogen hierboven via de fuzzy provider lopen; invoer
+-- en verplichte selecties behouden hun overlay. `required` betekent hier: een
+-- reflexmatige Escape mag de vraag niet beantwoorden. `vim.fn.confirm` geeft 0
+-- bij Escape; voor een verplichte vraag stellen we hem dan opnieuw, net als het
+-- oude overlay-gedrag.
 function M.confirm(prompt, buttons, default, required)
   local choice = vim.fn.confirm(prompt, buttons, default or 1)
   while required and choice == 0 do
@@ -132,7 +155,10 @@ function M.inputlist(menu)
   return M.confirm(menu[1], table.concat(vim.list_slice(menu, 2), '\n'), 1, true)
 end
 
-function M.setup()
+function M.setup(opts)
+  opts = opts or {}
+  manual_select_provider = opts.manual_select
+  if manual_select_provider == M.select then manual_select_provider = nil end
   vim.ui.select = M.select
   vim.ui.input = M.input
 end

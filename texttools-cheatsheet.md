@@ -120,7 +120,10 @@ het printconcept `!agendapagina`.
 Embargo: bij de eerste import van een tekst met het losse woord `embargo` zet
 het programma automatisch een duidelijke `EMBARGO:`-regel boven
 `=== ARTIKEL ===`. Zolang die regel staat kan `<leader>aw` niet verzenden.
-Verwijder de volledige regel pas nadat het bericht is vrijgegeven.
+Een expliciet moment komt daarnaast als `publicatiedatum:` boven de grens en
+wordt bij `<leader>aw` voorgesteld; de letterlijke zin blijft als
+`embargobron:` controleerbaar. Verwijder na vrijgave de blokkaderegel én de
+oorspronkelijke embargozin uit het artikel. Laat `embargobron:` gerust staan.
 
 De doublurecontrole volgt het beleid van de Texttools-branch. Op `master`
 staat voorlopig **altijd controleren** aan. De testvarianten blijven beschikbaar:
@@ -218,6 +221,10 @@ Agenda-item niet gewenst? Verwijder het hele blok vanaf `## Kalender`.
 pas bij verzenden een sterke agendakandidaat gezien, dan volgt eerst een
 ja/nee-vraag.
 
+Alleen het gecontroleerde kalenderitem plaatsen? Druk `<leader>kA`. Deze route
+maakt geen krant- of webartikel, verstuurt geen socialtekst of Teams-melding en
+slaat het ontvangen agenda-ID direct in het artikel op.
+
 ---
 
 ## pubble-batch .meta sidecar
@@ -278,11 +285,13 @@ alleen opgeslagen, goedgekeurd, verouderd of volledig verzendklaar. Op de
 gedeelde bron legt dezelfde hulp uit hoeveel krantversies nog moeten
 worden goedgekeurd en dat de bron zelf niet wordt gepubliceerd.
 
-Bij kalenderartikelen bepaalt `<leader>aw` per krant of het evenement op de
-eerstvolgende verschijningsdag nog toekomstig, inmiddels lopend of afgelopen
-is. Alleen bij verschil met de webdatum verschijnt `## Kranttijdsversies`.
-Controleer die printtekst en druk opnieuw `<leader>aw`; de webtekst blijft
-ongewijzigd.
+Bij kalenderartikelen én datumgebonden artikelen zonder kalenderblok bepaalt
+`<leader>aw` per krant of het evenement op de eerstvolgende verschijningsdag
+nog toekomstig, inmiddels lopend of afgelopen is. `agenda: nee` schakelt alleen
+het agenda-item uit en niet deze controle. Bij verschil met de webdatum kies je
+of er een `## Kranttijdsversies`-tekst komt of dat het artikel niet naar die
+krant gaat. Controleer een gemaakte printtekst en druk opnieuw `<leader>aw`;
+de webtekst blijft ongewijzigd.
 
 ---
 
