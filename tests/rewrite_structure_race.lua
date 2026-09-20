@@ -78,7 +78,7 @@ drain(function() return workspace_calls == 1 end)
 assert(table.concat(requested, ',') == 'B,SW')
 assert(review._review_buffers[buf].B and review._review_buffers[buf].SW, 'reviewbuffers ontbreken')
 assert(not table.concat(vim.api.nvim_buf_get_lines(review._review_buffers[buf].B, 0, -1, false), '\n'):match('\n>%s'))
-assert(#vim.api.nvim_tabpage_list_wins(0) == 2, 'krantversies staan niet zichtbaar naast elkaar')
+assert(#vim.api.nvim_tabpage_list_wins(0) == 1, 'krantversies openen niet in één volle-breedte-reviewvenster')
 review.close(buf, true)
 
 -- Een echte bron-edit tijdens versie-AI mag niet worden overschreven.

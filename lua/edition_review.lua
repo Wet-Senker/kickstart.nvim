@@ -532,9 +532,11 @@ local function next_pending_buffer(source_buf, workspace, current_code)
   return nil
 end
 
--- Open de krantversies zichtbaar naast elkaar in een eigen tabpagina, zodat het
--- hoofdartikel op de bestaande tab onaangeroerd blijft. Bij veel edities blijven
--- de kolommen smal; navigeren kan verder met <leader>aV.
+-- Open de krantversies in één volle-breedte-venster op een eigen tabpagina,
+-- zodat het hoofdartikel op de bestaande tab onaangeroerd blijft. De redacteur
+-- controleert ze om de beurt: <leader>aG keurt goed en opent vanzelf de volgende
+-- openstaande versie, <leader>aV toont het overzicht en springt naar een andere.
+-- Zo krijgt elke versie de volle breedte in plaats van een smalle kolom.
 local function open_review_layout(ordered)
   local valid = {}
   for _, review_buf in ipairs(ordered or {}) do
@@ -550,11 +552,6 @@ local function open_review_layout(ordered)
     return
   end
   vim.api.nvim_set_current_buf(valid[1])
-  for index = 2, #valid do
-    pcall(vim.cmd, "vsplit")
-    vim.api.nvim_set_current_buf(valid[index])
-  end
-  pcall(vim.cmd, "wincmd t")
 end
 
 function M.create_workspace(source_buf, expected_source, codes, names, variants, done, shared_groups)
@@ -595,8 +592,9 @@ function M.create_workspace(source_buf, expected_source, codes, names, variants,
       local buffers = refresh_review_buffers(source_buf, result.workspace, { force = true })
       open_review_layout(buffers)
       notify(
-        "Aparte krantversies staan naast elkaar in een reviewtab. Controleer elke tekst, "
-          .. "keur goed met <leader>aG, en spring met <leader>aV. Sluit de tab met :tabclose.",
+        "De krantversies staan klaar in een reviewtab. Controleer ze om de beurt: "
+          .. "keur goed met <leader>aG (opent vanzelf de volgende), spring met <leader>aV, "
+          .. "en sluit de tab met :tabclose.",
         vim.log.levels.INFO
       )
       if done then done(true, result.workspace) end

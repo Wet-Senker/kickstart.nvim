@@ -59,7 +59,7 @@ assert(vim.tbl_count(entries) == 3 and entries.B and entries.D and entries.SW,
   'niet één reviewbuffer per unieke tekst')
 assert(entries.ST == nil and entries.Z == nil and entries.K == nil,
   'kranten met dezelfde tekst kregen toch een eigen buffer')
-assert(#vim.api.nvim_tabpage_list_wins(0) == 3)
+assert(#vim.api.nvim_tabpage_list_wins(0) == 1, 'reviewtab opent niet als één volle-breedte-venster')
 local general = vim.b[entries.SW].edition_variant
 assert(table.concat(general.editions, ',') == 'SW,ST,Z,K')
 assert(general.name:find('De Swollenaer', 1, true))
