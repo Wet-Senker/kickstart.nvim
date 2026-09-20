@@ -42,6 +42,25 @@ M._import_patterns = import_patterns
 local active_ai_jobs = {}
 local next_ai_job_id = 0
 local AI_CANCELLED = "__AI_CANCELLED__"
+local publication_success_hooks = {}
+
+function M.set_publication_success_hook(buf, callback)
+  if type(callback) ~= "function" then
+    publication_success_hooks[buf] = nil
+    return
+  end
+  publication_success_hooks[buf] = callback
+end
+
+local function run_publication_success_hook(buf, info)
+  local callback = publication_success_hooks[buf]
+  if not callback then return end
+  publication_success_hooks[buf] = nil
+  local ok, err = pcall(callback, info or {})
+  if not ok then
+    vim.notify("Publicatie is geslaagd, maar de batchweergave kon niet worden bijgewerkt: " .. tostring(err), vim.log.levels.WARN)
+  end
+end
 
 -- Normale workflowbevestigingen horen de redactieflow niet te onderbreken.
 -- Fidget toont ze tijdelijk in een zwevend venster; vim.notify kan bij lange
@@ -4172,6 +4191,15 @@ M._finalize_published_buffer = finalize_published_buffer
 function M.pubble_send(target_buf)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  if type(vim.b[buf].weekend_batch_id) == "string" then
+    local ok, agenda_menu = pcall(require, "agenda_menu")
+    if ok and agenda_menu.prepare_weekend_batch_send
+        and agenda_menu.prepare_weekend_batch_send(buf, function(controller)
+          M.pubble_send(controller)
+        end) then
+      return
+    end
+  end
   local review_block = edition_review.send_block_reason(buf)
   if review_block then
     vim.notify(review_block, vim.log.levels.ERROR)
@@ -4765,6 +4793,11 @@ function M.pubble_send(target_buf)
             end
 
             notify_workflow(msg, message_level)
+
+            run_publication_success_hook(buf, {
+              article_url = article_url,
+              archive_path = archive_data.path,
+            })
 
             vim.b[buf].publication_in_progress = false
           end)

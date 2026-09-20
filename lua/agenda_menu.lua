@@ -8,6 +8,8 @@
 -- hoogstens de bewerkpagina's.
 
 local M = {}
+local weekend_batches = {}
+local weekend_batch_sequence = 0
 
 local commands = require 'texttools_commands'
 local notifications = require 'texttools_notify'
@@ -472,27 +474,150 @@ function M.weekendbericht()
     run(command('weekendbericht', '--editie', choice.code), nil, function(decoded)
       local results = decoded.results or {}
       local opened = 0
-      if type(decoded.batch_message) == 'string' and decoded.batch_message ~= '' then
-        open_editable('Weekendberichten ' .. table.concat(decoded.batch_editions or {}, '-'), decoded.batch_message)
-        opened = 1
-      end
+      local opened_buffers = {}
       for _, result in ipairs(results) do
         if result.error and result.error ~= vim.NIL then
           vim.notify(string.format('%s: agenda niet gelezen — %s', result.edition or '?', result.error), vim.log.levels.ERROR)
-        elseif opened == 0 and type(result.message) == 'string' and result.message ~= '' then
-          open_editable('Weekendbericht ' .. tostring(result.edition), result.message)
+        elseif type(result.message) == 'string' and result.message ~= '' then
+          local buf = open_editable('Weekendbericht ' .. tostring(result.edition), result.message)
+          table.insert(opened_buffers, { buf = buf, edition = tostring(result.edition) })
           opened = opened + 1
         end
       end
+      if choice.code == 'all' and #opened_buffers > 0 then
+        weekend_batch_sequence = weekend_batch_sequence + 1
+        local batch_id = string.format('%d-%d', os.time(), weekend_batch_sequence)
+        weekend_batches[batch_id] = {
+          id = batch_id,
+          sources = opened_buffers,
+          now = decoded.now,
+          preparing = false,
+          controller = nil,
+          sent = false,
+        }
+        for _, source in ipairs(opened_buffers) do
+          vim.b[source.buf].weekend_batch_id = batch_id
+          vim.b[source.buf].weekend_batch_edition = source.edition
+        end
+      end
       if opened > 0 then
-        local message = decoded.batch_message
-            and 'Weekendbatch geopend; controleer de editieblokken en publiceer alles met <leader>aw.'
+        local message = choice.code == 'all'
+            and string.format('%d aparte weekendbuffers geopend; <leader>aw in één ervan publiceert de hele batch.', opened)
           or string.format('%d weekendbericht(en) geopend; controleer en bewerk ze vóór publicatie.', opened)
         workflow(message, vim.log.levels.INFO, { ttl = 8 })
       end
     end)
   end)
 end
+
+local function mark_weekend_batch_sent(batch)
+  batch.sent = true
+  batch.preparing = false
+  local marker = '**Weekendbatch gepubliceerd op ' .. os.date('%d-%m-%Y %H:%M') .. '**'
+  for _, source in ipairs(batch.sources or {}) do
+    local buf = source.buf
+    if vim.api.nvim_buf_is_valid(buf) then
+      vim.bo[buf].modifiable = true
+      vim.api.nvim_buf_set_lines(buf, 0, 0, false, { marker, '' })
+      vim.b[buf].weekend_batch_sent = true
+      vim.bo[buf].modified = false
+      vim.bo[buf].readonly = true
+      vim.bo[buf].modifiable = false
+    end
+  end
+  workflow(string.format(
+    'Weekendbatch gepubliceerd op %d website(s).', #(batch.sources or {})
+  ), vim.log.levels.INFO, { ttl = 10 })
+end
+
+function M.prepare_weekend_batch_send(buf, on_ready)
+  local batch_id = vim.b[buf].weekend_batch_id
+  if type(batch_id) ~= 'string' or batch_id == '' then return false end
+  local batch = weekend_batches[batch_id]
+  if not batch then
+    vim.notify('Deze weekendbatch is niet meer compleet; maak hem opnieuw met <leader>kw.', vim.log.levels.ERROR)
+    return true
+  end
+  if batch.sent or vim.b[buf].weekend_batch_sent == true then
+    workflow('Deze weekendbatch is al gepubliceerd.', vim.log.levels.INFO)
+    return true
+  end
+  if batch.controller and vim.api.nvim_buf_is_valid(batch.controller) then
+    on_ready(batch.controller)
+    return true
+  end
+  if batch.preparing then
+    workflow('De weekendbuffers worden al samengevoegd voor publicatie.', vim.log.levels.INFO)
+    return true
+  end
+
+  local messages = {}
+  local ticks = {}
+  for _, source in ipairs(batch.sources or {}) do
+    if not vim.api.nvim_buf_is_valid(source.buf) then
+      vim.notify(
+        'Een buffer uit de weekendbatch is gesloten; maak de batch opnieuw met <leader>kw.',
+        vim.log.levels.ERROR
+      )
+      return true
+    end
+    ticks[source.buf] = vim.api.nvim_buf_get_changedtick(source.buf)
+    table.insert(messages, {
+      edition = source.edition,
+      message = table.concat(vim.api.nvim_buf_get_lines(source.buf, 0, -1, false), '\n'),
+    })
+  end
+
+  batch.preparing = true
+  workflow('Weekendbuffers samenvoegen voor één veilige publicatierun…', vim.log.levels.INFO)
+  local payload = vim.json.encode { now = batch.now, messages = messages }
+  vim.system(command('weekendbundel'), { text = true, stdin = payload }, function(result)
+    vim.schedule(function()
+      batch.preparing = false
+      if result.code ~= 0 then
+        vim.notify(
+          vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr)
+            or 'Weekendbuffers konden niet worden samengevoegd.',
+          vim.log.levels.ERROR
+        )
+        return
+      end
+      for source_buf, changedtick in pairs(ticks) do
+        if not vim.api.nvim_buf_is_valid(source_buf)
+            or vim.api.nvim_buf_get_changedtick(source_buf) ~= changedtick then
+          vim.notify(
+            'Een weekendbuffer is tijdens de voorbereiding gewijzigd; druk opnieuw <leader>aw.',
+            vim.log.levels.WARN
+          )
+          return
+        end
+      end
+      local ok, decoded = pcall(vim.json.decode, vim.trim(result.stdout or ''))
+      if not ok or type(decoded) ~= 'table' or type(decoded.message) ~= 'string' then
+        vim.notify('Onleesbare weekendbundel van Texttools.', vim.log.levels.ERROR)
+        return
+      end
+      local controller = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_lines(
+        controller, 0, -1, false,
+        sanitize_lines(vim.split(decoded.message, '\n', { plain = true }))
+      )
+      vim.bo[controller].filetype = 'markdown'
+      vim.bo[controller].bufhidden = 'hide'
+      pcall(vim.api.nvim_buf_set_name, controller, 'Weekendbatch ' .. batch_id)
+      vim.b[controller].weekend_batch_controller = batch_id
+      batch.controller = controller
+      local ai_text = require 'ai_text'
+      ai_text.set_publication_success_hook(controller, function()
+        mark_weekend_batch_sent(batch)
+      end)
+      on_ready(controller)
+    end)
+  end)
+  return true
+end
+
+M._weekend_batches = weekend_batches
 
 function M.menu()
   local bron = require 'agenda_bron'

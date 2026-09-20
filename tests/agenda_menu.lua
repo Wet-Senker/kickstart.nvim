@@ -101,4 +101,68 @@ local sanitized = module._sanitize_lines { 'Alzheimer Café\nZwolle', 'gewoon' }
 assert(sanitized[1] == 'Alzheimer Café Zwolle', 'newline niet platgeslagen')
 assert(not sanitized[1]:find('\n', 1, true), 'er zit nog een newline in')
 
+-- Een weekendbatch blijft zichtbaar als losse buffers, maar wordt vlak voor
+-- publicatie deterministisch samengevoegd uit de actuele (bewerkte) inhoud.
+local function weekend_doc(code, place, title)
+  return table.concat({
+    '---',
+    'newspaper:',
+    '  editions: ' .. code,
+    '  newspaper_article_ids:',
+    '    ' .. code .. ': null',
+    '  article_join_id: null',
+    '  skip_editions: [' .. code .. ']',
+    '  working_title: "38 - Weekendtips ' .. place .. '"',
+    'web:',
+    '  internet_article_ids:',
+    '    ' .. code .. ': null',
+    'calendar_disabled: true',
+    'media:',
+    '  editorial_asset: weekend-overview',
+    '---',
+    '',
+    'e: ' .. code,
+    'agenda: nee',
+    '',
+    '=== ARTIKEL ===',
+    '',
+    '# ' .. title,
+    '',
+    '**' .. place:upper() .. ' - Lead.**',
+  }, '\n')
+end
+
+local batch_a = vim.api.nvim_create_buf(false, true)
+local batch_b = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(batch_a, 0, -1, false, vim.split(weekend_doc('B', 'Kampen', 'Bewerkte Kamper kop'), '\n'))
+vim.api.nvim_buf_set_lines(batch_b, 0, -1, false, vim.split(weekend_doc('SW', 'Zwolle', 'Bewerkte Zwolse kop'), '\n'))
+vim.b[batch_a].weekend_batch_id = 'headless-test'
+vim.b[batch_b].weekend_batch_id = 'headless-test'
+module._weekend_batches['headless-test'] = {
+  id = 'headless-test',
+  sources = {
+    { buf = batch_a, edition = 'B' },
+    { buf = batch_b, edition = 'SW' },
+  },
+  now = '2026-09-18T10:00:00+02:00',
+  preparing = false,
+  sent = false,
+}
+local success_hook
+package.loaded['ai_text'] = {
+  set_publication_success_hook = function(_, callback) success_hook = callback end,
+}
+local controller
+assert(module.prepare_weekend_batch_send(batch_a, function(buf) controller = buf end), 'batch niet herkend')
+assert(vim.wait(5000, function() return controller ~= nil end, 10), 'batchcontroller niet gemaakt')
+local combined = table.concat(vim.api.nvim_buf_get_lines(controller, 0, -1, false), '\n')
+assert(combined:find('Bewerkte Kamper kop', 1, true), 'actuele Kamper buffertekst ontbreekt')
+assert(combined:find('Bewerkte Zwolse kop', 1, true), 'actuele Zwolse buffertekst ontbreekt')
+assert(type(success_hook) == 'function', 'batch heeft geen succesafhandeling geregistreerd')
+success_hook()
+assert(vim.b[batch_a].weekend_batch_sent == true, 'eerste bronbuffer niet als gepubliceerd gemarkeerd')
+assert(vim.b[batch_b].weekend_batch_sent == true, 'tweede bronbuffer niet als gepubliceerd gemarkeerd')
+assert(vim.bo[batch_a].modifiable == false and vim.bo[batch_b].modifiable == false,
+  'gepubliceerde weekendbuffers zijn nog wijzigbaar')
+
 print('agenda_menu: OK')
