@@ -6274,8 +6274,15 @@ M._upsert_tail_section = upsert_tail_section
 
 local function social_command(prompt, buf)
   local command = { aitext, prompt }
+  local variant = vim.b[buf].edition_variant
+  local shared = type(variant) == "table"
+    and type(variant.editions) == "table"
+    and #variant.editions > 1
+  -- Een gedeelde buffer krijgt bewust géén krantcontext mee. De socialprompt
+  -- kent maar één --edition, en die zou de plaats van één krant centraal zetten
+  -- in een tekst die ook bij de andere kranten van de groep verschijnt.
   local edition_code = vim.b[buf].edition_code
-  if type(edition_code) == "string" and edition_code ~= "" then
+  if not shared and type(edition_code) == "string" and edition_code ~= "" then
     table.insert(command, "--edition")
     table.insert(command, edition_code)
   end
@@ -6286,16 +6293,6 @@ M._social_command = social_command
 
 local function generate_social_section(opts)
   local buf = vim.api.nvim_get_current_buf()
-  local review_variant = vim.b[buf].edition_variant
-  if type(review_variant) == "table" and type(review_variant.editions) == "table"
-      and #review_variant.editions > 1 then
-    vim.notify(
-      "Deze oudere reviewbuffer deelt één tekst met meerdere kranten. "
-        .. "Maak met <leader>ar nieuwe losse krantbuffers voordat je socialteksten toevoegt.",
-      vim.log.levels.ERROR
-    )
-    return
-  end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   -- Alleen de kale artikelbody als AI-input — geen frontmatter, kopcodes of
   -- eerder gegenereerde secties (voorkomt dat bijv. "Fotograaf:" in de post lekt).
