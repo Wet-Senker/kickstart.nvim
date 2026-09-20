@@ -1626,6 +1626,14 @@ M._unchosen_edition_places = unchosen_edition_places
 --- wanneer de tekst sindsdien naar andere kranten is gaan wijzen. Is er niets
 --- veranderd, dan is er al een keer over beslist en zwijgt hij.
 local function edition_places_need_question(known, resolved, codes)
+  -- Een zelf getypte e:-regel is een genomen beslissing; die trekken we niet in
+  -- twijfel. De vraag hoort alleen bij een bestemming die het programma zelf uit
+  -- een plaatsnaam afleidde — precies het geval waarin anders stil één krant
+  -- wordt gekozen. Dit houdt ook weekendberichten met rust: die hebben een
+  -- vaste editieregel maar noemen soms een plaats uit een ander gebied.
+  if type(resolved) == "table" and resolved.has_explicit_editions == true then
+    return false
+  end
   local signature = edition_places_signature(resolved)
   if signature == nil then return false end
   if known == signature then return false end

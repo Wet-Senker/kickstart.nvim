@@ -142,3 +142,27 @@ assert(not captured[2]:find('--shared-area', 1, true),
   'een eigen krantversie krijgt ten onrechte een gedeelde provincie')
 
 print 'edition places shared area: OK'
+
+-- Een zelf getypte e:-regel is een genomen beslissing. Daar hoort geen vraag
+-- bij, ook niet als de tekst plaatsen van andere kranten noemt. Dit raakt onder
+-- meer het weekendbericht: dat heeft een vaste editieregel maar noemt soms een
+-- plaats uit een ander verspreidingsgebied.
+local explicit = {
+  editions = { 'B' },
+  names = { 'De Brug' },
+  has_explicit_editions = true,
+  places = {
+    { place = 'Kampen', kind = 'place', editions = { 'B' }, names = { 'De Brug' } },
+    { place = 'Zwolle', kind = 'place', editions = { 'SW' }, names = { 'De Swollenaer' } },
+  },
+}
+assert(ai._edition_places_need_question(nil, explicit, { 'B' }) == false,
+  'een expliciete editieregel wordt alsnog in twijfel getrokken')
+
+-- Zonder die regel gaat het programma wél vragen; dat was de oorspronkelijke fout.
+local derived = vim.deepcopy(explicit)
+derived.has_explicit_editions = false
+assert(ai._edition_places_need_question(nil, derived, { 'B' }) == true,
+  'een afgeleide bestemming levert geen vraag meer op')
+
+print 'edition places explicit: OK'
