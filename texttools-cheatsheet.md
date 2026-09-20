@@ -50,6 +50,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | Leader | Actie |
 |---|---|
 | `<leader>ar` | **Herschrijven** — zonder onderscheidende plaats/provincie stil één algemene versie. Anders keuze tussen de voorgestelde gerichte varianten + algemene rest, één algemene versie of Annuleren. De gebiedsscan doet alleen een voorstel. Direct uit het origineel met tussenkopjes, daarna losse streamer; iedere krant krijgt een eigen reviewbuffer, ook als de artikeltekst gelijk is |
+| *bij `<leader>ar`* | **Plaatsencontrole** — noemt de tekst plaatsen van kranten die niet gekozen zijn, dan vraagt hij eenmalig of die mee moeten. Alleen als de controle bij import niet gedraaid heeft (zelf geplakte tekst) of als er sindsdien een krant is bijgekomen. Een provincie alleen telt niet mee |
 | `<leader>ad` | **Doublurecontrole opnieuw** — draait de controle nog eens voor dit artikel, ook als je eerder "toch verzenden" koos. Wegdrukken met `q` laat hem vanzelf terugkomen; deze toets is voor de keer dat je hem al had goedgekeurd |
 | *automatisch bij import* | **Agenda-doublurecontrole** — staat het evenement al in de eigen online agenda, dan volgt vóór elke verwerking de vraag of er tóch een agenda-item moet komen, met de optie het bestaande item in de browser te bekijken. Nee laat alleen het agenda-item vervallen; web en print gaan door. Uit te zetten met `TEXTTOOLS_AGENDA_DOUBLURECHECK=0` |
 | `<leader>ao` | **Tekstcheck** — alleen taalfouten (spelling/grammatica); tekst blijft verder gelijk (twijfel → `## Suggesties`) |

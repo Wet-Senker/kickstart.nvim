@@ -1531,6 +1531,109 @@ local function apply_edition_suggestions(buf, chosen, resolved)
 end
 M._apply_edition_suggestions = apply_edition_suggestions
 
+--- Alleen echte verspreidingsplaatsen; een provincie telt niet mee.
+---
+--- Dezelfde scheiding als in rewrite_strategy: "Overijssel" onderscheidt wel
+--- regio's maar niet de kranten daarbinnen, en zou anders bij elk landelijk
+--- bericht alle kranten voorstellen. Een ouder antwoord zonder `kind` wordt als
+--- plaats gelezen, zodat een mismatch tussen de twee repo's niets stilzet.
+local function physical_places(resolved)
+  if type(resolved) ~= "table" or type(resolved.places) ~= "table" then return nil end
+  local found = {}
+  for _, item in ipairs(resolved.places) do
+    if item.kind ~= "province" then table.insert(found, item) end
+  end
+  return found
+end
+
+--- Welke kranten wijzen de plaatsen in de tekst aan, als één vergelijkbare sleutel?
+---
+--- Bewust op editiecodes en niet op plaatsnamen: dezelfde plaats komt als
+--- dateline in kapitalen en in de lopende tekst gewoon voor, en een tweede
+--- vindplaats van een al bekende krant verandert de bestemming niet.
+local function edition_places_signature(resolved)
+  local places = physical_places(resolved)
+  if not places then return nil end
+  local seen, codes = {}, {}
+  for _, item in ipairs(places) do
+    for _, code in ipairs(item.editions or {}) do
+      if type(code) == "string" and not seen[code] then
+        seen[code] = true
+        table.insert(codes, code)
+      end
+    end
+  end
+  table.sort(codes)
+  return table.concat(codes, ",")
+end
+M._edition_places_signature = edition_places_signature
+
+--- Onthoud welke kranten de plaatsen aanwezen, zodat een latere controle weet
+--- of er iets is veranderd.
+local function remember_edition_places(buf, resolved)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  local signature = edition_places_signature(resolved)
+  if signature then vim.b[buf].edition_places_signature = signature end
+end
+M._remember_edition_places = remember_edition_places
+
+--- De kranten die de tekst aanwijst maar die nog niet gekozen zijn, met de
+--- plaats waaraan ze te danken zijn.
+local function unchosen_edition_places(resolved, codes)
+  local chosen = {}
+  for _, code in ipairs(codes or {}) do chosen[code] = true end
+  local order, by_code = {}, {}
+  for _, item in ipairs(physical_places(resolved) or {}) do
+    for index, code in ipairs(item.editions or {}) do
+      if not chosen[code] then
+        if not by_code[code] then
+          by_code[code] = { name = (item.names or {})[index] or code, places = {} }
+          table.insert(order, code)
+        end
+        table.insert(by_code[code].places, item.place)
+      end
+    end
+  end
+  return order, by_code
+end
+M._unchosen_edition_places = unchosen_edition_places
+
+--- Vraag of de gevonden kranten mee moeten. Bewust vim.fn.confirm: dat toont
+--- de hele vraag over meerdere regels, waar een fuzzy-picker alleen een
+--- afgekapte titelregel laat zien.
+--- Moet <leader>ar de vraag stellen?
+---
+--- Alleen wanneer de eerste controle bij import niet heeft plaatsgevonden, of
+--- wanneer de tekst sindsdien naar andere kranten is gaan wijzen. Is er niets
+--- veranderd, dan is er al een keer over beslist en zwijgt hij.
+local function edition_places_need_question(known, resolved, codes)
+  local signature = edition_places_signature(resolved)
+  if signature == nil then return false end
+  if known == signature then return false end
+  return #(unchosen_edition_places(resolved, codes)) > 0
+end
+M._edition_places_need_question = edition_places_need_question
+
+M._edition_places_confirm = function(resolved, codes, names)
+  local order, by_code = unchosen_edition_places(resolved, codes)
+  local lines = {}
+  for _, code in ipairs(order) do
+    table.insert(
+      lines,
+      "  " .. by_code[code].name .. " — " .. table.concat(by_code[code].places, ", ")
+    )
+  end
+  return require('user_dialog').confirm(
+    "Plaatsen in de tekst wijzen ook naar andere kranten:\n\n"
+      .. table.concat(lines, "\n")
+      .. "\n\nHuidige bestemming: "
+      .. edition_names(codes, names)
+      .. "\n\nDeze kranten meenemen in de herschrijving?",
+    "&Ja, toevoegen\n&Nee, alleen de huidige\n&Annuleren",
+    1
+  )
+end
+
 -- De Python-kern bepaalt óf en welke dateline inhoudelijk gerechtvaardigd is;
 -- Lua past alleen het geretourneerde document op de zichtbare buffer toe.
 local function ensure_detected_dateline(buf, detection)
@@ -1877,6 +1980,7 @@ local function fill_detected_editions_line(buf, content, done)
       if done then done(false) end
       return
     end
+    remember_edition_places(buf, resolved)
     if resolved.has_explicit_editions == true then
       adapt_editorial_address(buf, resolved.editions[1])
       apply_edition_suggestions(buf, resolved.editions, resolved)
@@ -2005,6 +2109,10 @@ local function edition_autodetect(buf, content, done)
         if retry then resolve_current(current, false) else complete(false) end
         return
       end
+      -- De plaatsencontrole hoort hier thuis: dit is het moment waarop de
+      -- redacteur de bestemming te zien krijgt. Wat hier is gevonden, is later
+      -- bij <leader>ar het vergelijkingspunt.
+      remember_edition_places(buf, resolved)
       if resolved.has_explicit_editions == true or buffer_has_edition_control(buf) then
         adapt_editorial_address(buf, resolved.editions[1])
         apply_edition_suggestions(buf, resolved.editions, resolved)
@@ -2097,8 +2205,19 @@ M._edition_mode_choice_async = function(codes, names, strategy, done)
     { label = "Algemene versie voor alle kranten" },
     { label = "Splitsen: eigen versie per krant" },
   }
+  -- De aanbeveling hoort in het label zelf. De `default` hieronder werkt alleen
+  -- in het eigen overlayvenster; loopt dit menu via een fuzzy-picker, dan wordt
+  -- die index genegeerd en staat de cursor op de eerste regel. Zo'n picker slaat
+  -- bovendien de prompt tot een enkele titelregel plat, waardoor de uitleg
+  -- erboven wegvalt. Het label overleeft dat wel.
+  local recommended = strategy and strategy.recommended_option_id
   local labels, findings = {}, {}
-  for _, option in ipairs(options) do table.insert(labels, option.label) end
+  for _, option in ipairs(options) do
+    table.insert(
+      labels,
+      option.label .. (option.id == recommended and " ← aanbevolen" or "")
+    )
+  end
   table.insert(labels, "Annuleren")
   local areas_by_edition = strategy and strategy.areas_by_edition
     or strategy and strategy.places_by_edition
@@ -2548,7 +2667,7 @@ function M.rewrite_article_buffer()
 
   -- Ook na import eerst de bestemming bepalen: de moduskeuze moet vóór de
   -- AI-call vallen, zodat de algemene versie rechtstreeks het origineel krijgt.
-  resolve_editions_for_content(buf, original_for_edition_detection, function(resolved)
+  local function with_resolved(resolved)
     if not vim.api.nvim_buf_is_valid(buf) then return end
     if vim.api.nvim_buf_get_changedtick(buf) ~= resolve_tick then
       notify_workflow("Herschrijven geannuleerd: de buffer is tijdens de editiecheck gewijzigd. Start opnieuw.", vim.log.levels.WARN)
@@ -2613,7 +2732,59 @@ function M.rewrite_article_buffer()
       return
     end
     continue_after_mode_choice(1)
-  end)
+  end
+
+  -- De plaatsencontrole hoort bij de import; daar ziet de redacteur de
+  -- bestemming en de SUGGESTIE-regel. Hier wordt alleen nog gevraagd wanneer
+  -- die eerste controle er niet is geweest (een zelf getypte of geplakte
+  -- buffer komt nooit langs de importroute) of wanneer de tekst sindsdien naar
+  -- andere kranten is gaan wijzen. Anders zou één stil herkende plaats de hele
+  -- herschrijving bepalen zonder dat iemand het ziet.
+  local function check_places_then(resolved)
+    local codes = resolved and type(resolved.editions) == "table" and resolved.editions or {}
+    if not edition_places_need_question(vim.b[buf].edition_places_signature, resolved, codes) then
+      remember_edition_places(buf, resolved)
+      with_resolved(resolved)
+      return
+    end
+    local extra = unchosen_edition_places(resolved, codes)
+
+    local choice = M._edition_places_confirm(resolved, codes, resolved and resolved.names)
+    remember_edition_places(buf, resolved)
+    if choice ~= 1 and choice ~= 2 then
+      notify_workflow("Herschrijven geannuleerd.", vim.log.levels.INFO)
+      return
+    end
+    if choice == 2 then
+      -- Niet meenemen, maar wel zichtbaar laten staan wat er gevonden is.
+      apply_edition_suggestions(buf, codes, resolved)
+      local _, fresh_ctrl = split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+      saved_ctrl = fresh_ctrl
+      resolve_tick = vim.api.nvim_buf_get_changedtick(buf)
+      with_resolved(resolved)
+      return
+    end
+
+    -- Toevoegen verandert de bestemming, dus strategie en editiecontext moeten
+    -- opnieuw worden bepaald; het resultaat van zojuist klopt dan niet meer.
+    local merged = vim.list_extend(vim.deepcopy(codes), extra)
+    set_edition_codes(buf, merged)
+    local fresh_fm, fresh_ctrl, fresh_body, _, fresh_boundary =
+      split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+    saved_ctrl = fresh_ctrl
+    resolve_tick = vim.api.nvim_buf_get_changedtick(buf)
+    notify_workflow(
+      "Bestemming aangevuld: " .. edition_names(merged) .. ".",
+      vim.log.levels.INFO
+    )
+    resolve_editions_for_content(
+      buf,
+      table.concat(reassemble_article(fresh_fm, fresh_ctrl, fresh_body, {}, fresh_boundary), "\n"),
+      function(again) with_resolved(again or resolved) end
+    )
+  end
+
+  resolve_editions_for_content(buf, original_for_edition_detection, check_places_then)
 end
 
 function M.visual_rewrite()
