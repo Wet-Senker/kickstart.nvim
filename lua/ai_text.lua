@@ -736,6 +736,19 @@ local function mark_ai_neutrality_completed(buf, lines)
 end
 
 local function send_safeguard_reason(buf, lines)
+  -- Een column is bewust auteurskopij en hoeft niet door AI of een
+  -- verschilheuristiek te worden gelegitimeerd. De rubriekmarkering is het
+  -- bestaande, expliciete contract dat alle columntemplates al zetten.
+  local _, controls = split_article_parts(lines)
+  for _, line in ipairs(controls) do
+    local key, value = vim.trim(line):match("^([%a][%a%d_]*)%s*:%s*(.-)%s*$")
+    key = key and key:lower() or nil
+    if (key == "rubriek" or key == "r")
+        and value and value:lower() == "column" then
+      return nil
+    end
+  end
+
   -- De gedeelde bron blijft bij varianten bewust ongeredigeerd. De echte
   -- publicatieteksten zijn expliciet gereviewd; Python valideert hun hashes
   -- opnieuw vóór publicatie, ook als deze afgeleide clientcache verouderd is.
@@ -1537,6 +1550,109 @@ local function apply_edition_suggestions(buf, chosen, resolved)
 end
 M._apply_edition_suggestions = apply_edition_suggestions
 
+--- Alleen echte verspreidingsplaatsen; een provincie telt niet mee.
+---
+--- Dezelfde scheiding als in rewrite_strategy: "Overijssel" onderscheidt wel
+--- regio's maar niet de kranten daarbinnen, en zou anders bij elk landelijk
+--- bericht alle kranten voorstellen. Een ouder antwoord zonder `kind` wordt als
+--- plaats gelezen, zodat een mismatch tussen de twee repo's niets stilzet.
+local function physical_places(resolved)
+  if type(resolved) ~= "table" or type(resolved.places) ~= "table" then return nil end
+  local found = {}
+  for _, item in ipairs(resolved.places) do
+    if item.kind ~= "province" then table.insert(found, item) end
+  end
+  return found
+end
+
+--- Welke kranten wijzen de plaatsen in de tekst aan, als één vergelijkbare sleutel?
+---
+--- Bewust op editiecodes en niet op plaatsnamen: dezelfde plaats komt als
+--- dateline in kapitalen en in de lopende tekst gewoon voor, en een tweede
+--- vindplaats van een al bekende krant verandert de bestemming niet.
+local function edition_places_signature(resolved)
+  local places = physical_places(resolved)
+  if not places then return nil end
+  local seen, codes = {}, {}
+  for _, item in ipairs(places) do
+    for _, code in ipairs(item.editions or {}) do
+      if type(code) == "string" and not seen[code] then
+        seen[code] = true
+        table.insert(codes, code)
+      end
+    end
+  end
+  table.sort(codes)
+  return table.concat(codes, ",")
+end
+M._edition_places_signature = edition_places_signature
+
+--- Onthoud welke kranten de plaatsen aanwezen, zodat een latere controle weet
+--- of er iets is veranderd.
+local function remember_edition_places(buf, resolved)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  local signature = edition_places_signature(resolved)
+  if signature then vim.b[buf].edition_places_signature = signature end
+end
+M._remember_edition_places = remember_edition_places
+
+--- De kranten die de tekst aanwijst maar die nog niet gekozen zijn, met de
+--- plaats waaraan ze te danken zijn.
+local function unchosen_edition_places(resolved, codes)
+  local chosen = {}
+  for _, code in ipairs(codes or {}) do chosen[code] = true end
+  local order, by_code = {}, {}
+  for _, item in ipairs(physical_places(resolved) or {}) do
+    for index, code in ipairs(item.editions or {}) do
+      if not chosen[code] then
+        if not by_code[code] then
+          by_code[code] = { name = (item.names or {})[index] or code, places = {} }
+          table.insert(order, code)
+        end
+        table.insert(by_code[code].places, item.place)
+      end
+    end
+  end
+  return order, by_code
+end
+M._unchosen_edition_places = unchosen_edition_places
+
+--- Vraag of de gevonden kranten mee moeten. Bewust vim.fn.confirm: dat toont
+--- de hele vraag over meerdere regels, waar een fuzzy-picker alleen een
+--- afgekapte titelregel laat zien.
+--- Moet <leader>ar de vraag stellen?
+---
+--- Alleen wanneer de eerste controle bij import niet heeft plaatsgevonden, of
+--- wanneer de tekst sindsdien naar andere kranten is gaan wijzen. Is er niets
+--- veranderd, dan is er al een keer over beslist en zwijgt hij.
+local function edition_places_need_question(known, resolved, codes)
+  local signature = edition_places_signature(resolved)
+  if signature == nil then return false end
+  if known == signature then return false end
+  return #(unchosen_edition_places(resolved, codes)) > 0
+end
+M._edition_places_need_question = edition_places_need_question
+
+M._edition_places_confirm = function(resolved, codes, names)
+  local order, by_code = unchosen_edition_places(resolved, codes)
+  local lines = {}
+  for _, code in ipairs(order) do
+    table.insert(
+      lines,
+      "  " .. by_code[code].name .. " — " .. table.concat(by_code[code].places, ", ")
+    )
+  end
+  return require('user_dialog').confirm(
+    "Plaatsen in de tekst wijzen ook naar andere kranten:\n\n"
+      .. table.concat(lines, "\n")
+      .. "\n\nHuidige bestemming: "
+      .. edition_names(codes, names)
+      .. "\n\nDeze kranten meenemen in de herschrijving?",
+    "&Ja, toevoegen\n&Nee, alleen de huidige\n&Annuleren",
+    1
+  )
+end
+
 -- De Python-kern bepaalt óf en welke dateline inhoudelijk gerechtvaardigd is;
 -- Lua past alleen het geretourneerde document op de zichtbare buffer toe.
 local function ensure_detected_dateline(buf, detection)
@@ -1826,7 +1942,10 @@ local function article_context_help(buf)
       },
       {
         heading = "Daarna",
-        lines = { "<leader>aw  Start de publicatiestroom met het gecontroleerde agenda-item." },
+        lines = {
+          "<leader>aw  Publiceer artikel en agenda-item via de gewone stroom.",
+          "<leader>kA  Plaats uitsluitend het agenda-item; geen krant, web, social of Teams.",
+        },
       },
       {
         heading = "Andere hoofdopties",
@@ -1880,6 +1999,7 @@ local function fill_detected_editions_line(buf, content, done)
       if done then done(false) end
       return
     end
+    remember_edition_places(buf, resolved)
     if resolved.has_explicit_editions == true then
       adapt_editorial_address(buf, resolved.editions[1])
       apply_edition_suggestions(buf, resolved.editions, resolved)
@@ -2008,6 +2128,10 @@ local function edition_autodetect(buf, content, done)
         if retry then resolve_current(current, false) else complete(false) end
         return
       end
+      -- De plaatsencontrole hoort hier thuis: dit is het moment waarop de
+      -- redacteur de bestemming te zien krijgt. Wat hier is gevonden, is later
+      -- bij <leader>ar het vergelijkingspunt.
+      remember_edition_places(buf, resolved)
       if resolved.has_explicit_editions == true or buffer_has_edition_control(buf) then
         adapt_editorial_address(buf, resolved.editions[1])
         apply_edition_suggestions(buf, resolved.editions, resolved)
@@ -2100,8 +2224,19 @@ M._edition_mode_choice_async = function(codes, names, strategy, done)
     { label = "Algemene versie voor alle kranten" },
     { label = "Splitsen: eigen versie per krant" },
   }
+  -- De aanbeveling hoort in het label zelf. De `default` hieronder werkt alleen
+  -- in het eigen overlayvenster; loopt dit menu via een fuzzy-picker, dan wordt
+  -- die index genegeerd en staat de cursor op de eerste regel. Zo'n picker slaat
+  -- bovendien de prompt tot een enkele titelregel plat, waardoor de uitleg
+  -- erboven wegvalt. Het label overleeft dat wel.
+  local recommended = strategy and strategy.recommended_option_id
   local labels, findings = {}, {}
-  for _, option in ipairs(options) do table.insert(labels, option.label) end
+  for _, option in ipairs(options) do
+    table.insert(
+      labels,
+      option.label .. (option.id == recommended and " ← aanbevolen" or "")
+    )
+  end
   table.insert(labels, "Annuleren")
   local areas_by_edition = strategy and strategy.areas_by_edition
     or strategy and strategy.places_by_edition
@@ -2142,6 +2277,12 @@ M._edition_variant_runner = function(buf, code, source, done, task)
   local command = { aitext, "krantversie", "--edition", code }
   if task and task.prompt == "krantversie_algemeen" then
     command = { aitext, task.prompt, "--editions", table.concat(task.editions, ",") }
+    -- Waaróm deze kranten samen één tekst krijgen: zij delen alleen een
+    -- provincie. Zonder die reden moet de AI haar uit de bron afleiden, en dat
+    -- mislukt wanneer de provincie daar maar terloops in staat.
+    if type(task.areas) == "table" and #task.areas > 0 then
+      vim.list_extend(command, { "--shared-area", table.concat(task.areas, ",") })
+    end
   end
   append_seo_context(command, task and task.seo_context)
   ai_system(
@@ -2178,8 +2319,15 @@ local function generate_edition_versions(buf, source, origin, codes, names, task
     tasks = {}
     for _, code in ipairs(codes) do table.insert(tasks, { code = code, editions = { code }, prompt = "krantversie" }) end
   end
-  local variants, errors = {}, {}
+  -- Kranten die precies dezelfde tekst krijgen, delen één reviewbuffer en één
+  -- goedkeuring. Een aparte buffer per krant zou alleen zin hebben voor een
+  -- afwijkende Facebook-, LinkedIn- of Kalendertekst, en juist die wijkt binnen
+  -- zo'n groep niet af: het is immers hetzelfde verhaal voor hetzelfde gebied.
+  local variants, errors, shared_groups = {}, {}, {}
   local remaining = #tasks
+  for _, task in ipairs(tasks) do
+    if #task.editions > 1 then table.insert(shared_groups, task.editions) end
+  end
   for _, task in ipairs(tasks) do
     local code = task.code
     local function finish_variant(ok, variant, err)
@@ -2207,7 +2355,7 @@ local function generate_edition_versions(buf, source, origin, codes, names, task
             vim.log.levels.ERROR
           )
         end
-      end, {}) then
+      end, shared_groups) then
         notify_workflow("Aparte krantversies konden niet veilig worden ingevoegd.", vim.log.levels.ERROR)
       end
     end
@@ -2551,7 +2699,7 @@ function M.rewrite_article_buffer()
 
   -- Ook na import eerst de bestemming bepalen: de moduskeuze moet vóór de
   -- AI-call vallen, zodat de algemene versie rechtstreeks het origineel krijgt.
-  resolve_editions_for_content(buf, original_for_edition_detection, function(resolved)
+  local function with_resolved(resolved)
     if not vim.api.nvim_buf_is_valid(buf) then return end
     if vim.api.nvim_buf_get_changedtick(buf) ~= resolve_tick then
       notify_workflow("Herschrijven geannuleerd: de buffer is tijdens de editiecheck gewijzigd. Start opnieuw.", vim.log.levels.WARN)
@@ -2616,7 +2764,59 @@ function M.rewrite_article_buffer()
       return
     end
     continue_after_mode_choice(1)
-  end)
+  end
+
+  -- De plaatsencontrole hoort bij de import; daar ziet de redacteur de
+  -- bestemming en de SUGGESTIE-regel. Hier wordt alleen nog gevraagd wanneer
+  -- die eerste controle er niet is geweest (een zelf getypte of geplakte
+  -- buffer komt nooit langs de importroute) of wanneer de tekst sindsdien naar
+  -- andere kranten is gaan wijzen. Anders zou één stil herkende plaats de hele
+  -- herschrijving bepalen zonder dat iemand het ziet.
+  local function check_places_then(resolved)
+    local codes = resolved and type(resolved.editions) == "table" and resolved.editions or {}
+    if not edition_places_need_question(vim.b[buf].edition_places_signature, resolved, codes) then
+      remember_edition_places(buf, resolved)
+      with_resolved(resolved)
+      return
+    end
+    local extra = unchosen_edition_places(resolved, codes)
+
+    local choice = M._edition_places_confirm(resolved, codes, resolved and resolved.names)
+    remember_edition_places(buf, resolved)
+    if choice ~= 1 and choice ~= 2 then
+      notify_workflow("Herschrijven geannuleerd.", vim.log.levels.INFO)
+      return
+    end
+    if choice == 2 then
+      -- Niet meenemen, maar wel zichtbaar laten staan wat er gevonden is.
+      apply_edition_suggestions(buf, codes, resolved)
+      local _, fresh_ctrl = split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+      saved_ctrl = fresh_ctrl
+      resolve_tick = vim.api.nvim_buf_get_changedtick(buf)
+      with_resolved(resolved)
+      return
+    end
+
+    -- Toevoegen verandert de bestemming, dus strategie en editiecontext moeten
+    -- opnieuw worden bepaald; het resultaat van zojuist klopt dan niet meer.
+    local merged = vim.list_extend(vim.deepcopy(codes), extra)
+    set_edition_codes(buf, merged)
+    local fresh_fm, fresh_ctrl, fresh_body, _, fresh_boundary =
+      split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+    saved_ctrl = fresh_ctrl
+    resolve_tick = vim.api.nvim_buf_get_changedtick(buf)
+    notify_workflow(
+      "Bestemming aangevuld: " .. edition_names(merged) .. ".",
+      vim.log.levels.INFO
+    )
+    resolve_editions_for_content(
+      buf,
+      table.concat(reassemble_article(fresh_fm, fresh_ctrl, fresh_body, {}, fresh_boundary), "\n"),
+      function(again) with_resolved(again or resolved) end
+    )
+  end
+
+  resolve_editions_for_content(buf, original_for_edition_detection, check_places_then)
 end
 
 function M.visual_rewrite()
@@ -3607,13 +3807,41 @@ local function apply_import_embargo(buf, embargo)
       or type(embargo.control_line) ~= "string" then
     return false, nil
   end
-  if not insert_import_control_line(buf, "embargo", embargo.control_line) then
-    return false, embargo.message
+  local inserted = false
+  if type(embargo.source_text) == "string" and vim.trim(embargo.source_text) ~= "" then
+    inserted = insert_import_control_line(
+      buf, "embargobron", "embargobron: " .. vim.trim(embargo.source_text)
+    ) or inserted
   end
-  vim.b[buf].embargo_import_detected = true
-  return true, embargo.message
+  if type(embargo.suggested_publication_at) == "string"
+      and vim.trim(embargo.suggested_publication_at) ~= "" then
+    inserted = insert_import_control_line(
+      buf,
+      "publicatiedatum",
+      "publicatiedatum: " .. vim.trim(embargo.suggested_publication_at)
+    ) or inserted
+  end
+  inserted = insert_import_control_line(buf, "embargo", embargo.control_line) or inserted
+  if inserted then vim.b[buf].embargo_import_detected = true end
+  return inserted, embargo.message
 end
 M._apply_import_embargo = apply_import_embargo
+
+local function embargo_publication_suggestion(lines)
+  for _, line in ipairs(lines or {}) do
+    if vim.trim(line) == ARTICLE_BOUNDARY then break end
+    local value = line:match("^%s*[Pp]ublicatiedatum%s*:%s*(.-)%s*$")
+    if value then
+      local day, hour, minute = value:match("^(%d%d%d%d%-%d%d%-%d%d)%s+(%d%d):(%d%d)$")
+      if day then return day .. "T" .. hour .. ":" .. minute end
+      day = value:match("^(%d%d%d%d%-%d%d%-%d%d)$")
+      if day then return day end
+      return nil
+    end
+  end
+  return nil
+end
+M._embargo_publication_suggestion = embargo_publication_suggestion
 
 -- Eén asynchrone lokale Python-call; auteurs-/contactregels en veiligheids-
 -- signalen blijven in de core en kunnen zo ook door een andere client worden
@@ -4281,6 +4509,7 @@ function M.pubble_send(target_buf)
     return
   end
   if not confirm_send_safeguard(buf, lines) then return end
+  local embargo_publication_at = embargo_publication_suggestion(lines)
 
   -- Inject cached metadata (from background rewrite chain) if the buffer
   -- has no frontmatter yet. Calendar-metadata heeft voorrang: het is een
@@ -5271,6 +5500,12 @@ function M.pubble_send(target_buf)
           if type(pd) == "string" then krant_set[pd] = true end
         end
 
+        if embargo_publication_at then
+          local label = embargo_publication_at:gsub("T", " ")
+          table.insert(items, "Na embargo plaatsen: " .. label .. " ← voorgesteld")
+          table.insert(item_values, embargo_publication_at)
+        end
+
         -- Startdag: vandaag + week_offset * 7 dagen, afgerond naar middernacht.
         local base = os.time() + week_offset * 7 * 86400
         local bt = os.date("*t", base)
@@ -5388,10 +5623,11 @@ function M.pubble_send(target_buf)
       -- accepteren; alleen "Datums aanpassen" opent de bestaande detailmenu's.
       local recommended = {}
       local summary = {}
-      local all_recommended = has_data
+      local embargo_day = embargo_publication_at and embargo_publication_at:sub(1, 10) or nil
+      local all_recommended = embargo_publication_at ~= nil or has_data
       for _, code in ipairs(edition_codes) do
         local info = schedule_info(code)
-        local suggested = optional_string(info and info.suggested)
+        local suggested = embargo_day or optional_string(info and info.suggested)
         local latest_date = optional_string(info and info.latest_date)
         if not suggested then
           all_recommended = false
@@ -5411,10 +5647,20 @@ function M.pubble_send(target_buf)
             if publication_date == suggested then is_krant = true; break end
           end
           local count = optional_table(info and info.counts)[suggested] or 0
-          recommended[code] = suggested .. ":" .. (is_krant and "krant" or tostring(count))
-          local date_label = suggested == os.date("%Y-%m-%d")
-              and "vandaag"
-              or (suggested:sub(9, 10) .. "-" .. suggested:sub(6, 7))
+          recommended[code] = embargo_publication_at
+              or (suggested .. ":" .. (is_krant and "krant" or tostring(count)))
+          local date_label
+          if embargo_publication_at then
+            date_label = embargo_publication_at:sub(9, 10)
+                .. "-" .. embargo_publication_at:sub(6, 7)
+            local time_label = embargo_publication_at:match("T(%d%d:%d%d)$")
+            if time_label then date_label = date_label .. " " .. time_label end
+            date_label = date_label .. " (embargo)"
+          else
+            date_label = suggested == os.date("%Y-%m-%d")
+                and "vandaag"
+                or (suggested:sub(9, 10) .. "-" .. suggested:sub(6, 7))
+          end
           table.insert(summary, code .. " " .. date_label)
         end
       end
@@ -5424,7 +5670,14 @@ function M.pubble_send(target_buf)
         return
       end
 
-      local accept_label = #edition_codes == 1 and "Aanbevolen datum accepteren" or "Aanbevolen datums accepteren"
+      local accept_label
+      if embargo_publication_at then
+        accept_label = #edition_codes == 1
+            and "Voorgestelde embargodatum accepteren"
+            or "Voorgestelde embargodatum voor alle edities accepteren"
+      else
+        accept_label = #edition_codes == 1 and "Aanbevolen datum accepteren" or "Aanbevolen datums accepteren"
+      end
       local adjust_label = #edition_codes == 1 and "Datum aanpassen" or "Datums per editie aanpassen"
       local priority_label = "Prioriteit aanpassen"
       local unpublished_label = "Ongepubliceerd plaatsen"
@@ -6060,8 +6313,15 @@ M._upsert_tail_section = upsert_tail_section
 
 local function social_command(prompt, buf)
   local command = { aitext, prompt }
+  local variant = vim.b[buf].edition_variant
+  local shared = type(variant) == "table"
+    and type(variant.editions) == "table"
+    and #variant.editions > 1
+  -- Een gedeelde buffer krijgt bewust géén krantcontext mee. De socialprompt
+  -- kent maar één --edition, en die zou de plaats van één krant centraal zetten
+  -- in een tekst die ook bij de andere kranten van de groep verschijnt.
   local edition_code = vim.b[buf].edition_code
-  if type(edition_code) == "string" and edition_code ~= "" then
+  if not shared and type(edition_code) == "string" and edition_code ~= "" then
     table.insert(command, "--edition")
     table.insert(command, edition_code)
   end
@@ -6070,18 +6330,9 @@ end
 
 M._social_command = social_command
 
-local function generate_social_section(opts)
-  local buf = vim.api.nvim_get_current_buf()
-  local review_variant = vim.b[buf].edition_variant
-  if type(review_variant) == "table" and type(review_variant.editions) == "table"
-      and #review_variant.editions > 1 then
-    vim.notify(
-      "Deze oudere reviewbuffer deelt één tekst met meerdere kranten. "
-        .. "Maak met <leader>ar nieuwe losse krantbuffers voordat je socialteksten toevoegt.",
-      vim.log.levels.ERROR
-    )
-    return
-  end
+local function generate_social_section(opts, target_buf)
+  local buf = target_buf or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(buf) then return end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   -- Alleen de kale artikelbody als AI-input — geen frontmatter, kopcodes of
   -- eerder gegenereerde secties (voorkomt dat bijv. "Fotograaf:" in de post lekt).
@@ -6124,8 +6375,14 @@ local function generate_social_section(opts)
             vim.log.levels.WARN
           )
         else
+          local variant = vim.b[buf].edition_variant
+          local where = type(variant) == "table" and variant.name
           notify_workflow(
-            opts.title .. "-bericht toegevoegd. Pas aan indien nodig, dan <leader>aw.",
+            opts.title
+              .. "-bericht toegevoegd"
+              .. (where and (" voor " .. where) or "")
+              .. ". Pas aan indien nodig, dan "
+              .. (where and "<leader>aG." or "<leader>aw."),
             vim.log.levels.INFO,
             { ttl = 10 }
           )
@@ -6184,8 +6441,53 @@ end
 M._generate_kamper_kiek_social = generate_kamper_kiek_social
 require("krant").on_kamper_kiek_applied = generate_kamper_kiek_social
 
+--- Maak de socialtekst waar hij hoort: bij de afgeronde versie.
+---
+--- Op de bron met krantversies zou de AI het ruwe importbericht te zien
+--- krijgen, want bij splitsen blijft de bron onherschreven. Elke versie krijgt
+--- daarom haar eigen tekst, uit haar eigen afgeronde artikel. Een gedeelde
+--- versie is één buffer, dus die telt als één tekst.
+local function start_social_section(opts)
+  local buf = vim.api.nvim_get_current_buf()
+  if type(vim.b[buf].edition_variant) == "table" then
+    generate_social_section(opts)
+    return
+  end
+  local targets = edition_review.review_targets(buf)
+  if #targets == 0 then
+    generate_social_section(opts)
+    return
+  end
+
+  local labels = {}
+  for _, target in ipairs(targets) do table.insert(labels, "  " .. target.name) end
+  local choice = require("user_dialog").confirm(
+    "Dit artikel heeft " .. #targets .. " krantversies. De bron zelf is niet "
+      .. "herschreven, dus een " .. opts.title .. "-tekst hier zou op de ruwe "
+      .. "importtekst worden gemaakt.\n\n"
+      .. table.concat(labels, "\n")
+      .. "\n\nVoor iedere versie een eigen " .. opts.title .. "-tekst maken?",
+    "&Ja, voor alle versies\n&Annuleren",
+    1
+  )
+  if choice ~= 1 then
+    notify_workflow(opts.title .. "-tekst niet gemaakt.", vim.log.levels.INFO)
+    return
+  end
+  for _, target in ipairs(targets) do
+    generate_social_section(opts, target.buf)
+  end
+  notify_workflow(
+    opts.title .. "-tekst wordt voor " .. #targets .. " versies gemaakt; "
+      .. "controleer ze in de krantbuffers en keur goed met <leader>aG.",
+    vim.log.levels.INFO,
+    { ttl = 12 }
+  )
+end
+M._start_social_section = start_social_section
+
 function M.generate_facebook()
-  generate_social_section({
+  start_social_section({
     title = "Facebook",
     prompt = "facebook_bericht",
     prompt_112 = "facebook_bericht_112",
@@ -6193,7 +6495,7 @@ function M.generate_facebook()
 end
 
 function M.generate_linkedin()
-  generate_social_section({
+  start_social_section({
     title = "LinkedIn",
     prompt = "linkedin_bericht",
   })

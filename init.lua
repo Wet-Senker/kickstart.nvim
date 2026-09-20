@@ -447,8 +447,12 @@ do
 
   -- Enable Telescope extensions if they are installed
   pcall(require('telescope').load_extension, 'fzf')
-  pcall(require('telescope').load_extension, 'ui-select')
-  require('user_dialog').setup()
+  local ui_select_loaded = pcall(require('telescope').load_extension, 'ui-select')
+  require('user_dialog').setup {
+    -- Preserve Telescope's provider before user_dialog takes ownership of
+    -- vim.ui.select. It is used only for manually opened, annuleerbare menus.
+    manual_select = ui_select_loaded and vim.ui.select or nil,
+  }
   pcall(require('telescope').load_extension, 'file_browser')
 
   -- Fuzzy-browse folders (by name, not path) and move/rename/delete files

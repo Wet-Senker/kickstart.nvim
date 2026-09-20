@@ -50,13 +50,14 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | Leader | Actie |
 |---|---|
 | `<leader>ar` | **Herschrijven** — zonder onderscheidende plaats/provincie stil één algemene versie. Anders keuze tussen de voorgestelde gerichte varianten + algemene rest, één algemene versie of Annuleren. De gebiedsscan doet alleen een voorstel. Direct uit het origineel met tussenkopjes, daarna losse streamer; iedere krant krijgt een eigen reviewbuffer, ook als de artikeltekst gelijk is |
+| *bij `<leader>ar`* | **Plaatsencontrole** — noemt de tekst plaatsen van kranten die niet gekozen zijn, dan vraagt hij eenmalig of die mee moeten. Alleen als de controle bij import niet gedraaid heeft (zelf geplakte tekst) of als er sindsdien een krant is bijgekomen. Een provincie alleen telt niet mee |
 | `<leader>ad` | **Doublurecontrole opnieuw** — draait de controle nog eens voor dit artikel, ook als je eerder "toch verzenden" koos. Wegdrukken met `q` laat hem vanzelf terugkomen; deze toets is voor de keer dat je hem al had goedgekeurd |
 | *automatisch bij import* | **Agenda-doublurecontrole** — staat het evenement al in de eigen online agenda, dan volgt vóór elke verwerking de vraag of er tóch een agenda-item moet komen, met de optie het bestaande item in de browser te bekijken. Nee laat alleen het agenda-item vervallen; web en print gaan door. Uit te zetten met `TEXTTOOLS_AGENDA_DOUBLURECHECK=0` |
 | `<leader>ao` | **Tekstcheck** — alleen taalfouten (spelling/grammatica); tekst blijft verder gelijk (twijfel → `## Suggesties`) |
 | `<leader>an` | **Opschonen + neutraliseren** — eerst zekere persbericht-/mailruis als volledige regels weg, daarna reclame/'u'-taal eruit + kop/lead publicatieklaar; rest zo dicht mogelijk bij origineel |
 | `<leader>ac` | Metadata + kalenderitem — ontbrekende velden tonen het formaat, zoals `Tijd: HH:MM` |
 | `<leader>at` | Tussenkopjes, optionele streamer en 2 kopopties; gekozen kop wordt zo nodig vóór de lead ingevoegd |
-| `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie; in een krantreview alleen voor die krant |
+| `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie. Zijn er krantversies, dan vraagt hij op de bron of hij er voor iedere versie een maakt, elk uit de afgeronde tekst van die versie; in een krantbuffer alleen voor die versie |
 | `<leader>al` | LinkedIn-post genereren — toont bewerkbare `## LinkedIn` sectie; in een krantreview alleen voor die krant |
 | `<leader>aV` | Overzicht van bron en afzonderlijke krantversiebuffers |
 | `<leader>aG` | Huidige krantversie opslaan en expliciet goedkeuren |
@@ -120,7 +121,10 @@ het printconcept `!agendapagina`.
 Embargo: bij de eerste import van een tekst met het losse woord `embargo` zet
 het programma automatisch een duidelijke `EMBARGO:`-regel boven
 `=== ARTIKEL ===`. Zolang die regel staat kan `<leader>aw` niet verzenden.
-Verwijder de volledige regel pas nadat het bericht is vrijgegeven.
+Een expliciet moment komt daarnaast als `publicatiedatum:` boven de grens en
+wordt bij `<leader>aw` voorgesteld; de letterlijke zin blijft als
+`embargobron:` controleerbaar. Verwijder na vrijgave de blokkaderegel én de
+oorspronkelijke embargozin uit het artikel. Laat `embargobron:` gerust staan.
 
 De doublurecontrole volgt het beleid van de Texttools-branch. Op `master`
 staat voorlopig **altijd controleren** aan. De testvarianten blijven beschikbaar:
@@ -218,6 +222,10 @@ Agenda-item niet gewenst? Verwijder het hele blok vanaf `## Kalender`.
 pas bij verzenden een sterke agendakandidaat gezien, dan volgt eerst een
 ja/nee-vraag.
 
+Alleen het gecontroleerde kalenderitem plaatsen? Druk `<leader>kA`. Deze route
+maakt geen krant- of webartikel, verstuurt geen socialtekst of Teams-melding en
+slaat het ontvangen agenda-ID direct in het artikel op.
+
 ---
 
 ## pubble-batch .meta sidecar
@@ -278,11 +286,13 @@ alleen opgeslagen, goedgekeurd, verouderd of volledig verzendklaar. Op de
 gedeelde bron legt dezelfde hulp uit hoeveel krantversies nog moeten
 worden goedgekeurd en dat de bron zelf niet wordt gepubliceerd.
 
-Bij kalenderartikelen bepaalt `<leader>aw` per krant of het evenement op de
-eerstvolgende verschijningsdag nog toekomstig, inmiddels lopend of afgelopen
-is. Alleen bij verschil met de webdatum verschijnt `## Kranttijdsversies`.
-Controleer die printtekst en druk opnieuw `<leader>aw`; de webtekst blijft
-ongewijzigd.
+Bij kalenderartikelen én datumgebonden artikelen zonder kalenderblok bepaalt
+`<leader>aw` per krant of het evenement op de eerstvolgende verschijningsdag
+nog toekomstig, inmiddels lopend of afgelopen is. `agenda: nee` schakelt alleen
+het agenda-item uit en niet deze controle. Bij verschil met de webdatum kies je
+of er een `## Kranttijdsversies`-tekst komt of dat het artikel niet naar die
+krant gaat. Controleer een gemaakte printtekst en druk opnieuw `<leader>aw`;
+de webtekst blijft ongewijzigd.
 
 ---
 

@@ -25,6 +25,15 @@ assert(reject_cmd[5] == 'website-afwijzen')
 assert(reject_cmd[7] == 'D')
 assert(reject_cmd[9] == '321')
 
+local article_publish_cmd = module._command('artikel-plaatsen', '/tmp/artikel.md', '--write')
+assert(article_publish_cmd[5] == 'artikel-plaatsen')
+assert(article_publish_cmd[6] == '/tmp/artikel.md')
+assert(article_publish_cmd[7] == '--write')
+module.setup()
+local article_publish_map = vim.fn.maparg('<leader>kA', 'n', false, true)
+assert(type(article_publish_map) == 'table' and article_publish_map.desc:find('alleen', 1, true),
+  'globale leader voor alleen agenda ontbreekt')
+
 -- Import-render: controle, doublures, nieuw, normalisatie.
 local import_lines = module._render_import {
   read_incomplete = false,

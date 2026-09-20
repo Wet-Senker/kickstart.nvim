@@ -73,4 +73,28 @@ ai._edition_mode_choice_async({ 'B', 'SW' }, { 'Brug', 'Swollenaer' }, nil, func
 assert(required ~= true, 'handmatige rewritevraag niet annuleerbaar of niet asynchroon')
 dialog.confirm = original_confirm
 dialog.select = original_select
+
+-- In de echte configuratie injecteert telescope-ui-select zijn fuzzy provider.
+-- Alleen handmatige selecties gebruiken die; verplichte vragen blijven native.
+local fuzzy_calls, fuzzy_choice = 0, nil
+dialog.setup({
+  manual_select = function(items, opts, done)
+    fuzzy_calls = fuzzy_calls + 1
+    assert(opts.prompt == 'Zoeken', 'fuzzy prompt niet doorgegeven')
+    done(items[2], 2)
+  end,
+})
+vim.ui.select({ 'Alpha', 'Beta' }, { prompt = 'Zoeken' }, function(item) fuzzy_choice = item end)
+assert(vim.wait(500, function() return fuzzy_choice ~= nil end, 5), 'fuzzy selectie niet afgerond')
+assert(fuzzy_choice == 'Beta' and fuzzy_calls == 1, 'handmatig menu gebruikte fuzzy provider niet')
+
+dialog.select({ 'Expliciet' }, { prompt = 'Import', required = true }, function(item) choice = item end)
+shown(); key('<CR>')
+assert(choice == 'Expliciet' and fuzzy_calls == 1, 'verplichte vraag gebruikte fuzzy provider')
+
+-- Zonder werkende optionele provider blijft de bestaande overlay beschikbaar.
+dialog.setup({ manual_select = function() error('picker ontbreekt') end })
+vim.ui.select({ 'Fallback' }, { prompt = 'Fallback' }, function(item) choice = item end)
+shown(); key('<CR>')
+assert(choice == 'Fallback', 'native fallback na pickerfout ontbreekt')
 print('user dialog: OK')

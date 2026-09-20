@@ -46,10 +46,12 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | `<leader>z` | Rustige Zen-weergave met een bredere tekstkolom, zonder regelnummers, tekens in de marge of zichtbare witruimte. Markdown loopt alleen visueel om bij woordgrenzen; het bestand krijgt geen extra regeleinden. |
 | `<leader>ar` | Herschrijven naar krantenartikel (AI). Een reeds bevestigde 112-rubriek of geaccepteerde agenda krijgt in dezelfde call natuurlijke zoekintentie voor kop en lead; andere artikelen niet. Bij meerdere bestemmingen verschijnt alleen een vraag als een gevonden plaats of prominente provincie de gekozen gebieden werkelijk onderscheidt. De standaardkeuze maakt gerichte lokale of provinciale versies en één algemene voor de overige kranten; zonder onderscheidend signaal ontstaat stil één algemene versie. Bestemmingen blijven gelijk. Iedere unieke tekst komt direct uit het origineel, inclusief tussenkopjes. Een streamer maak je alleen bewust handmatig met `<leader>at`. Ook als meerdere kranten dezelfde algemene tekst krijgen, opent voor iedere krant een eigen reviewbuffer, zodat socialteksten apart kunnen worden gemaakt en goedgekeurd. Geen tussenrewrite of opmaak van de gedeelde bron. |
 | `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. Tijdens een doublurecontrole wordt deze actie eenmaal uitgesteld en alleen na doorgaan hervat. Een herkend maar onvolledig item toont `<!-- Ontbreekt: … -->` inclusief invoerformaat, bijvoorbeeld `Tijd: HH:MM`. |
+| `<leader>kA` | Plaats vanuit een gewone artikelbuffer uitsluitend het gecontroleerde `## Kalender`-item. Krant, websiteartikel, social en Teams worden niet verstuurd. De actie controleert eerst op doublures en schrijft ontvangen agenda-ID's direct terug, zodat opnieuw drukken geen dubbel item maakt. In een voorstel uit een bestaand websiteartikel blijft dezelfde leader dat item aan het bronartikel koppelen. |
+| *onderdeel van `<leader>ar`* | **Plaatsencontrole.** Wijzen plaatsen in de tekst naar kranten die nog niet gekozen zijn, dan volgt eenmalig de vraag of die mee moeten. Die vraag komt alleen wanneer de controle bij import niet heeft plaatsgevonden — een zelf getypte of geplakte buffer komt niet langs de importroute — of wanneer de tekst sindsdien naar andere kranten is gaan wijzen. Een provincie is context en levert geen voorstel op. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
 | `<leader>an` | Minimaal publicatieklaar maken in twee fasen: eerst uitsluitend zekere persbericht-/mailruis als volledige regels verwijderen, daarna kop en nieuwsgerichte lead herstellen en reclametaal, directe aanspreekvormen en lokale taalfouten minimaal neutraliseren. Daarna draait dezelfde nacontrole als bij `<leader>ar`. |
 | `<leader>at` | Tussenkopjes, een streamer (als er nog geen eigen `>` staat) en twee kopopties. Een gekozen kop vervangt alleen een bestaande korte kop; bij een dateline, auteursregel of eerste alinea van meer dan tien woorden wordt zij vóór de lead ingevoegd. |
-| `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. In een krantreview geldt de tekst alleen voor die krant en krijgt de AI die sitecontext. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
+| `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. Zijn er krantversies, dan hoort de tekst bij de versie en niet bij de bron: die blijft het onherschreven importbericht. Op de bron vraagt Neovim of hij voor iedere unieke versie een eigen tekst maakt, elk uit het afgeronde artikel daarvan; in een krantbuffer maakt hij alleen die ene. Een gedeelde buffer krijgt geen enkele krant als sitecontext mee. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
 | `<leader>al` | LinkedIn-post genereren → bewerkbare `## LinkedIn` sectie. In een krantreview geldt de tekst alleen voor die krant. |
 | `<leader>aV` / `:Krantversies` | Overzicht van de gedeelde bron en alle afzonderlijke krantversiebuffers openen. |
 | `<leader>aG` / `:KrantversieGoedkeuren` | Huidige krantversie terugschrijven en de exacte tekst expliciet goedkeuren. |
@@ -140,6 +142,8 @@ rubriek: 112       # markeert als 112-bericht
 calendar: x        # kalendermetadata ophalen bij <leader>ar of <leader>aw
 facebook: x        # Facebook-post genereren bij <leader>ar
 EMBARGO: NIET VERSTUREN — VERWIJDER DEZE REGEL PAS NA VRIJGAVE  # automatisch bij import
+publicatiedatum: 2026-09-19 11:30  # voorstel uit een expliciete embargozin
+embargobron: **Let op: onder embargo tot 19 september, 11.30 uur**
 b: Bijschrift      # globaal fotobijschrift
 c: Naam fotograaf  # globale fotocredit
 b1: / c1:          # bijschrift/credit voor foto 1 specifiek
@@ -160,10 +164,14 @@ inline AI-prompts en gesprekken gereserveerd.
 
 Vindt de eerste importinspectie het losse woord `embargo` in de oorspronkelijke
 artikelbody, dan verschijnt direct een waarschuwing en de bovenstaande
-`EMBARGO:`-regel. Zolang die regel staat, stopt `<leader>aw` vóór AI- of
-Pubble-werk. Rewrites en metadata-acties bewaren hem. Verwijder de volledige
-regel pas na vrijgave; de detectie draait alleen bij de eerste import van de
-buffer en wordt niet na iedere bewerking opnieuw uitgevoerd.
+`EMBARGO:`-regel. Een expliciete datum en tijd uit dezelfde zin verschijnen als
+`publicatiedatum:`; de planningskeuze van `<leader>aw` stelt dat exacte lokale
+moment vervolgens als standaard voor. De letterlijke oorspronkelijke regel
+blijft als `embargobron:` bewaard, ook nadat de blokkade is vrijgegeven. Zolang
+de `EMBARGO:`-regel staat, stopt `<leader>aw` vóór AI- of Pubble-werk. Verwijder
+na vrijgave zowel de oorspronkelijke embargozin onder `=== ARTIKEL ===` als de
+volledige `EMBARGO:`-regel. `embargobron:` en `publicatiedatum:` mogen blijven.
+Bij een onduidelijke datum verzint het programma geen voorstel.
 
 Teams-selectors zijn hoofdletterongevoelig en mogen worden gecombineerd als
 `@Joop, @Saskia Boodschap`. Ze volgen de actuele ontvanger uit
@@ -230,12 +238,16 @@ ontbrekende, dubbele, verouderde, niet-goedgekeurde of verkeerde code stopt de
 verzending vóór Pubble. Staat er geen `## Editieversies`, dan blijft de
 gezamenlijke tekst voor alle kranten gelden.
 
-Bij een kalenderartikel vergelijkt `<leader>aw` na de webdatumkeuze ook de
-toestand op de eerstvolgende krantdatum. Alleen als het evenement dan inmiddels
-is begonnen of afgelopen, verschijnt een aparte `## Kranttijdsversies`-tekst
-voor de getroffen krant. De website houdt de oorspronkelijke tekst. Controleer
-de tijdsvorm en druk opnieuw `<leader>aw`; feiten, absolute data, tijden,
-getallen en citaten mogen niet veranderen.
+Bij een kalenderartikel, maar ook bij een datumgebonden artikel zonder
+kalenderblok, vergelijkt `<leader>aw` na de webdatumkeuze de toestand op de
+eerstvolgende krantdatum. `agenda: nee` voorkomt alleen het agenda-item; de
+krantdeadline en tijdsvormcontrole blijven actief. Is het evenement op de
+krantdatum inmiddels begonnen of afgelopen, dan vraagt NeoVim of er een aparte
+kranttekst moet komen of dat het artikel niet naar die krant gaat. Kies je voor
+herschrijven, dan verschijnt een `## Kranttijdsversies`-tekst voor de getroffen
+krant. De website houdt de oorspronkelijke tekst. Controleer de tijdsvorm en
+druk opnieuw `<leader>aw`; feiten, absolute data, tijden, getallen en citaten
+mogen niet veranderen.
 
 **112-detectie** — scoort tekst op signaalwoorden (politie, brandweer, ambulance, incident, etc.). De combinatie van minimaal één hulpdienst en één concreet incident krijgt één extra punt. Bij score ≥ 6 verschijnt een bevestigingsvraag. Bij "Ja": 112-template toegepast, `rubriek: 112` en `prio: 2` bovenaan gezet. Bij "Nee" blijft die keuze voor de huidige buffer staan en mag detectie na `<leader>ar` het template niet alsnog toepassen. De kop gebruikt via `pubble-places` de eerste bekende plaats uit de centrale verspreidingsgebiedentabel; zonder treffer wordt het `112:`.
 
@@ -292,8 +304,9 @@ extra AI-call toe; `week:` blijft de handmatige override.
 Valt de eerstvolgende verschijning van een gekozen krant na die inhoudelijke
 grens, dan waarschuwt `<leader>aw` vóór verzending. Kies `Alleen website voor
 te late krant(en)`, `Toch ook naar de krant` of `Annuleren`. Bij toch
-doorzetten blijft de werkelijk laatste bruikbare week in de krantwerktitel
-staan, zodat zichtbaar blijft dat de plaatsing te laat is.
+doorzetten wordt het weeknummer in de krantwerktitel van die te late editie
+vervangen door `z`, zodat de bewuste uitzondering direct zichtbaar is. De
+werkelijke deadline blijft voor controles apart bewaard.
 
 De lichte SEO-instructie loopt alleen mee wanneer de keuze vóór de rewrite al
 vaststaat: een 112-template/`rubriek: 112`, `agenda: ja` of een zichtbare
@@ -505,11 +518,14 @@ stappenplan staat in `INSTALLATIE_NIEUWE_MAC.md` in de texttools-repository.
 
 ### Vragen en krantversies
 
-Keuzevragen en invoervelden verschijnen in een centrale overlay boven de tekst.
-Gebruik pijltjes of `j`/`k` en Enter; bij keuzevragen werken ook nummers 1–9.
-Escape annuleert handmatig geopende menu's. Automatische importvragen (agenda,
-112, rubriek en persoonskeuze) vereisen een expliciet antwoord: Escape en Ctrl-C
-zijn daar geen annulering. Lange uitleg kan met Ctrl-U/Ctrl-D worden gescrold.
+Handmatig geopende keuzelijsten gebruiken Telescope: typ een deel van de
+gewenste optie om fuzzy te zoeken en kies met Enter. Escape annuleert zo'n menu.
+Automatische importvragen (agenda, 112, rubriek en persoonskeuze) blijven in de
+stabiele native vraagweergave en vereisen een expliciet antwoord: Escape en
+Ctrl-C zijn daar geen annulering. Invoervelden gebruiken eveneens de centrale
+overlay boven de tekst. Zonder beschikbare Telescope-provider vallen handmatige
+keuzelijsten automatisch terug op die overlay; gebruik daar pijltjes of `j`/`k`,
+Enter of nummers 1–9. Lange uitleg kan met Ctrl-U/Ctrl-D worden gescrold.
 De handmatige tekstversiekeuze van `<leader>ar` blijft asynchroon: de editor
 wacht niet in een geneste invoerlus en Escape annuleert de rewrite veilig.
 
