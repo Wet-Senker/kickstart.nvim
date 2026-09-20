@@ -4427,6 +4427,15 @@ M._finalize_published_buffer = finalize_published_buffer
 function M.pubble_send(target_buf)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  -- Eerst controleren, dan pas routeren. De weekendbatch neemt een eigen
+  -- afslag en zou deze blokkade anders overslaan; dat kan vandaag geen kwaad
+  -- omdat een weekendbuffer bij één krant hoort en dus nooit krantversies
+  -- heeft, maar die aanname hoort niet stilzwijgend te zijn.
+  local review_block = edition_review.send_block_reason(buf)
+  if review_block then
+    vim.notify(review_block, vim.log.levels.ERROR)
+    return
+  end
   if type(vim.b[buf].weekend_batch_id) == "string" then
     local ok, agenda_menu = pcall(require, "agenda_menu")
     if ok and agenda_menu.prepare_weekend_batch_send
@@ -4435,11 +4444,6 @@ function M.pubble_send(target_buf)
         end) then
       return
     end
-  end
-  local review_block = edition_review.send_block_reason(buf)
-  if review_block then
-    vim.notify(review_block, vim.log.levels.ERROR)
-    return
   end
   local agenda_page = require("agenda_page")
   if agenda_page.is_prepared(buf) then
