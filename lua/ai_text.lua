@@ -2258,6 +2258,12 @@ M._edition_variant_runner = function(buf, code, source, done, task)
   local command = { aitext, "krantversie", "--edition", code }
   if task and task.prompt == "krantversie_algemeen" then
     command = { aitext, task.prompt, "--editions", table.concat(task.editions, ",") }
+    -- Waaróm deze kranten samen één tekst krijgen: zij delen alleen een
+    -- provincie. Zonder die reden moet de AI haar uit de bron afleiden, en dat
+    -- mislukt wanneer de provincie daar maar terloops in staat.
+    if type(task.areas) == "table" and #task.areas > 0 then
+      vim.list_extend(command, { "--shared-area", table.concat(task.areas, ",") })
+    end
   end
   append_seo_context(command, task and task.seo_context)
   ai_system(

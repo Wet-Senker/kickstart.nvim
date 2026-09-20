@@ -1,5 +1,8 @@
 -- Plaatsencontrole: signaleren bij import, en bij <leader>ar alleen opnieuw
 -- vragen als de tekst naar andere kranten is gaan wijzen.
+package.preload['fidget.progress'] = function()
+  return { handle = { create = function() return { finish = function() end } end } }
+end
 local ai = require 'ai_text'
 
 local function resolved(places, editions)
@@ -115,3 +118,27 @@ local legacy = { editions = { 'K' }, places = { { place = 'Dronten', editions = 
 assert(#(ai._unchosen_edition_places(legacy, { 'K' })) == 1, 'zonder kind-veld valt de plaats weg')
 
 print 'edition places provinces: OK'
+
+-- De gedeelde provincie moet de AI-aanroep halen, anders moet die haar zelf uit
+-- de brontekst afleiden.
+local captured = {}
+local original_system = vim.system
+vim.system = function(command, _, callback)
+  table.insert(captured, table.concat(command, ' '))
+  return {}
+end
+ai._edition_variant_runner(0, 'SW', 'bron', function() end, {
+  code = 'SW', editions = { 'SW', 'ST', 'K' },
+  prompt = 'krantversie_algemeen', areas = { 'Overijssel' },
+})
+ai._edition_variant_runner(0, 'B', 'bron', function() end, {
+  code = 'B', editions = { 'B' }, prompt = 'krantversie', areas = {},
+})
+vim.system = original_system
+
+assert(captured[1]:find('--shared%-area Overijssel'),
+  'de gedeelde provincie gaat niet mee: ' .. tostring(captured[1]))
+assert(not captured[2]:find('--shared-area', 1, true),
+  'een eigen krantversie krijgt ten onrechte een gedeelde provincie')
+
+print 'edition places shared area: OK'
