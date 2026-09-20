@@ -6291,8 +6291,9 @@ end
 
 M._social_command = social_command
 
-local function generate_social_section(opts)
-  local buf = vim.api.nvim_get_current_buf()
+local function generate_social_section(opts, target_buf)
+  local buf = target_buf or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(buf) then return end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   -- Alleen de kale artikelbody als AI-input — geen frontmatter, kopcodes of
   -- eerder gegenereerde secties (voorkomt dat bijv. "Fotograaf:" in de post lekt).
@@ -6335,8 +6336,14 @@ local function generate_social_section(opts)
             vim.log.levels.WARN
           )
         else
+          local variant = vim.b[buf].edition_variant
+          local where = type(variant) == "table" and variant.name
           notify_workflow(
-            opts.title .. "-bericht toegevoegd. Pas aan indien nodig, dan <leader>aw.",
+            opts.title
+              .. "-bericht toegevoegd"
+              .. (where and (" voor " .. where) or "")
+              .. ". Pas aan indien nodig, dan "
+              .. (where and "<leader>aG." or "<leader>aw."),
             vim.log.levels.INFO,
             { ttl = 10 }
           )
@@ -6395,8 +6402,53 @@ end
 M._generate_kamper_kiek_social = generate_kamper_kiek_social
 require("krant").on_kamper_kiek_applied = generate_kamper_kiek_social
 
+--- Maak de socialtekst waar hij hoort: bij de afgeronde versie.
+---
+--- Op de bron met krantversies zou de AI het ruwe importbericht te zien
+--- krijgen, want bij splitsen blijft de bron onherschreven. Elke versie krijgt
+--- daarom haar eigen tekst, uit haar eigen afgeronde artikel. Een gedeelde
+--- versie is één buffer, dus die telt als één tekst.
+local function start_social_section(opts)
+  local buf = vim.api.nvim_get_current_buf()
+  if type(vim.b[buf].edition_variant) == "table" then
+    generate_social_section(opts)
+    return
+  end
+  local targets = edition_review.review_targets(buf)
+  if #targets == 0 then
+    generate_social_section(opts)
+    return
+  end
+
+  local labels = {}
+  for _, target in ipairs(targets) do table.insert(labels, "  " .. target.name) end
+  local choice = require("user_dialog").confirm(
+    "Dit artikel heeft " .. #targets .. " krantversies. De bron zelf is niet "
+      .. "herschreven, dus een " .. opts.title .. "-tekst hier zou op de ruwe "
+      .. "importtekst worden gemaakt.\n\n"
+      .. table.concat(labels, "\n")
+      .. "\n\nVoor iedere versie een eigen " .. opts.title .. "-tekst maken?",
+    "&Ja, voor alle versies\n&Annuleren",
+    1
+  )
+  if choice ~= 1 then
+    notify_workflow(opts.title .. "-tekst niet gemaakt.", vim.log.levels.INFO)
+    return
+  end
+  for _, target in ipairs(targets) do
+    generate_social_section(opts, target.buf)
+  end
+  notify_workflow(
+    opts.title .. "-tekst wordt voor " .. #targets .. " versies gemaakt; "
+      .. "controleer ze in de krantbuffers en keur goed met <leader>aG.",
+    vim.log.levels.INFO,
+    { ttl = 12 }
+  )
+end
+M._start_social_section = start_social_section
+
 function M.generate_facebook()
-  generate_social_section({
+  start_social_section({
     title = "Facebook",
     prompt = "facebook_bericht",
     prompt_112 = "facebook_bericht_112",
@@ -6404,7 +6456,7 @@ function M.generate_facebook()
 end
 
 function M.generate_linkedin()
-  generate_social_section({
+  start_social_section({
     title = "LinkedIn",
     prompt = "linkedin_bericht",
   })

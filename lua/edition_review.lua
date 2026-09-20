@@ -800,6 +800,29 @@ function M.show(target_buf)
   end)
 end
 
+--- Alle reviewbuffers van dit artikel: één per unieke tekst.
+---
+--- Kranten die dezelfde tekst delen hebben samen één buffer, dus deze lijst is
+--- ook precies de verzameling teksten waarvoor iets als een socialbericht
+--- afzonderlijk gemaakt moet worden.
+function M.review_targets(target_buf)
+  local source = source_buffer(target_buf)
+  if not source then return {} end
+  local targets = {}
+  for code, review_buf in pairs(review_buffers[source] or {}) do
+    if vim.api.nvim_buf_is_valid(review_buf) then
+      local variant = vim.b[review_buf].edition_variant
+      table.insert(targets, {
+        code = code,
+        buf = review_buf,
+        name = (type(variant) == "table" and variant.name) or code,
+      })
+    end
+  end
+  table.sort(targets, function(left, right) return left.code < right.code end)
+  return targets
+end
+
 function M.has_unsaved(source_buf)
   for _, review_buf in pairs(review_buffers[source_buf] or {}) do
     if vim.api.nvim_buf_is_valid(review_buf) and vim.bo[review_buf].modified then

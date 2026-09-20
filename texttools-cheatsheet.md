@@ -57,7 +57,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>an` | **Opschonen + neutraliseren** — eerst zekere persbericht-/mailruis als volledige regels weg, daarna reclame/'u'-taal eruit + kop/lead publicatieklaar; rest zo dicht mogelijk bij origineel |
 | `<leader>ac` | Metadata + kalenderitem — ontbrekende velden tonen het formaat, zoals `Tijd: HH:MM` |
 | `<leader>at` | Tussenkopjes, optionele streamer en 2 kopopties; gekozen kop wordt zo nodig vóór de lead ingevoegd |
-| `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie; in een krantreview alleen voor die krant |
+| `<leader>af` | Facebook-post genereren — toont bewerkbare `## Facebook` sectie. Zijn er krantversies, dan vraagt hij op de bron of hij er voor iedere versie een maakt, elk uit de afgeronde tekst van die versie; in een krantbuffer alleen voor die versie |
 | `<leader>al` | LinkedIn-post genereren — toont bewerkbare `## LinkedIn` sectie; in een krantreview alleen voor die krant |
 | `<leader>aV` | Overzicht van bron en afzonderlijke krantversiebuffers |
 | `<leader>aG` | Huidige krantversie opslaan en expliciet goedkeuren |
