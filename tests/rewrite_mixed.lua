@@ -50,22 +50,26 @@ ai.rewrite_article_buffer()
 wait(function() return review._review_buffers[buf] ~= nil end)
 assert(vim.tbl_count(requested) == 3, 'niet precies drie unieke teksten aangevraagd')
 assert(requested.SW[2] == 'krantversie_algemeen' and requested.SW[4] == 'SW,ST,Z,K')
+-- Eén buffer per unieke tekst: De Brug, De Drontenaar en één gedeelde voor de
+-- vier kranten die dezelfde algemene tekst krijgen. Een eigen buffer per krant
+-- zou alleen zin hebben voor een afwijkende social- of kalendertekst, en die
+-- wijkt binnen zo'n groep niet af.
 local entries = review._review_buffers[buf]
-assert(vim.tbl_count(entries) == 6 and entries.B and entries.D and entries.SW
-  and entries.ST and entries.Z and entries.K, 'niet één reviewbuffer per krant')
-assert(#vim.api.nvim_tabpage_list_wins(0) == 6)
+assert(vim.tbl_count(entries) == 3 and entries.B and entries.D and entries.SW,
+  'niet één reviewbuffer per unieke tekst')
+assert(entries.ST == nil and entries.Z == nil and entries.K == nil,
+  'kranten met dezelfde tekst kregen toch een eigen buffer')
+assert(#vim.api.nvim_tabpage_list_wins(0) == 3)
 local general = vim.b[entries.SW].edition_variant
-assert(table.concat(general.editions, ',') == 'SW')
+assert(table.concat(general.editions, ',') == 'SW,ST,Z,K')
 assert(general.name:find('De Swollenaer', 1, true))
 assert(not text(entries.SW):match('\n>%s'), 'review kreeg onverwacht een automatische streamer')
-assert(text(entries.ST) == text(entries.SW) and text(entries.Z) == text(entries.SW)
-  and text(entries.K) == text(entries.SW), 'algemene tekst werd niet naar iedere krantbuffer gekopieerd')
-for _, code in ipairs { 'B', 'D', 'SW', 'ST', 'Z', 'K' } do
+for _, code in ipairs { 'B', 'D', 'SW' } do
   local done = false
   review.sync(entries[code], true, function(ok) assert(ok); done = true end)
   wait(function() return done end)
 end
-assert(vim.b[buf].edition_workspace_ready, 'zes goedkeuringen maakten niet alle zes kranten klaar')
+assert(vim.b[buf].edition_workspace_ready, 'drie goedkeuringen maakten niet alle zes kranten klaar')
 assert(ai._send_safeguard_reason(buf, vim.api.nvim_buf_get_lines(buf, 0, -1, false)) == nil,
   'gereviewde varianten vroegen onterecht goedkeuring voor de ongewijzigde gedeelde bron')
 local done = false
@@ -73,7 +77,8 @@ vim.api.nvim_buf_set_lines(entries.SW, -1, -1, false, { 'Redactionele wijziging.
 review.sync(entries.SW, false, function(ok) assert(ok); done = true end)
 wait(function() return done end)
 assert(not vim.b[buf].edition_workspace_ready, 'edit bleef stil goedgekeurd')
-assert(not text(buf):find('shared-editions:', 1, true), 'nieuwe flow maakte toch een gedeelde reviewbuffer')
+assert(text(buf):find('shared-editions: SW,ST,Z,K', 1, true),
+  'de gedeelde groep is niet in de werkruimte vastgelegd')
 review.close(buf, true)
 vim.system, dialog.select = original_system, original_select
 print 'rewrite mixed: OK'

@@ -2300,8 +2300,15 @@ local function generate_edition_versions(buf, source, origin, codes, names, task
     tasks = {}
     for _, code in ipairs(codes) do table.insert(tasks, { code = code, editions = { code }, prompt = "krantversie" }) end
   end
-  local variants, errors = {}, {}
+  -- Kranten die precies dezelfde tekst krijgen, delen één reviewbuffer en één
+  -- goedkeuring. Een aparte buffer per krant zou alleen zin hebben voor een
+  -- afwijkende Facebook-, LinkedIn- of Kalendertekst, en juist die wijkt binnen
+  -- zo'n groep niet af: het is immers hetzelfde verhaal voor hetzelfde gebied.
+  local variants, errors, shared_groups = {}, {}, {}
   local remaining = #tasks
+  for _, task in ipairs(tasks) do
+    if #task.editions > 1 then table.insert(shared_groups, task.editions) end
+  end
   for _, task in ipairs(tasks) do
     local code = task.code
     local function finish_variant(ok, variant, err)
@@ -2329,7 +2336,7 @@ local function generate_edition_versions(buf, source, origin, codes, names, task
             vim.log.levels.ERROR
           )
         end
-      end, {}) then
+      end, shared_groups) then
         notify_workflow("Aparte krantversies konden niet veilig worden ingevoegd.", vim.log.levels.ERROR)
       end
     end
