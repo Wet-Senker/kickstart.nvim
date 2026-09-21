@@ -4,6 +4,7 @@
 -- (voorlopig) handmatig; m markeert een kandidaat als afgehandeld.
 
 local M = {}
+local browser = require 'ordered_browser'
 
 local commands = require 'texttools_commands'
 local notifications = require 'texttools_notify'
@@ -184,10 +185,7 @@ local function show_report(result, edition, include_reviewed)
       vim.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
       return
     end
-    local ok, _, err = pcall(vim.ui.open, tostring(entry.candidate.editor_url))
-    if not ok or err then
-      vim.notify('Openen in browser mislukt: ' .. tostring(err or _), vim.log.levels.WARN)
-    end
+    browser.open_urls { tostring(entry.candidate.editor_url) }
   end, { buffer = buf, silent = true, desc = 'Artikel in browser openen' })
 
   vim.keymap.set('n', '<CR>', function()

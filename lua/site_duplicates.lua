@@ -211,10 +211,7 @@ local function show_report(result, edition, include_reviewed)
       vim.notify('Zet de cursor op een titelregel.', vim.log.levels.INFO)
       return
     end
-    local ok, _, err = pcall(vim.ui.open, tostring(entry.article.editor_url))
-    if not ok or err then
-      vim.notify('Openen in browser mislukt: ' .. tostring(err or _), vim.log.levels.WARN)
-    end
+    browser.open_urls { tostring(entry.article.editor_url) }
   end, { buffer = buf, silent = true, desc = 'Artikel in browser openen' })
 
   vim.keymap.set('n', '<CR>', function()

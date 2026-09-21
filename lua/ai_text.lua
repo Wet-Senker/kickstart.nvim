@@ -2888,7 +2888,10 @@ local function agenda_duplicate_prompt(buf, data)
   )
   if choice == 3 then
     local url = candidates[1] and candidates[1].url
-    if url then pcall(vim.ui.open, url) end
+    -- Via de gedeelde opener, die op macOS `open -g` gebruikt: het tabblad
+    -- staat klaar zonder dat de browser naar voren springt. Je kijkt wanneer
+    -- het jou uitkomt en houdt de import onder handen.
+    if url then require("ordered_browser").open_urls { url } end
     return agenda_duplicate_prompt(buf, data)
   end
   -- confirm() geeft 0 bij Escape of afbreken. Dat is geen "nee": stil een

@@ -2,6 +2,7 @@ local M = {}
 local notifications = require('texttools_notify')
 local context_help = require('context_help')
 local workflow_log = require('workflow_log')
+local browser = require('ordered_browser')
 
 local function trim_text(value, maximum)
   local text = vim.trim(tostring(value or '')):gsub('%s+', ' ')
@@ -278,18 +279,12 @@ function M.show(result, callback, options)
     local candidate, selected_variant = selected_candidate()
     if not candidate then return end
     if selected_variant and selected_variant.editor_url then
-      local ok, _, err = pcall(vim.ui.open, selected_variant.editor_url)
-      if not ok or err then
-        vim.notify('Pubble-link openen mislukt: ' .. tostring(err or _), vim.log.levels.WARN)
-      end
+      browser.open_urls { selected_variant.editor_url }
       return
     end
     choose_variant(candidate, function(variant)
       if not variant or not variant.editor_url then return end
-      local ok, _, err = pcall(vim.ui.open, variant.editor_url)
-      if not ok or err then
-        vim.notify('Pubble-link openen mislukt: ' .. tostring(err or _), vim.log.levels.WARN)
-      end
+      browser.open_urls { variant.editor_url }
     end)
   end
 

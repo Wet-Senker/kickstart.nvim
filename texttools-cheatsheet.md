@@ -45,6 +45,9 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 
 ---
 
+> Links openen altijd op de achtergrond: het tabblad staat klaar, maar de browser
+> springt niet naar voren. Je werkt door in Neovim en kijkt wanneer het uitkomt.
+
 ## Neovim leaders
 
 | Leader | Actie |
