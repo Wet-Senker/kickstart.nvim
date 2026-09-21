@@ -515,6 +515,20 @@ local function selection_is_current(buf, tick)
   return true
 end
 
+--- Leg vast dat deze buffer uit een rubriektemplate komt.
+---
+--- Zulke kopij is bewust aangeleverd: een column, een raadspraat, een Kamper
+--- Kiek. De importwaarborg vergelijkt de tekst met wat er bij import binnenkwam
+--- en klaagt als die nauwelijks afwijkt. Bij templatekopij zegt dat niets: de
+--- tekst hóórt te zijn wat de auteur aanleverde.
+local function mark_template_applied(target_buf, name)
+  local buf = target_buf or vim.api.nvim_get_current_buf()
+  if vim.api.nvim_buf_is_valid(buf) then
+    vim.b[buf].krant_template = name
+  end
+end
+M._mark_template_applied = mark_template_applied
+
 function M.raadspraat_menu(target_buf, context, done)
   target_buf = target_buf or vim.api.nvim_get_current_buf()
   local tick = vim.api.nvim_buf_get_changedtick(target_buf)
@@ -590,6 +604,7 @@ function M.raadspraat_menu(target_buf, context, done)
       append_visible_article(new_lines, with_default_edition(existing_header, 'B'), article)
 
       vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, new_lines)
+      mark_template_applied(target_buf, 'Raadspraat')
 
       local week_prefix = publication_week()
 
@@ -752,6 +767,7 @@ function M.ondernemen_menu(target_buf, context, done)
     local article = render_template(template, article_lines)
     append_visible_article(new_lines, with_default_edition(existing_header, 'B'), article)
     vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, new_lines)
+    mark_template_applied(target_buf, 'Ondernemen in Kampen')
 
     -- Kopieer foto naar Pubble Inbox.
     if not copy_to_inbox(photo_src, inbox .. '/' .. photo_file) then return end
@@ -837,6 +853,7 @@ local function apply(t, vars, target_buf)
   if #existing_fm > 0 then table.insert(final_lines, '') end
   append_visible_article(final_lines, control, result)
   vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, final_lines)
+  mark_template_applied(target_buf, t.name)
 
   -- Stel lezersnieuws export in; txt wordt geschreven bij <leader>aw.
   if not t.no_export then
@@ -1116,6 +1133,7 @@ function M.stock_rubriek_flow(config, target_buf, candidate)
     return false, 'photo_copy_failed'
   end
   vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, new_lines)
+  mark_template_applied(target_buf, (config and config.name) or 'rubriektemplate')
 
   -- Bereid één lezersnieuwsexport voor; de actuele tekst volgt bij <leader>aw.
   local week_prefix = publication_week()

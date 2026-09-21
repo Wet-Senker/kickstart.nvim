@@ -736,9 +736,17 @@ local function mark_ai_neutrality_completed(buf, lines)
 end
 
 local function send_safeguard_reason(buf, lines)
+  -- Kopij uit een rubriektemplate is bewust aangeleverd: een raadspraat, een
+  -- Kamper Kiek, een eregalerij. De waarborg vergelijkt de tekst met wat er bij
+  -- import binnenkwam en klaagt als die nauwelijks afwijkt; bij templatekopij
+  -- zegt dat niets, want de tekst hóórt te zijn wat de auteur aanleverde.
+  local template = vim.b[buf].krant_template
+  if type(template) == "string" and vim.trim(template) ~= "" then return nil end
+
   -- Een column is bewust auteurskopij en hoeft niet door AI of een
   -- verschilheuristiek te worden gelegitimeerd. De rubriekmarkering is het
-  -- bestaande, expliciete contract dat alle columntemplates al zetten.
+  -- bestaande, expliciete contract dat alle columntemplates al zetten; zij
+  -- werkt ook wanneer de rubriek met de hand is getypt.
   local _, controls = split_article_parts(lines)
   for _, line in ipairs(controls) do
     local key, value = vim.trim(line):match("^([%a][%a%d_]*)%s*:%s*(.-)%s*$")
