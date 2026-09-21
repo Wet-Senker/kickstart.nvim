@@ -397,6 +397,23 @@ local function active_publication_photo_guard(resolution)
   return true, nil
 end
 M._active_publication_photo_guard = active_publication_photo_guard
+
+--- Zonder foto kan een artikel alleen als concept weg. Vraag dat meteen.
+---
+--- De keuze werd pas voorgelegd ná de doublurecontrole, de metadata-AI, de
+--- planningsuggesties en het planningsscherm. Dat is allemaal voor niets als het
+--- antwoord toch 'concept' of 'annuleren' is, en de fotostatus is al bekend
+--- zodra de deterministische resolve klaar is.
+M._missing_photo_choice = function()
+  return require('user_dialog').confirm(
+    "Er is geen foto gekoppeld.\n\n"
+      .. "Een gepubliceerd artikel heeft er een nodig. Zet een foto in de "
+      .. "Pubble Inbox en druk opnieuw <leader>aw, of plaats het artikel nu "
+      .. "ongepubliceerd.",
+    "&Ongepubliceerd plaatsen\n&Annuleren",
+    2
+  )
+end
 M._open_published_url = open_published_url
 
 local function shellescape(value)
@@ -5371,6 +5388,22 @@ function M.pubble_send(target_buf)
         return
       end
       resolved_publication = resolved
+      -- Meteen na de resolve, vóór de doublurecontrole en de AI-calls: zonder
+      -- foto kan dit artikel alleen als concept weg, dus dat hoeft niet eerst
+      -- een hele verzendvoorbereiding te kosten. De waarborg in send_published
+      -- en in pubble-send blijft staan als vangnet.
+      if resolved.has_photo == false then
+        if M._missing_photo_choice() == 1 then
+          send_unpublished()
+        else
+          discard_unpublished_temp()
+          notify_workflow(
+            "Verzending geannuleerd; er is geen foto gekoppeld.",
+            vim.log.levels.INFO
+          )
+        end
+        return
+      end
       if type(resolved.skip_newspaper_editions) == "table" then
         vim.b[buf].skip_newspaper_editions = resolved.skip_newspaper_editions
       end
