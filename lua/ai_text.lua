@@ -1522,6 +1522,44 @@ local function set_priority_control(buf, priority)
 end
 M._set_priority_control = set_priority_control
 
+--- Vat "B 22-09, SW 22-09, ST 22-09, Z 23-09" samen tot "B, SW, ST 22-09 · Z 23-09".
+---
+--- De datums stonden in de promptregel van de planningsdialoog, samen met de
+--- titel en de krantprioriteit. Dat werd 146 tekens en een keuzevenster toont er
+--- ongeveer 76: juist de datums vielen weg, terwijl de keuzeregels ze ook niet
+--- noemden. Je koos dus blind. Ze horen in het label zelf, want dat overleeft
+--- iedere weergave.
+local function summarise_publication_dates(summary)
+  local order, editions_by_date = {}, {}
+  for _, entry in ipairs(summary or {}) do
+    local code, date_label = entry:match("^(%S+)%s+(.+)$")
+    if code and date_label then
+      if not editions_by_date[date_label] then
+        editions_by_date[date_label] = {}
+        table.insert(order, date_label)
+      end
+      table.insert(editions_by_date[date_label], code)
+    end
+  end
+  if #order == 0 then return nil end
+  if #order == 1 then return order[1] end
+
+  local parts = {}
+  for _, date_label in ipairs(order) do
+    table.insert(parts, table.concat(editions_by_date[date_label], ", ") .. " " .. date_label)
+  end
+  local joined = table.concat(parts, " · ")
+  -- De ruimte die overblijft naast het langste keuzelabel ("Aanbevolen datums
+  -- accepteren — ", 31 tekens) binnen een venster van ongeveer 76. Wordt het
+  -- langer, dan alleen het bereik; de volledige uitsplitsing komt dan onder de
+  -- titel te staan.
+  if #joined > 44 then
+    return order[1] .. " t/m " .. order[#order] .. ", per editie verschillend"
+  end
+  return joined
+end
+M._summarise_publication_dates = summarise_publication_dates
+
 local function priority_message(resolved)
   local priority = type(resolved) == "table" and resolved.priority or nil
   if type(priority) ~= "table" or tonumber(priority.value) == nil then return nil end
@@ -5701,9 +5739,27 @@ function M.pubble_send(target_buf)
       else
         accept_label = #edition_codes == 1 and "Aanbevolen datum accepteren" or "Aanbevolen datums accepteren"
       end
+      -- De datum hoort in de keuzeregel: daar zie je waar je ja tegen zegt.
+      local dates_label = summarise_publication_dates(summary)
+      if dates_label then accept_label = accept_label .. " — " .. dates_label end
       local adjust_label = #edition_codes == 1 and "Datum aanpassen" or "Datums per editie aanpassen"
+      local priority_value = type(resolved) == "table"
+          and type(resolved.priority) == "table"
+          and tonumber(resolved.priority.value)
+        or nil
       local priority_label = "Prioriteit aanpassen"
+        .. (priority_value and (" (nu " .. priority_value .. ")") or "")
       local unpublished_label = "Ongepubliceerd plaatsen"
+      -- De prioriteit met haar reden is hierboven al als losse melding getoond;
+      -- hem hier herhalen maakte de regel onleesbaar. Bij uiteenlopende datums
+      -- komt de volledige uitsplitsing op eigen regels onder de titel.
+      local prompt_lines = { "Publicatieplanning:" }
+      if dates_label and #summary > 1 and dates_label:find("verschillend", 1, true) then
+        table.insert(prompt_lines, "")
+        for _, entry in ipairs(summary) do
+          table.insert(prompt_lines, "  " .. entry)
+        end
+      end
       vim.ui.select({
         accept_label,
         adjust_label,
@@ -5711,9 +5767,7 @@ function M.pubble_send(target_buf)
         priority_label,
         unpublished_label,
       }, {
-        prompt = "Publicatieplanning"
-          .. (resolved_priority_message and (" — " .. resolved_priority_message) or "")
-          .. " — " .. table.concat(summary, ", ") .. ":",
+        prompt = table.concat(prompt_lines, "\n"),
       }, function(choice)
         if choice == nil then
           discard_unpublished_temp()
