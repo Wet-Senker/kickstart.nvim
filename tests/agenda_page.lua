@@ -55,7 +55,7 @@ assert(vim.inspect(invalid_help):find('Tijd ontbreekt', 1, true), 'validatiefout
 module.setup()
 assert(vim.fn.exists ':AgendaPagina' == 2)
 local mapping = vim.fn.maparg('<leader>ka', 'n', false, true)
-assert(type(mapping) == 'table' and mapping.desc == '[K]rant [A]gendapagina (print) voorbereiden')
+assert(type(mapping) == 'table' and mapping.desc == '[K]rant [a]gendapagina (print) voorbereiden')
 
 -- Verzenden vraagt precies één keer om de krant, valideert met die override
 -- en geeft dezelfde code door aan de print-only CLI.

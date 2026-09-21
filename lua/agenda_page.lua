@@ -250,6 +250,14 @@ function M.prepare(buf)
     return
   end
 
+  -- Deze buffer is een print-agendapagina: houd 'm buiten de artikel-/online-
+  -- agenda-/doubluredetectie van ai_text (die markers zijn het gedeelde
+  -- contract). Zo verschijnt na <leader>ka niet alsnog de "naar de online agenda
+  -- plaatsen?"-vraag die bij een gewoon artikel hoort.
+  vim.b[buf].agenda_page_flow = true
+  vim.b[buf].article_recognition_done = true
+  vim.b[buf].calendar_autodetect_done = true
+
   local original = buffer_text(buf)
   local changedtick = vim.api.nvim_buf_get_changedtick(buf)
   local handle = progress 'Agenda · Voorbereiden'
@@ -442,7 +450,7 @@ function M.setup()
     desc = 'Agendapagina print-only naar Pubble versturen',
   })
   vim.keymap.set('n', '<leader>ka', M.prepare, {
-    desc = '[K]rant [A]gendapagina (print) voorbereiden',
+    desc = '[K]rant [a]gendapagina (print) voorbereiden',
   })
 end
 

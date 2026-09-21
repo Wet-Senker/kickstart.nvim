@@ -4037,6 +4037,14 @@ local function article_autodetect(buf)
   if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].article_recognition_done then return end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   if editorial_body_text(lines) == "" then return end
+  -- Een (voorbereide) papieren agendapagina is print-only en hoort niet in de
+  -- artikel-, editie-, online-agenda- of doublurecontrole. De agendapaginaflow
+  -- (<leader>ka) zet `agenda_page_flow` zelf; een opnieuw geopend concept herken
+  -- je aan de marker.
+  if vim.b[buf].agenda_page_flow
+      or table.concat(lines, "\n"):find("=== AGENDAPAGINA ===", 1, true) then
+    return
+  end
   vim.b[buf].article_recognition_done = true
   local text = table.concat(lines, "\n")
   vim.b[buf].pubble_duplicate_gate_pending = true
