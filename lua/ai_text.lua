@@ -211,9 +211,18 @@ local function finish_buffer_job(buf)
   vim.schedule(function()
     if not vim.api.nvim_buf_is_valid(buf) then return end
     vim.b[buf].pending_jobs = math.max(0, (vim.b[buf].pending_jobs or 1) - 1)
-    if (vim.b[buf].pending_jobs or 0) == 0 and vim.b[buf].send_requested then
-      vim.b[buf].send_requested = false
-      M.pubble_send(buf)
+    if (vim.b[buf].pending_jobs or 0) == 0 then
+      -- Een geaccepteerd kalenderresultaat dat tijdens een gelijktijdige
+      -- bewerking (typisch een herschrijving) niet direct kon worden
+      -- toegepast, wordt nu als laatste aangehecht — ná alle herschrijvingen,
+      -- zodat de beschermde ## Kalender-staartsectie behouden blijft.
+      if vim.b[buf].pending_calendar_meta_lines and M._apply_pending_calendar_section then
+        M._apply_pending_calendar_section(buf)
+      end
+      if vim.b[buf].send_requested then
+        vim.b[buf].send_requested = false
+        M.pubble_send(buf)
+      end
     end
   end)
 end
@@ -3333,6 +3342,67 @@ M._has_calendar_section = has_calendar_section
 
 local calendar_results_waiting_for_duplicate = {}
 
+-- Schrijf een reeds geaccepteerd kalenderresultaat in de buffer. Alleen de
+-- ## Kalender-staartsectie wordt vervangen of aangehecht; de artikelbody en
+-- kopregels blijven ongemoeid. Daardoor kan dit nooit een tussentijdse
+-- tekstbewerking of herschrijving overschrijven — het voegt enkel de sectie toe.
+local function write_calendar_section(buf, meta_lines)
+  if not (buf and vim.api.nvim_buf_is_valid(buf)) then return end
+
+  local new_fm = (split_frontmatter_lines(meta_lines))
+  if #new_fm > 0 then
+    vim.b[buf].cached_calendar_metadata = new_fm
+  end
+
+  local section = build_calendar_section_lines(meta_lines)
+  if not section then
+    notify_workflow("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
+    return
+  end
+
+  local base = strip_calendar_section(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+  for _, line in ipairs(section) do table.insert(base, line) end
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, base)
+  vim.b[buf].calendar_section_seen = true
+  -- Een eventuele handmatige "cal: x"/"calendar: x" controleregel is nu
+  -- overbodig (de kalenderdata staat al in de buffer) — anders blijft hij
+  -- staan en laat pubble-send de kalender-AI bij <leader>aw ten onrechte
+  -- opnieuw draaien.
+  strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
+  M._check_agenda_duplicates(
+    buf,
+    vim.b[buf].agenda_duplicate_editions or {},
+    function() end
+  )
+  notify_workflow(
+    "Kalenderdata toegevoegd. Controleer en pas aan, "
+      .. (vim.b[buf].edition_code and "sla op met :w en keur opnieuw goed met <leader>aG. " or "dan <leader>aw. ")
+      .. "Niet gewenst? Verwijder het volledige blok vanaf ## Kalender.",
+    vim.log.levels.INFO,
+    { ttl = 10 }
+  )
+end
+
+-- Hecht een kalenderresultaat aan dat tijdens een gelijktijdige bewerking niet
+-- direct kon worden toegepast. Wordt aangeroepen zodra alle AI-taken klaar zijn
+-- (finish_buffer_job), zodat de sectie ná een eventuele herschrijving als
+-- laatste wordt toegevoegd en dus behouden blijft.
+local function apply_pending_calendar_section(buf)
+  if not (buf and vim.api.nvim_buf_is_valid(buf)) then return end
+  local meta_lines = vim.b[buf].pending_calendar_meta_lines
+  if not meta_lines then return end
+  vim.b[buf].pending_calendar_meta_lines = nil
+  if vim.b[buf].agenda_duplicate_rejected == true then
+    notify_workflow(
+      "Kalenderanalyse niet toegepast: het agenda-item is als doublure geweigerd.",
+      vim.log.levels.INFO
+    )
+    return
+  end
+  write_calendar_section(buf, meta_lines)
+end
+M._apply_pending_calendar_section = apply_pending_calendar_section
+
 _apply_articlemeta_calendar_result = function(buf, result, calendar_tick)
   if buf and vim.api.nvim_buf_is_valid(buf) then
     vim.b[buf].calendar_ai_running = false
@@ -3349,53 +3419,33 @@ _apply_articlemeta_calendar_result = function(buf, result, calendar_tick)
     vim.notify("articlemeta mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
     return
   end
-
-  if not vim.api.nvim_buf_is_valid(buf)
-      or vim.api.nvim_buf_get_changedtick(buf) ~= calendar_tick then
-    notify_workflow("Artikel gewijzigd tijdens kalenderanalyse; resultaat niet toegepast. Start opnieuw met <leader>ac.", vim.log.levels.WARN)
-    return
-  end
+  if not vim.api.nvim_buf_is_valid(buf) then return end
 
   local meta_lines = vim.split(result.stdout, "\n", { plain = true })
 
-  local new_fm, _ = split_frontmatter_lines(meta_lines)
-  if #new_fm > 0 then
-    vim.b[buf].cached_calendar_metadata = new_fm
+  -- Veranderde de tekst tijdens de analyse (typisch een gelijktijdige
+  -- herschrijving)? Gooi het geaccepteerde resultaat niet weg. De
+  -- ## Kalender-sectie is een beschermde staartsectie die herschrijvingen
+  -- bewaren, en aanhechten raakt de body niet. Bewaar het en hecht het aan
+  -- zodra alle lopende AI-taken klaar zijn, zodat het als laatste wordt
+  -- toegevoegd en geen recentere bewerking overschrijft (ARCHITECTUUR §9).
+  if vim.api.nvim_buf_get_changedtick(buf) ~= calendar_tick then
+    vim.b[buf].pending_calendar_meta_lines = meta_lines
+    if (tonumber(vim.b[buf].pending_jobs) or 0) == 0 then
+      apply_pending_calendar_section(buf)
+    else
+      notify_workflow(
+        "Kalender wordt toegevoegd zodra de lopende bewerking klaar is.",
+        vim.log.levels.INFO,
+        { ttl = 6 }
+      )
+    end
+    return
   end
 
-  local section = build_calendar_section_lines(meta_lines)
-  local current = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local base = strip_calendar_section(current)
-
-  if section then
-    for _, line in ipairs(section) do table.insert(base, line) end
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, base)
-    vim.b[buf].calendar_section_seen = true
-    -- Een eventuele handmatige "cal: x"/"calendar: x" controleregel is nu
-    -- overbodig (de kalenderdata staat al in de buffer) — anders blijft hij
-    -- staan en laat pubble-send de kalender-AI bij <leader>aw ten onrechte
-    -- opnieuw draaien.
-    strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
-    -- De definitieve kalendergegevens hebben een andere inhoudsvingerafdruk
-    -- dan de ruwe tekst. Daardoor volgt precies één scherpe ronde met titel,
-    -- datum, tijd en locatie; bij ongewijzigd opnieuw uitvoeren wordt die
-    -- ronde uit de bufferlokale cache beantwoord.
-    M._check_agenda_duplicates(
-      buf,
-      vim.b[buf].agenda_duplicate_editions or {},
-      function() end
-    )
-    notify_workflow(
-      "Kalenderdata toegevoegd. Controleer en pas aan, "
-        .. (vim.b[buf].edition_code and "sla op met :w en keur opnieuw goed met <leader>aG. " or "dan <leader>aw. ")
-        .. "Niet gewenst? Verwijder het volledige blok vanaf ## Kalender.",
-      vim.log.levels.INFO,
-      { ttl = 10 }
-    )
-  else
-    notify_workflow("Geen kalenderitem gedetecteerd in de tekst.", vim.log.levels.WARN)
-  end
+  write_calendar_section(buf, meta_lines)
 end
+M._apply_articlemeta_calendar_result = _apply_articlemeta_calendar_result
 
 local function finish_manual_calendar_duplicate_check(buf)
   if not vim.api.nvim_buf_is_valid(buf) then
@@ -3466,6 +3516,27 @@ function M.articlemeta_calendar_buffer()
   end
 
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+
+  -- Bij meer dan drie losse datums is onzeker of dit één of meerdere
+  -- agenda-items zijn. Het automatische detectiepad stelt dan een datum-bewuste
+  -- vraag; handmatig <leader>ac deed dat niet en zakte na een tekstwijziging
+  -- (bijv. een herschrijving) stil terug op één item. Stel dezelfde vraag zodat
+  -- de redacteur de keuze bewust terugkrijgt. De AI beslist de multipliciteit;
+  -- deze vraag is de bewuste in-/uitstap, geen forcering van meervoud.
+  local date_count = article_recognition.calendar_date_count(text)
+  if date_count > 3 then
+    local choice = M._calendar_date_confirm(date_count)
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    if choice == 2 then
+      M.reject_calendar(buf)
+      return
+    elseif choice ~= 1 then
+      -- Escape: geen kalenderactie; buffer blijft ongewijzigd.
+      notify_workflow("Kalenderactie geannuleerd.", vim.log.levels.INFO)
+      return
+    end
+  end
+
   vim.b[buf].manual_calendar_duplicate_pending = true
   vim.b[buf].agenda_duplicate_rejected = false
 
