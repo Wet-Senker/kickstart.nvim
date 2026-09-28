@@ -70,13 +70,18 @@ local function open_scratch(name, lines)
   return buf
 end
 
-local function open_editable(name, text)
+local function open_editable(name, text, reuse_current)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, sanitize_lines(vim.split(text, '\n', { plain = true })))
   vim.bo[buf].filetype = 'markdown'
   vim.bo[buf].bufhidden = 'hide'
   pcall(vim.api.nvim_buf_set_name, buf, name)
-  vim.cmd 'botright vsplit'
+  -- reuse_current zet het bericht in het huidige venster (geen extra split);
+  -- zonder die vlag opent het rechts ernaast. Bij een batch voorkomt dit dat de
+  -- oorspronkelijke (lege) buffer als eerste venster blijft staan.
+  if not reuse_current then
+    vim.cmd 'botright vsplit'
+  end
   vim.api.nvim_win_set_buf(0, buf)
   return buf
 end
@@ -556,7 +561,11 @@ function M.weekendbericht()
         if result.error and result.error ~= vim.NIL then
           vim.notify(string.format('%s: agenda niet gelezen — %s', result.edition or '?', result.error), vim.log.levels.ERROR)
         elseif type(result.message) == 'string' and result.message ~= '' then
-          local buf = open_editable('Weekendbericht ' .. tostring(result.edition), result.message)
+          -- Het eerste bericht neemt het huidige venster over; de rest opent
+          -- ernaast. Zo blijft er geen leeg eerste venster staan.
+          local buf = open_editable(
+            'Weekendbericht ' .. tostring(result.edition), result.message, #opened_buffers == 0
+          )
           table.insert(opened_buffers, { buf = buf, edition = tostring(result.edition) })
           opened = opened + 1
         end
