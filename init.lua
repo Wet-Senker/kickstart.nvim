@@ -15,6 +15,13 @@ do
   vim.g.loaded_zipPlugin = 1
   vim.g.loaded_zip = 1
 
+  -- Texttools: gebruik de nieuwe Pubble SocialPosts-route (Facebook/LinkedIn als
+  -- eigen OnPublish-object) voor élke publicatie die nvim start. Hier gezet i.p.v.
+  -- alleen in ~/.zshrc, want een desktop-/GUI-launch bereikt de shell-export niet.
+  -- Een expliciete shell-waarde (bv. TEXTTOOLS_SOCIAL_POSTS=legacy) wint nog steeds,
+  -- zodat je zonder codewijziging kunt terugvallen op de oude route.
+  vim.env.TEXTTOOLS_SOCIAL_POSTS = vim.env.TEXTTOOLS_SOCIAL_POSTS or 'on-publish'
+
   -- Set to true if you have a Nerd Font installed and selected in the terminal
   vim.g.have_nerd_font = true
 
