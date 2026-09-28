@@ -154,6 +154,7 @@ module._weekend_batches['headless-test'] = {
     { buf = batch_b, edition = 'SW' },
   },
   now = '2026-09-18T10:00:00+02:00',
+  display_date = '2026-09-18T15:00:00',
   preparing = false,
   sent = false,
 }
@@ -167,6 +168,10 @@ assert(vim.wait(5000, function() return controller ~= nil end, 10), 'batchcontro
 local combined = table.concat(vim.api.nvim_buf_get_lines(controller, 0, -1, false), '\n')
 assert(combined:find('Bewerkte Kamper kop', 1, true), 'actuele Kamper buffertekst ontbreekt')
 assert(combined:find('Bewerkte Zwolse kop', 1, true), 'actuele Zwolse buffertekst ontbreekt')
+-- De vaste plaatsingstijd reist mee naar de controller zodat de verzendroute de
+-- planningsdialoog kan overslaan.
+assert(vim.b[controller].weekend_display_date == '2026-09-18T15:00:00',
+  'controller kreeg de vaste weekend-plaatsingstijd niet mee')
 assert(type(success_hook) == 'function', 'batch heeft geen succesafhandeling geregistreerd')
 success_hook()
 assert(vim.b[batch_a].weekend_batch_sent == true, 'eerste bronbuffer niet als gepubliceerd gemarkeerd')

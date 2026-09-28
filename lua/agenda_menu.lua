@@ -555,6 +555,12 @@ function M.weekendbericht()
     workflow('Agenda · weekendbericht maken…', vim.log.levels.INFO)
     run(command('weekendbericht', '--editie', choice.code), nil, function(decoded)
       local results = decoded.results or {}
+      -- Vaste plaatsingstijd (vrijdag 15:00 of "direct" als dat al geweest is)
+      -- komt kant-en-klaar uit Texttools. Zo bepaalt één gedeelde Python-actie
+      -- het moment; Lua rekent hier niets zelf uit. Geldt voor zowel de
+      -- losse-editie-run als de hele batch.
+      local display_date = type(decoded.display_date) == 'string'
+          and decoded.display_date or nil
       local opened = 0
       local opened_buffers = {}
       for _, result in ipairs(results) do
@@ -566,6 +572,9 @@ function M.weekendbericht()
           local buf = open_editable(
             'Weekendbericht ' .. tostring(result.edition), result.message, #opened_buffers == 0
           )
+          if display_date then
+            vim.b[buf].weekend_display_date = display_date
+          end
           table.insert(opened_buffers, { buf = buf, edition = tostring(result.edition) })
           opened = opened + 1
         end
@@ -577,6 +586,7 @@ function M.weekendbericht()
           id = batch_id,
           sources = opened_buffers,
           now = decoded.now,
+          display_date = display_date,
           preparing = false,
           controller = nil,
           sent = false,
@@ -692,6 +702,11 @@ function M.prepare_weekend_batch_send(buf, on_ready)
       vim.bo[controller].bufhidden = 'hide'
       pcall(vim.api.nvim_buf_set_name, controller, 'Weekendbatch ' .. batch_id)
       vim.b[controller].weekend_batch_controller = batch_id
+      -- De verzendroute leest deze waarde en slaat de planningsdialoog over:
+      -- weekendoverzichten hebben altijd hun vaste vrijdag-15:00-moment.
+      if batch.display_date then
+        vim.b[controller].weekend_display_date = batch.display_date
+      end
       batch.controller = controller
       local ai_text = require 'ai_text'
       ai_text.set_publication_success_hook(controller, function()

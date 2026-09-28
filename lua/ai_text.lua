@@ -5612,6 +5612,23 @@ function M.pubble_send(target_buf)
         return
       end
 
+      -- Weekendoverzichten hebben een vaste plaatsingstijd (vrijdag 15:00, of
+      -- direct als dat al geweest is). Die komt kant-en-klaar uit Texttools en
+      -- geldt voor álle edities in de batch; sla de planningsdialoog dus over.
+      local weekend_display_date = vim.b[buf].weekend_display_date
+      if type(weekend_display_date) == "string" and weekend_display_date ~= "" then
+        local weekend_dates = {}
+        for _, code in ipairs(resolved.editions) do
+          weekend_dates[code] = weekend_display_date
+        end
+        local when = weekend_display_date == "direct"
+            and "direct"
+            or (weekend_display_date:gsub("T", " "))
+        notify_workflow("Weekendoverzicht wordt geplaatst: " .. when .. ".")
+        send_published(weekend_dates)
+        return
+      end
+
       -- Haal planningsuggesties op en toon per editie een keuze.
       -- Bij fout in pubble-schedule: toon alsnog een minimale dialog per editie.
       -- Geef het tijdelijke artikel mee: pubble-schedule gebruikt
