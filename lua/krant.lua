@@ -613,12 +613,20 @@ function M.raadspraat_menu(target_buf, context, done)
       local gn_dir = M.config.desktop .. '/' .. week_prefix .. '_gemeentenieuws'
       local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
 
+      -- Zet de partij in de exportnaam. Anders krijgt elke raadspraat dezelfde
+      -- vaste naam (1.raadspraatFOTO.txt) en overschrijft een tweede raadspraat
+      -- in dezelfde week de eerste. De partij maakt de naam per aflevering uniek.
+      -- Niet-alfanumerieke tekens (spaties, koppeltekens) worden underscores,
+      -- net als bij "ondernemen_in_kampen".
+      local party_slug = party:gsub('[^%w]+', '_'):gsub('^_+', ''):gsub('_+$', '')
+      local export_base = '1.raadspraat_' .. party_slug .. 'FOTO'
+
       -- Copy photo to Pubble Inbox dropzone so <leader>aw picks it up automatically.
       if not copy_to_inbox(photo_src, inbox .. '/' .. photo_file) then return end
       if not prepare_layout_export(target_buf, {
         dir = gn_dir,
-        txt_name = '1.raadspraatFOTO.txt',
-        img_name = '1.raadspraatFOTO.' .. photo_ext,
+        txt_name = export_base .. '.txt',
+        img_name = export_base .. '.' .. photo_ext,
         photo_src = photo_src,
         label = 'Raadspraat',
       }) then return end
@@ -626,8 +634,8 @@ function M.raadspraat_menu(target_buf, context, done)
       if done then done() end
       notifications.workflow(
         'Raadspraat: ' .. naam .. ' (' .. party .. ')\n'
-        .. '→ ' .. week_prefix .. '_gemeentenieuws/1.raadspraatFOTO.txt\n'
-        .. '→ ' .. week_prefix .. '_gemeentenieuws/1.raadspraatFOTO.' .. photo_ext .. '\n'
+        .. '→ ' .. week_prefix .. '_gemeentenieuws/' .. export_base .. '.txt\n'
+        .. '→ ' .. week_prefix .. '_gemeentenieuws/' .. export_base .. '.' .. photo_ext .. '\n'
         .. '→ Pubble Inbox/' .. photo_file .. '\n'
         .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
         vim.log.levels.INFO,

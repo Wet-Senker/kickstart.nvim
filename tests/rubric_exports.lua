@@ -51,7 +51,10 @@ local raad_plan = assert(layout_export.pending(raad_buf), 'Raadspraat exportplan
 local raad_text = table.concat(vim.api.nvim_buf_get_lines(raad_buf, 0, -1, false), '\n')
 assert(raad_text:find('\ne: B\n', 1, true), 'Raadspraat kreeg niet automatisch editie B')
 assert(raad_plan.dir:match('_gemeentenieuws$'), 'Raadspraat gaat niet naar gemeentenieuws')
-assert(raad_plan.txt_name == '1.raadspraatFOTO.txt', 'verkeerde Raadspraattekstnaam')
+-- De partij staat in de naam zodat twee raadspraten in dezelfde week elkaar
+-- niet overschrijven.
+assert(raad_plan.txt_name == '1.raadspraat_CDAFOTO.txt', 'verkeerde Raadspraattekstnaam')
+assert(raad_plan.img_name == '1.raadspraat_CDAFOTO.jpg', 'verkeerde Raadspraatfotonaam')
 assert(vim.fn.filereadable(raad_plan.dir .. '/' .. raad_plan.img_name) == 1, 'Raadspraatfoto ontbreekt')
 assert(vim.fn.filereadable(raad_plan.dir .. '/' .. raad_plan.txt_name) == 0, 'Raadspraattekst is te vroeg geschreven')
 vim.api.nvim_buf_set_lines(raad_buf, -1, -1, false, { '', 'Correctie na <leader>kt.' })
