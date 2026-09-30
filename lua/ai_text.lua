@@ -6116,7 +6116,9 @@ vim.keymap.set("n", "<leader>aw", M.pubble_send, {
 -- de gegenereerde reviewsectie in de bestaande buffer.
 -- ---------------------------------------------------------------------------
 
-local function temporal_print_command(file, display_dates, edition_codes, allow_past_rewrite, skip_past_newspaper)
+local function temporal_print_command(
+  file, display_dates, edition_codes, allow_past_rewrite, skip_past_newspaper, dry_run
+)
   local display_dates_json = "{}"
   if type(display_dates) == "table" and next(display_dates) ~= nil then
     display_dates_json = vim.fn.json_encode(display_dates)
@@ -6132,6 +6134,10 @@ local function temporal_print_command(file, display_dates, edition_codes, allow_
   }
   if allow_past_rewrite then table.insert(command, "--allow-past-rewrite") end
   if skip_past_newspaper then table.insert(command, "--skip-past-newspaper") end
+  -- Meld alleen dát er een kranttijdsversie nodig is, zonder die te genereren:
+  -- zo valt de keuze (maken / alleen website / annuleren) vóór de AI-kosten,
+  -- niet erna.
+  if dry_run then table.insert(command, "--dry-run") end
   return command
 end
 
@@ -6160,13 +6166,17 @@ M._past_timing_confirm = function(targets)
 end
 
 temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
-  local function run(allow_past_rewrite, skip_past_newspaper)
+  -- `confirmed` = de redacteur koos al expliciet "Kranttijdsversie maken": nu
+  -- pas echt genereren. Zonder `confirmed` draait dit eerst als dry-run (geen
+  -- AI-kosten) om te weten óf de keuze nodig is, vóórdat hij wordt gevraagd.
+  local function run(allow_past_rewrite, skip_past_newspaper, confirmed)
     local command = temporal_print_command(
       file,
       display_dates,
       edition_codes,
       allow_past_rewrite,
-      skip_past_newspaper
+      skip_past_newspaper,
+      not confirmed
     )
     ai_system(command, { text = true }, function(result)
       vim.schedule(function()
@@ -6200,20 +6210,25 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
         -- Er is een aparte kranttijdsversie nodig (de tekst verwijst naar een
         -- datum die in de latere krant anders leest). Bied de keuze: die versie
         -- maken/gebruiken, óf het hele artikel alleen op de website zetten.
-        if payload.requires_review == true then
+        -- Bij een dry-run (nog niet `confirmed`) is er nog niets gegenereerd —
+        -- de keuze valt dus vóórdat er AI-kosten zijn gemaakt. Koos de
+        -- redacteur al "Kranttijdsversie maken" (`confirmed`), dan is dít de
+        -- echte, al gegenereerde versie: de vraag is dan al beantwoord.
+        if payload.requires_review == true and not confirmed then
           -- De voorcheck ziet de datum-aanleiding nu wél en biedt de keuze; de
           -- eenmalige herstart-vlag heeft z'n werk gedaan.
           vim.b[buf].print_timing_reentry = nil
           local choice = M._newspaper_time_version_choice()
-          if choice == 2 then
+          if choice == 1 then
+            run(allow_past_rewrite, skip_past_newspaper, true)
+          elseif choice == 2 then
             -- Alleen website: alle edities web-only, geen kranttijdsversie.
+            -- Er is nooit AI aangeroepen.
             done(true, nil, false, edition_codes or {})
-            return
-          elseif choice ~= 1 then
+          else
             done(false, AI_CANCELLED)
-            return
           end
-          -- choice 1: val door naar het toepassen/reviewen van de kranttijdsversie.
+          return
         end
 
         if payload.changed == true then
@@ -6243,7 +6258,7 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
   -- Een te-late-editie die web-only wordt, blijft editie-specifiek en mag
   -- daarom niet via deze globale boolean ook andere kranten uitschakelen.
   local remembered_skip = vim.b[buf].skip_newspaper_editions
-  run(false, type(remembered_skip) == "table" and #remembered_skip > 0)
+  run(false, type(remembered_skip) == "table" and #remembered_skip > 0, false)
 end
 
 M._temporal_print_prepare = temporal_print_prepare
