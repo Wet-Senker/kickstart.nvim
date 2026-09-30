@@ -5384,6 +5384,18 @@ function M.pubble_send(target_buf)
       )
     end
 
+    -- Web-only (krant: nee, of alle edities overgeslagen): er gaat niets naar de
+    -- krant, dus is er geen kranttijdsversie nodig. Sla de hele timingcontrole
+    -- over en publiceer meteen alleen op de website.
+    do
+      local skipped = effective_skipped_newspapers(buf)
+      if type(skipped) == "table" and #resolved_editions > 0
+          and #skipped >= #resolved_editions then
+        after_duplicate_check(run_main_send)
+        return
+      end
+    end
+
     -- Na de expliciete review staan alle voorbereidende teksten al klaar. De
     -- lichte lokale timingcontrole draait nog één keer: een tussentijdse edit
     -- van bron of gekozen datums mag nooit met een verouderde kranttekst naar
@@ -6082,6 +6094,15 @@ local function temporal_print_command(file, display_dates, edition_codes, allow_
   return command
 end
 
+M._newspaper_time_version_choice = function()
+  return require('user_dialog').confirm(
+    "Voor de krant is een andere tijdsversie nodig (de tekst verwijst naar een "
+      .. "datum die in de latere krant anders leest). Wat wil je?",
+    "&Kranttijdsversie maken en gebruiken\n&Alleen website (geen krant)\n&Annuleren",
+    1
+  )
+end
+
 M._past_timing_confirm = function(targets)
   local editions = {}
   for _, target in ipairs(targets or {}) do
@@ -6133,6 +6154,22 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
             done(false, AI_CANCELLED)
           end
           return
+        end
+
+        -- Er is een aparte kranttijdsversie nodig (de tekst verwijst naar een
+        -- datum die in de latere krant anders leest). Bied de keuze: die versie
+        -- maken/gebruiken, óf het hele artikel alleen op de website zetten.
+        if payload.requires_review == true then
+          local choice = M._newspaper_time_version_choice()
+          if choice == 2 then
+            -- Alleen website: alle edities web-only, geen kranttijdsversie.
+            done(true, nil, false, edition_codes or {})
+            return
+          elseif choice ~= 1 then
+            done(false, AI_CANCELLED)
+            return
+          end
+          -- choice 1: val door naar het toepassen/reviewen van de kranttijdsversie.
         end
 
         if payload.changed == true then
