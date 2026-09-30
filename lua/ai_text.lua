@@ -2448,6 +2448,117 @@ local function generate_edition_versions(buf, source, origin, codes, names, task
   end
 end
 
+-- Lokaliseren (geen AI): zelfde tekst, per krant alleen naam/mail/domein via het
+-- deterministische edition-localize. Reüseert het editieversie-reviewblok en de
+-- verzendroute; er is geen moduskeuze en geen AI-call.
+local edition_localize_bin = texttools_commands.bin("edition-localize")
+
+local function localize_edition_versions(buf, source, codes, names)
+  if type(codes) ~= "table" or #codes < 2 then return end
+  local variants, errors = {}, {}
+  local remaining = #codes
+  for _, code in ipairs(codes) do
+    vim.system(
+      { edition_localize_bin, "--edition", code },
+      { text = true, stdin = source },
+      function(result)
+        vim.schedule(function()
+          local out = type(result.stdout) == "string" and vim.trim(result.stdout) or ""
+          if result.code == 0 and out ~= "" then
+            variants[code] = out
+          else
+            table.insert(errors, code .. ": " .. vim.trim(result.stderr or "onbekende fout"))
+          end
+          remaining = remaining - 1
+          if remaining ~= 0 then return end
+          if #errors > 0 then
+            notify_workflow(
+              "Lokaliseren mislukt voor " .. table.concat(errors, "; ") .. ".",
+              vim.log.levels.ERROR
+            )
+            return
+          end
+          -- Via de M-export zodat de headless-test de apply-stap kan vervangen
+          -- (create_workspace draait anders een Python-actie en opent UI).
+          if not M._apply_edition_versions(buf, codes, names, variants, source, function(applied)
+            if applied then
+              mark_ai_rewrite_completed(buf)
+              notify_workflow(
+                "Gelokaliseerd: per krant alleen naam, mailadres en domein aangepast.",
+                vim.log.levels.INFO, { ttl = 8 }
+              )
+            else
+              notify_workflow(
+                "Gelokaliseerde krantversies konden niet veilig worden ingevoegd.",
+                vim.log.levels.ERROR
+              )
+            end
+          end) then
+            notify_workflow(
+              "Gelokaliseerde krantversies konden niet veilig worden ingevoegd.",
+              vim.log.levels.ERROR
+            )
+          end
+        end)
+      end
+    )
+  end
+end
+
+-- <leader>ak: filler-berichten die naar elke krant gaan met alleen een andere
+-- krant-NAW. Geen AI, geen moduskeuze — één deterministische lokalisatie per
+-- editie, daarna hetzelfde reviewblok als de splitroute.
+function M.localize_article_buffer()
+  local buf = vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local saved_fm, saved_ctrl, body_lines, saved_sections, saved_boundary =
+    split_article_parts(lines)
+  local source_body = table.concat(body_lines, "\n")
+  if vim.trim(source_body) == "" then
+    notify_workflow("Geen artikeltekst om te lokaliseren.", vim.log.levels.WARN)
+    return
+  end
+  if has_edition_versions_block(saved_sections) then
+    if M._edition_versions_regenerate_confirm() ~= 1 then
+      notify_workflow(
+        "Lokaliseren geannuleerd; bestaande krantversies zijn behouden.",
+        vim.log.levels.INFO
+      )
+      return
+    end
+    saved_sections = drop_edition_versions_block(saved_sections)
+  end
+  local original = table.concat(
+    reassemble_article(saved_fm, saved_ctrl, body_lines, {}, saved_boundary), "\n"
+  )
+  local resolve_tick = vim.api.nvim_buf_get_changedtick(buf)
+  resolve_editions_for_content(buf, original, function(resolved)
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    if type(resolved) ~= "table" or type(resolved.editions) ~= "table" then
+      notify_workflow("Kon de bestemming niet bepalen; lokaliseren afgebroken.", vim.log.levels.ERROR)
+      return
+    end
+    local codes = resolved.editions
+    if #codes < 2 then
+      notify_workflow(
+        "Lokaliseren is voor meerdere kranten; dit artikel heeft er één. Gebruik gewoon <leader>aw.",
+        vim.log.levels.INFO
+      )
+      return
+    end
+    if vim.api.nvim_buf_get_changedtick(buf) ~= resolve_tick then
+      notify_workflow(
+        "Lokaliseren geannuleerd: de buffer is tijdens het bepalen gewijzigd. Start opnieuw.",
+        vim.log.levels.WARN
+      )
+      return
+    end
+    localize_edition_versions(buf, source_body, codes, resolved.names or {})
+  end)
+end
+
+M._localize_edition_versions = localize_edition_versions
+
 M._same_edition_codes = same_edition_codes
 M._set_edition_codes = set_edition_codes
 M._reconcile_editions_after_rewrite = reconcile_editions_after_rewrite
@@ -3093,6 +3204,10 @@ vim.keymap.set("n", "<leader>ad", function() M.recheck_duplicates() end, {
 
 vim.keymap.set("n", "<leader>ar", M.rewrite_article_buffer, {
   desc = "Herschrijven: volledig naar krantenstijl, ook de body (ruwe tekst)",
+})
+
+vim.keymap.set("n", "<leader>ak", M.localize_article_buffer, {
+  desc = "Lo[k]aliseren: zelfde tekst, per krant alleen naam/mail/domein (geen AI)",
 })
 
 vim.keymap.set("v", "<leader>ai", M.visual_rewrite, {
