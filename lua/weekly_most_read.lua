@@ -9,14 +9,8 @@ local context_help = require 'context_help'
 
 local command = { commands.bin 'python', '-m', 'texttools.weekly_most_read_cli', '--json' }
 
-local editions = {
-  { code = 'B', label = 'De Brug (B)' },
-  { code = 'SW', label = 'De Swollenaer (SW)' },
-  { code = 'ST', label = 'De Stadskoerier (ST)' },
-  { code = 'D', label = 'De Drontenaar (D)' },
-  { code = 'Z', label = 'Zeewolde Actueel (Z)' },
-  { code = 'K', label = 'Nieuwsbode de Kop (K)' },
-}
+-- Krantlijst uit één bron (Python's PUBLICATIONS), niet meer hardgecodeerd.
+local editions_source = require('editions')
 
 local function workflow(message, level, options)
   notifications.workflow(message, level, options)
@@ -336,7 +330,7 @@ function M.run()
     M.generate(buf)
     return
   end
-  vim.ui.select(editions, {
+  vim.ui.select(editions_source.list(), {
     prompt = 'Meestgelezen weekoverzicht voor welke krant?',
     format_item = function(item) return item.label end,
   }, function(choice)

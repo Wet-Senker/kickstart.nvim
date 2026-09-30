@@ -15,14 +15,8 @@ local python = commands.bin 'python'
 local module = 'texttools.agenda_cli'
 local BUFFER_NAME = 'Agendabronnen'
 
-local editions = {
-  { code = 'B', label = 'De Brug (B)' },
-  { code = 'SW', label = 'De Swollenaer (SW)' },
-  { code = 'ST', label = 'De Stadskoerier (ST)' },
-  { code = 'D', label = 'De Drontenaar (D)' },
-  { code = 'Z', label = 'Zeewolde Actueel (Z)' },
-  { code = 'K', label = 'Nieuwsbode de Kop (K)' },
-}
+-- Krantlijst uit één bron (Python's PUBLICATIONS), niet meer hardgecodeerd.
+local editions_source = require('editions')
 
 local status_order = { 'active', 'candidate', 'paused', 'rejected' }
 local status_label = {
@@ -219,7 +213,7 @@ function M.toevoegen()
   vim.ui.input({ prompt = 'Agendabron-URL: ' }, function(url)
     if not url or vim.trim(url) == '' then return end
     url = vim.trim(url)
-    vim.ui.select(editions, {
+    vim.ui.select(editions_source.list(), {
       prompt = 'Voor welke editie?',
       format_item = function(item) return item.label end,
     }, function(edition)
@@ -253,6 +247,6 @@ function M.setup()
 end
 
 M._command = command
-M._editions = editions
+M._editions = function() return editions_source.list() end
 
 return M

@@ -4693,10 +4693,12 @@ function M.pubble_send(target_buf)
   -- gegarandeerd over dezelfde edities loopt als de daadwerkelijke verzending.
   local editie = nil
   local resolved_editions = {}
-  local editie_namen = {
-    B = "De Brug", SW = "De Swollenaer", ST = "De Stadskoerier",
-    Z = "Zeewolde Actueel", D = "De Drontenaar", K = "Nieuwsbode de Kop",
-  }
+  -- Fallback code→naam uit één bron (Python's PUBLICATIONS); resolved.names
+  -- overschrijft dit later per editie waar Python een naam teruggeeft.
+  local editie_namen = {}
+  for _, edition in ipairs(require("editions").list()) do
+    editie_namen[edition.code] = edition.name
+  end
   local has_calendar = false
   local has_facebook = false
   local has_linkedin = false

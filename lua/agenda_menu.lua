@@ -19,24 +19,16 @@ local context_help = require 'context_help'
 local python = commands.bin 'python'
 local module = 'texttools.agenda_cli'
 
-local editions = {
-  { code = 'B', label = 'De Brug (B)' },
-  { code = 'SW', label = 'De Swollenaer (SW)' },
-  { code = 'ST', label = 'De Stadskoerier (ST)' },
-  { code = 'D', label = 'De Drontenaar (D)' },
-  { code = 'Z', label = 'Zeewolde Actueel (Z)' },
-  { code = 'K', label = 'Nieuwsbode de Kop (K)' },
-}
+-- Krantlijst uit één bron (Python's PUBLICATIONS), niet meer hardgecodeerd.
+local editions_source = require('editions')
 
-local weekend_editions = {
-  { code = 'B', label = 'De Brug (B)' },
-  { code = 'SW', label = 'De Swollenaer (SW)' },
-  { code = 'ST', label = 'De Stadskoerier (ST)' },
-  { code = 'D', label = 'De Drontenaar (D)' },
-  { code = 'Z', label = 'Zeewolde Actueel (Z)' },
-  { code = 'K', label = 'Nieuwsbode de Kop (K)' },
-  { code = 'all', label = 'Alle kranten (één verzendbatch)' },
-}
+-- De weekendkeuze voegt "alle kranten" toe. Nieuwe lijst i.p.v. de gecachete
+-- editielijst muteren, anders lekt "all" naar de andere menu's.
+local function weekend_editions()
+  local list = vim.list_extend({}, editions_source.list())
+  table.insert(list, { code = 'all', label = 'Alle kranten (één verzendbatch)' })
+  return list
+end
 
 local function workflow(message, level, options) notifications.workflow(message, level, options) end
 
@@ -291,7 +283,7 @@ local function run(cmd, stdin, on_json, on_error)
 end
 
 local function pick_edition(callback)
-  vim.ui.select(editions, {
+  vim.ui.select(editions_source.list(), {
     prompt = 'Voor welke editie?',
     format_item = function(item) return item.label end,
   }, function(edition)
@@ -547,7 +539,7 @@ function M.artikel_plaatsen(buf)
 end
 
 function M.weekendbericht()
-  vim.ui.select(weekend_editions, {
+  vim.ui.select(weekend_editions(), {
     prompt = 'Weekendbericht maken voor welke krant?',
     format_item = function(item) return item.label end,
   }, function(choice)
