@@ -18,7 +18,12 @@ assert(type(ai._newspaper_time_version_choice) == 'function',
 local choice = ai._newspaper_time_version_choice()
 
 assert(choice == 2, 'de gekozen optie kwam niet terug')
-assert(captured.options:find('Alleen website', 1, true),
+-- De sneltoets (&) staat vóór "website", niet vóór "Alleen": anders zou deze
+-- optie dezelfde A-sneltoets claimen als Annuleren, waardoor die laatste met
+-- het toetsenbord onbereikbaar wordt (Vims confirm() geeft bij een botsing de
+-- eerste match). De substring-check volgt die knip.
+assert(captured.options:find('Alleen', 1, true)
+  and captured.options:find('website %(geen krant%)', 1, false),
   'de web-only-optie ontbreekt in de keuze')
 assert(captured.options:find('Kranttijdsversie', 1, true),
   'de kranttijdsversie-optie ontbreekt')

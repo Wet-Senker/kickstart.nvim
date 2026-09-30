@@ -4581,7 +4581,7 @@ M._late_newspaper_message = late_newspaper_message
 M._late_newspaper_confirm = function(review)
   return require('user_dialog').confirm(
     late_newspaper_message(review),
-    "&Alleen website voor te late krant(en)\n&Toch ook naar de krant\n&Annuleren",
+    "Alleen &website voor te late krant(en)\n&Toch ook naar de krant\n&Annuleren",
     1
   )
 end
@@ -5162,6 +5162,20 @@ function M.pubble_send(target_buf)
             return
           end
           vim.b[buf].print_timing_reentry = true
+          -- Zonder dit zou de herstart een verse M.pubble_send() zijn: de
+          -- redacteur moest dan een al gemaakte publicatieplanning (datums,
+          -- prioriteit) én een al genomen "krant te laat"-beslissing opnieuw
+          -- doorlopen, terwijl er niets aan die keuzes veranderde — alleen de
+          -- tekst is nu verrijkt met de metadata die de kranttijdcontrole
+          -- nodig had. Dezelfde publication_review_state die de event- en
+          -- kranttijdvoorbereiding hierboven al gebruiken laat de herstart die
+          -- keuzes herkennen en direct doorgaan naar _do_pubble_send.
+          vim.b[buf].publication_review_state = {
+            display_dates = display_dates,
+            editions = resolved_editions,
+            skip_newspaper_editions = vim.b[buf].skip_newspaper_editions,
+            late_newspaper_decision = vim.b[buf].late_newspaper_decision,
+          }
           if vim.fn.filereadable(temp_file) == 1 then
             vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(temp_file))
           end
@@ -6145,7 +6159,7 @@ M._newspaper_time_version_choice = function()
   return require('user_dialog').confirm(
     "Voor de krant is een andere tijdsversie nodig (de tekst verwijst naar een "
       .. "datum die in de latere krant anders leest). Wat wil je?",
-    "&Kranttijdsversie maken en gebruiken\n&Alleen website (geen krant)\n&Annuleren",
+    "&Kranttijdsversie maken en gebruiken\nAlleen &website (geen krant)\n&Annuleren",
     1
   )
 end

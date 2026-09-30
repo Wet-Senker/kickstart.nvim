@@ -71,8 +71,10 @@ dialog.select = function(items, opts, done)
 end
 dialog.confirm = function(prompt, buttons, default)
   assert(prompt:find('andere tijdsversie', 1, true), 'verkeerde vraag getoond')
+  -- De sneltoets (&) staat vóór "website", niet vóór "Alleen": anders zou
+  -- deze optie dezelfde A-sneltoets claimen als Annuleren.
   assert(buttons:find('Kranttijdsversie maken', 1, true)
-    and buttons:find('Alleen website', 1, true)
+    and buttons:find('Alleen', 1, true) and buttons:find('website', 1, true)
     and buttons:find('Annuleren', 1, true),
     'niet alle drie de opties staan er: ' .. buttons)
   return 2 -- Alleen website
