@@ -147,11 +147,13 @@ for _, mode in ipairs { 1, 2, 0 } do
   vim.api.nvim_buf_delete(target, { force = true })
 end
 
--- Zonder onderscheidend plaats- of provinciesignaal wordt bij meerdere
--- bestemmingen stil de algemene versie gekozen; er verschijnt geen menu.
+-- Ook zonder onderscheidend plaats- of provinciesignaal komt bij meerdere
+-- kranten altijd de moduskeuze (regel: altijd vragen bij ≥2 edities). Kiest de
+-- redacteur "algemeen" (keuze 1), dan draait de algemene versie.
 local target = make_buffer()
 local automatic_command
-ai._edition_mode_choice_async = function() error('onnodige moduskeuze') end
+local mode_asked = false
+ai._edition_mode_choice_async = function(_, _, _, done) mode_asked = true; done(1) end
 vim.system = function(command, _, callback)
   if command[1] == 'bash' then
     automatic_command = command[3]
@@ -159,7 +161,7 @@ vim.system = function(command, _, callback)
   else
     callback {
       code = 0,
-      stdout = '{"editions":["D","Z"],"names":["De Drontenaar","Zeewolde Actueel"],"rewrite_strategies":{"schema_version":2,"requires_choice":false,"recommended_option_id":"general","options":[{"id":"general","tasks":[]}]}}',
+      stdout = '{"editions":["D","Z"],"names":["De Drontenaar","Zeewolde Actueel"],"rewrite_strategies":{"schema_version":2,"requires_choice":true,"recommended_option_id":"general","options":[{"id":"general","tasks":[]},{"id":"split","tasks":[]}]}}',
       stderr = '',
     }
   end
@@ -167,8 +169,9 @@ vim.system = function(command, _, callback)
 end
 ai.rewrite_article_buffer()
 assert(vim.wait(1000, function() return type(automatic_command) == 'string' end, 20))
+assert(mode_asked, 'de moduskeuze verscheen niet bij twee kranten')
 assert(automatic_command:find('krantversie_algemeen --editions', 1, true)
-  and automatic_command:find('D,Z', 1, true), 'algemene D/Z-versie werd niet automatisch gekozen')
+  and automatic_command:find('D,Z', 1, true), 'algemene D/Z-versie werd niet gekozen')
 vim.api.nvim_buf_delete(target, { force = true })
 
 -- Ook een wijziging terwijl het asynchrone keuzemenu openstaat maakt de
