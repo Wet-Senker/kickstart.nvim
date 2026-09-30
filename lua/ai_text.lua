@@ -5396,11 +5396,14 @@ function M.pubble_send(target_buf)
       end
     end
 
-    -- Na de expliciete review staan alle voorbereidende teksten al klaar. De
-    -- lichte lokale timingcontrole draait nog één keer: een tussentijdse edit
-    -- van bron of gekozen datums mag nooit met een verouderde kranttekst naar
-    -- Pubble. Alleen bij zo'n wijziging volgt opnieuw AI + review.
-    if event_preparation_complete then
+    -- De kranttijdscontrole draait vóór de hoofdpublicatie — óók zónder een
+    -- ## Kalender-sectie. Een datum in de lopende tekst ("zondag 4 oktober") kan
+    -- in de latere krant anders lezen, en dan eist de verzending een
+    -- kranttijdsversie; sla je die stap over, dan blokkeert Python alsnog. Kost
+    -- één deterministische, snelle pubble-print-timing-subprocess per verzending
+    -- (zonder datum in de tekst is er niets te doen). Bij een benodigde versie
+    -- biedt temporal_print_prepare zelf de keuze "alleen website".
+    local function prepare_timing_then_continue()
       after_duplicate_check(function()
         temporal_print_prepare(
           buf,
@@ -5442,13 +5445,19 @@ function M.pubble_send(target_buf)
           end
         )
       end)
+    end
+
+    -- Na de expliciete review staan alle voorbereidende teksten al klaar; de
+    -- lichte timingcontrole draait nog één keer tegen een tussentijdse edit.
+    if event_preparation_complete then
+      prepare_timing_then_continue()
       return
     end
-    -- Vervolgpublicaties bestaan uitsluitend voor een expliciete, zichtbare
-    -- ## Kalender-sectie. Gewone artikelen starten dus geen overbodige
-    -- pubble-event-subprocess en gaan meteen door naar de hoofdpublicatie.
+    -- Zonder ## Kalender geen evenementvervolgen (pubble-event), maar de
+    -- kranttijdscontrole draait wel — anders blokkeert de verzending een
+    -- datum-artikel zonder dat de redacteur de keuze krijgt.
     if not has_calendar then
-      after_duplicate_check(run_main_send)
+      prepare_timing_then_continue()
       return
     end
     -- Ook de AI voor kranttijd- en kalendervervolgteksten mag pas starten
