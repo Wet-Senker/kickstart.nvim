@@ -5137,6 +5137,38 @@ function M.pubble_send(target_buf)
           result.stdout,
           result.stderr
         )
+        -- De verzending kan melden dat de krant een andere tijdsvorm nodig heeft
+        -- (een datum die in de latere krant anders leest). De kranttijd-voorcheck
+        -- draaide op de ruwe tekst en zag dat nog niet; de verzending merkte het
+        -- pas ná het genereren van de metadata en schreef die verrijkte versie
+        -- naar temp_file. Laad die in de buffer en herstart de flow één keer: de
+        -- voorcheck detecteert de aanleiding nu wél en biedt de keuze
+        -- (kranttijdsversie maken / alleen website / annuleren). Er is nog niets
+        -- naar Pubble geschreven.
+        if publication_status and publication_status.mode == "needs_print_timing" then
+          vim.b[buf].publication_in_progress = false
+          if vim.b[buf].print_timing_reentry then
+            -- Al één keer verrijkt en tóch weer hier: niet blijven herstarten.
+            vim.b[buf].print_timing_reentry = nil
+            if vim.fn.filereadable(temp_file) == 1 then
+              vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(temp_file))
+            end
+            vim.notify(
+              "Voor de krant is een andere tijdsvorm nodig. Maak de "
+                .. "kranttijdsversie handmatig, of zet 'krant: nee' voor alleen "
+                .. "de website.",
+              vim.log.levels.ERROR
+            )
+            return
+          end
+          vim.b[buf].print_timing_reentry = true
+          if vim.fn.filereadable(temp_file) == 1 then
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(temp_file))
+          end
+          discard_unpublished_temp()
+          vim.schedule(function() M.pubble_send(buf) end)
+          return
+        end
         -- Bij een fout bevat dit bestand mogelijk al nieuwe Pubble-ID's. Laad
         -- die duurzame herstelstate terug in de buffer en hergebruik exact dit
         -- bestand bij de volgende <leader>aw; verwijderen zou duplicaten riskeren.
@@ -6169,6 +6201,9 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
         -- datum die in de latere krant anders leest). Bied de keuze: die versie
         -- maken/gebruiken, óf het hele artikel alleen op de website zetten.
         if payload.requires_review == true then
+          -- De voorcheck ziet de datum-aanleiding nu wél en biedt de keuze; de
+          -- eenmalige herstart-vlag heeft z'n werk gedaan.
+          vim.b[buf].print_timing_reentry = nil
           local choice = M._newspaper_time_version_choice()
           if choice == 2 then
             -- Alleen website: alle edities web-only, geen kranttijdsversie.
