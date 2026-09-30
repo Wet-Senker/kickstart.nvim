@@ -1785,9 +1785,11 @@ local function resolve_editions_for_content(buf, content, done)
     { text = true },
     function(res)
     vim.schedule(function()
-      local function complete(resolved)
+      -- De foutmelding reist mee als tweede argument. Bestaande aanroepers die
+      -- alleen `function(resolved)` verwachten, negeren dat gewoon.
+      local function complete(resolved, err)
         finish_buffer_job(buf)
-        if done then done(resolved) end
+        if done then done(resolved, err) end
       end
       vim.fn.delete(tmp)
       local ok, resolved = pcall(vim.fn.json_decode, res.stdout or "")
@@ -1796,7 +1798,7 @@ local function resolve_editions_for_content(buf, content, done)
         or type(resolved) ~= "table"
         or type(resolved.editions) ~= "table"
       then
-        complete(nil)
+        complete(nil, vim.trim(res.stderr or ""))
         return
       end
       complete(resolved)
@@ -2532,10 +2534,14 @@ function M.localize_article_buffer()
     reassemble_article(saved_fm, saved_ctrl, body_lines, {}, saved_boundary), "\n"
   )
   local resolve_tick = vim.api.nvim_buf_get_changedtick(buf)
-  resolve_editions_for_content(buf, original, function(resolved)
+  resolve_editions_for_content(buf, original, function(resolved, err)
     if not vim.api.nvim_buf_is_valid(buf) then return end
     if type(resolved) ~= "table" or type(resolved.editions) ~= "table" then
-      notify_workflow("Kon de bestemming niet bepalen; lokaliseren afgebroken.", vim.log.levels.ERROR)
+      local detail = (type(err) == "string" and err ~= "") and (" " .. err) or ""
+      notify_workflow(
+        "Kon de bestemming niet bepalen; lokaliseren afgebroken." .. detail,
+        vim.log.levels.ERROR
+      )
       return
     end
     local codes = resolved.editions
