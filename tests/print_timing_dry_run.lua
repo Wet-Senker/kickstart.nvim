@@ -112,6 +112,34 @@ calls, done_args = run_prepare({ ok_result { requires_review = true, targets = {
 assert(#calls == 1, 'annuleren deed toch een tweede aanroep: ' .. #calls)
 assert(done_args[1] == false, 'annuleren hoort geen succes te melden')
 
+-- 5. Een evenement ligt al in het verleden: "Herschrijven voor krant" vraagt
+-- niet nogmaals via de kranttijdskeuze-dialoog (met allow_past_rewrite=true
+-- is requires_review voor zo'n target altijd waar, dus die tweede vraag zou
+-- gegarandeerd hetzelfde antwoord krijgen). Eén dry-run, daarna direct de
+-- bevestigde generatie — geen tussenliggende dry-run, geen tweede dialoog.
+local past_confirm_calls = 0
+dialog.confirm = function(prompt)
+  past_confirm_calls = past_confirm_calls + 1
+  assert(prompt:find('minstens één evenement', 1, true), 'verkeerde vraag getoond: ' .. prompt)
+  return 1 -- Herschrijven voor krant
+end
+calls, done_args = run_prepare({
+  ok_result { decision_required = true, targets = { {} } },
+  ok_result {
+    requires_review = true, changed = true, ai_call_count = 1,
+    markdown = 'e: B\n\n=== ARTIKEL ===\n\nKop\n\nKAMPEN - Tekst.\n\n---\n\n## Kranttijdsversies\n',
+    section = '## Kranttijdsversies\n',
+  },
+})
+assert(past_confirm_calls == 1, 'herschrijven vroeg nogmaals een bevestiging: ' .. past_confirm_calls)
+assert(#calls == 2, 'herschrijven deed niet precies twee aanroepen: ' .. #calls)
+assert(vim.tbl_contains(calls[1], '--dry-run'), 'de eerste aanroep was geen dry-run')
+assert(not vim.tbl_contains(calls[2], '--dry-run'),
+  'de tweede aanroep liep nog als dry-run i.p.v. de echte generatie')
+assert(vim.tbl_contains(calls[2], '--allow-past-rewrite'), 'toestemming ontbrak in de generatie')
+assert(done_args[1] == true and done_args[3] == true,
+  'na herschrijven hoort de review voltooid te zijn')
+
 vim.system, dialog.select, dialog.confirm = original_system, original_select, original_confirm
 
 print 'print timing dry run: OK'

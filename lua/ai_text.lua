@@ -6212,7 +6212,12 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
         if payload.decision_required == true then
           local choice = M._past_timing_confirm(payload.targets)
           if choice == 1 then
-            run(true, false)
+            -- Met allow_past_rewrite=true blijft requires_review voor deze
+            -- targets altijd waar (zie prepare_timing_workspace): een tweede
+            -- dry-run zou hier dus gegarandeerd meteen de kranttijdskeuze
+            -- opnieuw tonen. "Herschrijven voor krant" is zelf al die keuze,
+            -- dus confirmed=true gaat direct door naar de echte generatie.
+            run(true, false, true)
           elseif choice == 2 then
             run(false, true)
           else
