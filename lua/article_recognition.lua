@@ -84,6 +84,37 @@ function M.calendar_date_count(text)
   return count
 end
 
+local WEEKDAYS = {
+  'maandag', 'dinsdag', 'woensdag', 'donderdag',
+  'vrijdag', 'zaterdag', 'zondag',
+}
+
+local function is_agenda_day_header(line)
+  local trimmed = vim.trim(line):lower()
+  if trimmed == '' then return false end
+  for _, day in ipairs(WEEKDAYS) do
+    local month = trimmed:match('^' .. day .. '%s+%d%d?%s+(%a+)%s*%d*$')
+    if month and MONTHS[month] then return true end
+  end
+  return false
+end
+
+-- Tel losse dag-kopregels ("donderdag 2 oktober") zoals een geplakte, nog
+-- niet voorbereide papieren agendapagina die onder elke dag heeft: een hele
+-- regel die alleen uit weekdag + dagnummer + maand (optioneel jaartal)
+-- bestaat. Puur lokaal en deterministisch, dezelfde regel als de Python-kant
+-- gebruikt om dagkoppen te herkennen (agenda_page.py, _DATE_RE) — zodat vóór
+-- de (dure, AI-gedreven) artikelclassificatie al bekend is of een geplakte
+-- tekst eigenlijk een hele agendapagina met tientallen activiteiten is, in
+-- plaats van één los artikel.
+function M.agenda_page_day_header_count(text)
+  local count = 0
+  for _, line in ipairs(vim.split(type(text) == 'string' and text or '', '\n', { plain = true })) do
+    if is_agenda_day_header(line) then count = count + 1 end
+  end
+  return count
+end
+
 local function calendar_detection(text)
   local t = text:lower()
   local score = 0

@@ -4229,16 +4229,22 @@ local function article_autodetect(buf)
   if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].article_recognition_done then return end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   if editorial_body_text(lines) == "" then return end
+  local text = table.concat(lines, "\n")
   -- Een (voorbereide) papieren agendapagina is print-only en hoort niet in de
   -- artikel-, editie-, online-agenda- of doublurecontrole. De agendapaginaflow
   -- (<leader>ka) zet `agenda_page_flow` zelf; een opnieuw geopend concept herken
-  -- je aan de marker.
+  -- je aan de marker. Een nog niet voorbereide, geplakte agendapagina heeft die
+  -- marker nog niet — maar wel meerdere losse dagkopregels ("donderdag 2
+  -- oktober"), wat een normaal los artikel nooit heeft. BufReadPost (en dus
+  -- deze herkenning) kan al afgaan vóórdat de redacteur <leader>ka indrukt,
+  -- dus die tweede, puur lokale check voorkomt dat tientallen agenda-
+  -- activiteiten tegelijk als 112/sport/rubriek geclassificeerd worden.
   if vim.b[buf].agenda_page_flow
-      or table.concat(lines, "\n"):find("=== AGENDAPAGINA ===", 1, true) then
+      or text:find("=== AGENDAPAGINA ===", 1, true)
+      or article_recognition.agenda_page_day_header_count(text) >= 2 then
     return
   end
   vim.b[buf].article_recognition_done = true
-  local text = table.concat(lines, "\n")
   vim.b[buf].pubble_duplicate_gate_pending = true
   local recognition_tick = vim.api.nvim_buf_get_changedtick(buf)
   M._column_recognition_runner(buf, editorial_body_text(lines), function(column_candidates, embargo)

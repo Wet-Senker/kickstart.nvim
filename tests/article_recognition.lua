@@ -1,5 +1,32 @@
 local recognition = require('article_recognition')
 
+-- Losse dag-kopregels ("donderdag 2 oktober") markeren een geplakte,
+-- nog niet voorbereide papieren agendapagina (<leader>ka) — een normaal los
+-- artikel heeft die nooit, ook niet met een datum ergens middenin een zin.
+local raw_agenda = [[
+donderdag 2 oktober
+
+Koffieochtend
+10:00 | Buurthuis
+Gezellig samenzijn.
+
+vrijdag 3 oktober
+
+Bingo-avond
+19:30 | Zalencentrum
+De hoofdprijs is een fruitmand.
+]]
+assert(recognition.agenda_page_day_header_count(raw_agenda) == 2,
+  'twee dagkoppen in een ruwe agendapagina niet herkend')
+assert(recognition.agenda_page_day_header_count('donderdag 2 oktober\n\nÉén activiteit.\n') == 1,
+  'één dagkop telt niet mee als dagkop')
+assert(recognition.agenda_page_day_header_count(
+  'e: B\n\n=== ARTIKEL ===\n\nKop\n\nKAMPEN - De SP gaat zaterdag 3 oktober in gesprek.\n'
+) == 0, 'een datum middenin een zin werd ten onrechte als dagkop geteld')
+assert(recognition.agenda_page_day_header_count('') == 0, 'lege tekst geeft geen dagkoppen')
+assert(recognition.agenda_page_day_header_count('Donderdag 2 Oktober 2026\n\nActiviteit.\n') == 1,
+  'een dagkop met jaartal en hoofdletters wordt niet herkend')
+
 local supplied_kiek = [[
 De Kamper kiek op de wîêk: 1). Ik zit op het pluche. 2). Het Oranjefeest
 is speciaal. 3). Jong en oud geniet van het Oogstfeest. 4). Een bloemetje.
