@@ -107,6 +107,24 @@ assert(not vim.tbl_contains(calls[2], '--dry-run'),
 assert(done_args[1] == true and done_args[3] == true,
   'na echte generatie hoort requires_review/review-voltooid waar te zijn')
 
+-- 3b. De bevestigde generatie kan terecht niets wijzigen (de AI besliste dat
+-- de brontekst al klopt). Python meldt dan requires_review=false, ook al is
+-- er een sectie bijgeschreven (changed=true blijft staan voor de validatie
+-- bij de echte verzending). De flow mag dan niet alsnog blokkeren met
+-- "controleer de vernieuwde kranttijdsversie" — er valt niets te controleren.
+dialog.confirm = function() return 1 end -- Kranttijdsversie maken
+calls, done_args = run_prepare({
+  ok_result { requires_review = true, targets = { {} } },
+  ok_result {
+    requires_review = false, changed = true, ai_call_count = 1,
+    markdown = 'e: B\n\n=== ARTIKEL ===\n\nKop\n\nKAMPEN - Tekst.\n\n---\n\n## Kranttijdsversies\n',
+    section = '## Kranttijdsversies\n',
+  },
+})
+assert(#calls == 2, 'de bevestigde generatie vond niet plaats: ' .. #calls)
+assert(done_args[1] == true and done_args[3] == false,
+  'een ongewijzigde bevestigde generatie hoort niet als "review nodig" te melden')
+
 -- 4. Wel nodig, redacteur annuleert: geen tweede aanroep, geannuleerd resultaat.
 dialog.confirm = function() return 0 end -- Annuleren
 calls, done_args = run_prepare({ ok_result { requires_review = true, targets = { {} } } })
