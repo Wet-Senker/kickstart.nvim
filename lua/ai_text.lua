@@ -6180,6 +6180,55 @@ M._past_timing_confirm = function(targets)
 end
 
 temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
+  -- Editiecodes van de kranttijd-targets, optioneel beperkt tot targets met
+  -- een "past"-transitie (het evenement ligt al vóór de latere krantdatum).
+  -- Werkt rechtstreeks op de JSON-payload van pubble-print-timing, dus zonder
+  -- een aparte Python-aanroep te kosten.
+  local function timing_target_editions(targets, past_only)
+    local seen, editions = {}, {}
+    for _, target in ipairs(type(targets) == "table" and targets or {}) do
+      local edition = type(target) == "table" and target.edition or nil
+      if type(edition) == "string" and edition ~= "" and not seen[edition] then
+        local include = true
+        if past_only then
+          include = false
+          for _, transition in ipairs(type(target.transitions) == "table" and target.transitions or {}) do
+            if type(transition) == "table" and transition.newspaper_state == "past" then
+              include = true
+              break
+            end
+          end
+        end
+        if include then
+          seen[edition] = true
+          table.insert(editions, edition)
+        end
+      end
+    end
+    return editions
+  end
+
+  local function editions_fully_covered(editions, allowed)
+    if #editions == 0 then return false end
+    local allowed_set = {}
+    for _, code in ipairs(allowed or {}) do allowed_set[code] = true end
+    for _, code in ipairs(editions) do
+      if not allowed_set[code] then return false end
+    end
+    return true
+  end
+
+  -- De redacteur koos bij de krantdeadline-melding al expliciet "Toch ook
+  -- naar de krant" voor precies deze editie(s); dat is zelf al toestemming
+  -- om de tekst voor de latere verschijningsdatum te herschrijven. Als élke
+  -- editie die hier om een beslissing of herziening vraagt in die al
+  -- goedgekeurde set zit, hoeft er niet nogmaals gevraagd te worden — "alleen
+  -- website" en "annuleren" zijn dan al verworpen bij die eerdere keuze. Zit
+  -- er ook maar één andere editie bij (bijvoorbeeld een editie die niet laat
+  -- is maar wel een eigen datumkwestie heeft), dan blijft de gewone,
+  -- vragende flow gelden voor de hele aanroep.
+  local forced_late_editions = late_newspaper_codes(buf, "force")
+
   -- `confirmed` = de redacteur koos al expliciet "Kranttijdsversie maken": nu
   -- pas echt genereren. Zonder `confirmed` draait dit eerst als dry-run (geen
   -- AI-kosten) om te weten óf de keuze nodig is, vóórdat hij wordt gevraagd.
@@ -6210,6 +6259,11 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
         end
 
         if payload.decision_required == true then
+          local past_target_editions = timing_target_editions(payload.targets, true)
+          if editions_fully_covered(past_target_editions, forced_late_editions) then
+            run(true, false, true)
+            return
+          end
           local choice = M._past_timing_confirm(payload.targets)
           if choice == 1 then
             -- Met allow_past_rewrite=true blijft requires_review voor deze
@@ -6237,6 +6291,11 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
           -- De voorcheck ziet de datum-aanleiding nu wél en biedt de keuze; de
           -- eenmalige herstart-vlag heeft z'n werk gedaan.
           vim.b[buf].print_timing_reentry = nil
+          local review_target_editions = timing_target_editions(payload.targets, false)
+          if editions_fully_covered(review_target_editions, forced_late_editions) then
+            run(allow_past_rewrite, skip_past_newspaper, true)
+            return
+          end
           local choice = M._newspaper_time_version_choice()
           if choice == 1 then
             run(allow_past_rewrite, skip_past_newspaper, true)

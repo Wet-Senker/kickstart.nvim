@@ -24,7 +24,7 @@ end
 
 local file = '/tmp/print-timing-dry-run-test.md'
 
-local function run_prepare(responses)
+local function run_prepare(responses, setup_buf, editions)
   local calls = {}
   local index = 0
   vim.system = function(cmd, opts, callback)
@@ -36,8 +36,9 @@ local function run_prepare(responses)
     return { kill = function() end }
   end
   local buf = new_buf()
+  if setup_buf then setup_buf(buf) end
   local done_args
-  ai._temporal_print_prepare(buf, file, {}, { 'B' }, function(...)
+  ai._temporal_print_prepare(buf, file, {}, editions or { 'B' }, function(...)
     done_args = { ... }
   end)
   assert(vim.wait(2000, function() return done_args ~= nil end, 5),
@@ -139,6 +140,75 @@ assert(not vim.tbl_contains(calls[2], '--dry-run'),
 assert(vim.tbl_contains(calls[2], '--allow-past-rewrite'), 'toestemming ontbrak in de generatie')
 assert(done_args[1] == true and done_args[3] == true,
   'na herschrijven hoort de review voltooid te zijn')
+
+-- 6. De redacteur koos bij de krantdeadline-melding al "Toch ook naar de
+-- krant" voor editie B (late_newspaper_decision.mode == 'force'). Het
+-- evenement in die editie ligt al in het verleden (decision_required), maar
+-- omdat B zelf al expliciet is goedgekeurd voor late plaatsing, mag dat geen
+-- nieuwe vraag meer opleveren: geen enkele dialoog, direct door naar de
+-- bevestigde generatie.
+dialog.confirm = function()
+  error('geen dialoog had getoond mogen worden voor een al goedgekeurde late editie')
+end
+local function with_forced_late(editions)
+  return function(buf)
+    vim.b[buf].late_newspaper_decision = {
+      signature = 'B:2026-10-01:2026-10-06:1', mode = 'force', editions = editions,
+    }
+  end
+end
+calls, done_args = run_prepare({
+  ok_result {
+    decision_required = true,
+    targets = { { edition = 'B', transitions = { { newspaper_state = 'past' } } } },
+  },
+  ok_result {
+    requires_review = true, changed = true, ai_call_count = 1,
+    markdown = 'e: B\n\n=== ARTIKEL ===\n\nKop\n\nKAMPEN - Tekst.\n\n---\n\n## Kranttijdsversies\n',
+    section = '## Kranttijdsversies\n',
+  },
+}, with_forced_late({ 'B' }))
+assert(#calls == 2, 'de automatische herschrijving deed niet precies twee aanroepen: ' .. #calls)
+assert(vim.tbl_contains(calls[2], '--allow-past-rewrite'), 'toestemming ontbrak in de automatische generatie')
+assert(done_args[1] == true and done_args[3] == true,
+  'na automatisch herschrijven hoort de review voltooid te zijn')
+
+-- 7. Dezelfde situatie, maar nu ligt het verleden-evenement in een editie (D)
+-- die NIET in de goedgekeurde late-set zit (alleen B is goedgekeurd). Dan
+-- blijft de gewone vragende flow gelden — geen stille aanname over een editie
+-- waarover nog niets is beslist.
+local asked = false
+dialog.confirm = function()
+  asked = true
+  return 2 -- Niet in krant, kortste pad terug naar done()
+end
+calls, done_args = run_prepare({
+  ok_result {
+    decision_required = true,
+    targets = { { edition = 'D', transitions = { { newspaper_state = 'past' } } } },
+  },
+  ok_result { skipped_newspaper_editions = { 'D' } },
+}, with_forced_late({ 'B' }), { 'D' })
+assert(asked, 'niet-goedgekeurde editie werd stilzwijgend toch doorgezet zonder te vragen')
+
+-- 8. Geen verleden-evenement, maar wel een gewone kranttijdskeuze
+-- (requires_review zonder decision_required) voor een al goedgekeurde late
+-- editie: ook hier geen dialoog, direct de bevestigde generatie.
+dialog.confirm = function()
+  error('geen dialoog had getoond mogen worden voor een al goedgekeurde late editie')
+end
+calls, done_args = run_prepare({
+  ok_result { requires_review = true, targets = { { edition = 'B', transitions = {} } } },
+  ok_result {
+    requires_review = true, changed = true, ai_call_count = 1,
+    markdown = 'e: B\n\n=== ARTIKEL ===\n\nKop\n\nKAMPEN - Tekst.\n\n---\n\n## Kranttijdsversies\n',
+    section = '## Kranttijdsversies\n',
+  },
+}, with_forced_late({ 'B' }))
+assert(#calls == 2, 'de automatische kranttijdsgeneratie deed niet precies twee aanroepen: ' .. #calls)
+assert(not vim.tbl_contains(calls[2], '--dry-run'), 'de tweede aanroep liep nog als dry-run')
+assert(done_args[1] == true and done_args[3] == true,
+  'na automatische generatie hoort de review voltooid te zijn')
 
 vim.system, dialog.select, dialog.confirm = original_system, original_select, original_confirm
 
