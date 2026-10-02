@@ -1149,44 +1149,79 @@ M._112_signal_score = _112_signal_score
 -- e:-regel: door alleen dat woord te verwijderen accepteert de redacteur alle
 -- codes erachter. De aparte redenregel is uitsluitend uitleg.
 local function edition_control_lines(resolved)
-  local seen, chosen, suggested = {}, {}, {}
-  for _, code in ipairs(resolved.editions or {}) do
+  if type(resolved) ~= "table" then return {} end
+  local detection = type(resolved.detection) == "table" and resolved.detection or {}
+  -- Alleen de expliciete onzeker-situatie (geen expliciete e: én een detectie
+  -- met confidence "none") gaat de suggestie-only route in: niets kiezen, alle
+  -- herkende plaatsen als suggestie. In alle andere gevallen worden de
+  -- meegegeven editions als keuze gerenderd (met reden).
+  local uncertain = (resolved.has_explicit_editions ~= true)
+    and (detection.confidence == "none")
+  local confident = not uncertain
+
+  local seen = {}
+  local chosen, suggested = {}, {}
+  local reason_by_code = {}
+
+  local function add(list, code, reason)
     if type(code) == "string" and not seen[code] then
       seen[code] = true
-      table.insert(chosen, code)
+      table.insert(list, code)
+    end
+    if type(code) == "string" and reason and reason ~= "" and not reason_by_code[code] then
+      reason_by_code[code] = reason
     end
   end
-  if type(resolved.suggestions) == "table" then
-    for _, suggestion in ipairs(resolved.suggestions) do
+
+  if confident then
+    local chosen_reason = type(resolved.source) == "string" and resolved.source or nil
+    for _, code in ipairs(resolved.editions or {}) do add(chosen, code, chosen_reason) end
+    local sug_reasons = {}
+    for _, item in ipairs(resolved.suggestion_reasons or {}) do
+      if type(item.edition) == "string" and type(item.reasons) == "table" then
+        sug_reasons[item.edition] = table.concat(item.reasons, ", ")
+      end
+    end
+    for _, suggestion in ipairs(resolved.suggestions or {}) do
       for _, code in ipairs(suggestion.editions or {}) do
-        if type(code) == "string" and not seen[code] then
-          seen[code] = true
-          table.insert(suggested, code)
-        end
+        add(suggested, code, sug_reasons[code])
+      end
+    end
+  else
+    -- Onzeker: geen gekozen krant; alle herkende plaatsen als suggestie met reden.
+    for _, place in ipairs(resolved.places or {}) do
+      local label = type(place.place) == "string" and place.place or ""
+      local kind = place.kind == "province" and "provincie" or "plaatsnaam"
+      local reason = label ~= "" and (kind .. " ‘" .. label .. "’") or nil
+      for _, code in ipairs(place.editions or {}) do
+        add(suggested, code, reason)
       end
     end
   end
-  if #chosen == 0 then return {} end
 
-  local e_line = "e: " .. table.concat(chosen, ", ")
-  if #suggested > 0 then
-    e_line = e_line .. ", SUGGESTIE, " .. table.concat(suggested, ", ")
+  local e_line
+  if #chosen > 0 then
+    e_line = "e: " .. table.concat(chosen, ", ")
+    if #suggested > 0 then
+      e_line = e_line .. ", SUGGESTIE, " .. table.concat(suggested, ", ")
+    end
+  elseif #suggested > 0 then
+    e_line = "e: SUGGESTIE, " .. table.concat(suggested, ", ")
+  else
+    return {}
   end
   local result = { e_line }
 
-  local reasons_by_edition = {}
-  if type(resolved.suggestion_reasons) == "table" then
-    for _, item in ipairs(resolved.suggestion_reasons) do
-      if type(item.edition) == "string" and type(item.reasons) == "table" then
-        reasons_by_edition[item.edition] = item.reasons
-      end
+  -- Redenregel: altijd, óók voor de gekozen kranten (REDEN per editie).
+  local reason_parts = {}
+  for _, code in ipairs(chosen) do
+    if reason_by_code[code] then
+      table.insert(reason_parts, code .. " — " .. reason_by_code[code])
     end
   end
-  local reason_parts = {}
   for _, code in ipairs(suggested) do
-    local reasons = reasons_by_edition[code]
-    if type(reasons) == "table" and #reasons > 0 then
-      table.insert(reason_parts, code .. " — " .. table.concat(reasons, ", "))
+    if reason_by_code[code] then
+      table.insert(reason_parts, code .. " — " .. reason_by_code[code])
     end
   end
   if #reason_parts > 0 then
@@ -1229,12 +1264,13 @@ local function fill_editions_line(buf, content, done)
         return
       end
 
-      -- Geen dateline herkend → e: valt terug op De Brug. Dat is precies de
-      -- stille misser die een artikel per ongeluk naar B stuurt; hier, waar de
-      -- e:-regel ontstaat, expliciet waarschuwen zodat het opvalt.
+      -- Geen betrouwbare editie herkend → niets automatisch gekozen; de e:-regel
+      -- bevat alleen suggesties (achter SUGGESTIE). Waarschuw expliciet, want
+      -- zonder een krant vóór SUGGESTIE gaat er niets de krant/site op.
       if type(r.source) == "string" and r.source:match("^standaard") then
         notify_workflow(
-          "LET OP: geen dateline herkend — e: staat standaard op De Brug. Klopt dat niet, pas e: aan.",
+          "LET OP: geen editie herkend — niets automatisch gekozen. Zet een krant "
+            .. "vóór SUGGESTIE (of pas e: aan) om te plaatsen.",
           vim.log.levels.WARN
         )
       end
@@ -2222,6 +2258,13 @@ local function edition_autodetect(buf, content, done)
       end
       local detection = high_confidence_detection(resolved)
       if not detection then
+        -- Onzekere import: niets automatisch kiezen, maar wél de herkende
+        -- kranten als suggestie tonen (`e: SUGGESTIE, …` + redenen), zodat de
+        -- redacteur meteen ziet welke kranten in beeld zijn en zelf promoot.
+        local suggestion_lines = edition_control_lines(resolved)
+        if #suggestion_lines > 0 then
+          replace_edition_control_lines(buf, suggestion_lines)
+        end
         check_import_duplicates(buf, resolved.editions, complete)
         return
       end
