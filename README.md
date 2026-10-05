@@ -14,16 +14,28 @@ daarna de terminal en Neovim. De twee doublure-testbranches blijven beschikbaar.
 ## Workflow
 
 Bestaande foto uit Pubble nodig? Gebruik `<leader>pf` / `:PubbleFoto`, of
-**Foto zoeken** bij de fotocontrole van `<leader>aw`. Zoekwoorden zijn vooraf
-ingevuld in een tijdelijke Vim-buffer: Escape gaat naar Normal-modus, gewone
+**Foto zoeken** bij de fotocontrole van `<leader>aw`. Onderwerp, Plaats en
+Uitsluiten staan in een tijdelijke Vim-buffer. Onderwerp ondersteunt maximaal
+drie komma-gescheiden alternatieven; Plaats mag leeg voor algemene foto's.
+Uitsluiten filtert kop/bijschrift/fototrefwoorden; `avondvierdaagse` dekt ook
+`Avond4Daagse`. Escape gaat naar Normal-modus, gewone
 bewerkingen/undo/plakken werken, Enter zoekt en Ctrl-C annuleert. De artikelbuffer
 en cursorpositie blijven behouden. In de lijst: `o` bekijkt de foto online, `p` toont alle
 voorbeelden in een browsertab (klik daar op **Gebruik deze foto**), Enter kiest
-in de lijst, `s` zoekt opnieuw, `]p` bladert en
+in de lijst, `s` wijzigt filters, `]p` bladert en
 `q` annuleert. Op macOS openen tabs op de achtergrond. De foto's worden niet
 gedownload; alleen de browser kan cachen. Controleer na kiezen `b:` en `c:` in
 het artikel en verzend met een volgende `<leader>aw`. De bronfoto blijft gelijk.
 Werkt met de bijgewerkte Texttools-core (`pubble_photo_cli`).
+Foto's staan per bronartikel gegroepeerd: Tab klapt open/dicht, `x` verbergt de
+hele bron in deze sessie (ook in de browser), `u` herstelt de laatste bron.
+De rangschikking weegt beschikbare fototrefwoorden boven bijschrift boven kop;
+een matchreden is zichtbaar. Geen beeldherkenning/AI. Zoekbron blijft eerdere
+artikelen van alle kranten, nog niet de losse beeldbank. Maximaal drie zoekcalls,
+twaalf artikel-GETs en twaalf extra metadata-GETs per pagina, vier GETs tegelijk
+(plus retries). Deze extra metadata kan de zoekactie vertragen; latentie op een
+oude Mac moet nog worden gemeten. Hide/undo doet één lokaal subprocess, geen
+netwerkcall; uitklappen doet alleen een lokale redraw.
 De browserkeuze gebruikt een tijdelijke lokale verbinding, maximaal vijftien
 minuten. Kiezen, opnieuw zoeken, `q` en afsluiten van NeoVim stoppen de verbinding.
 Een gewijzigde artikelbuffer weigert een late keuze. Er wordt alleen een

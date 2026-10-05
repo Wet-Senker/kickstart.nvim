@@ -195,7 +195,8 @@ local search
 local function ask_query(s, initial)
   if s.busy or not current(s) then return end
   stop_browser(s)
-  dialog.input({ prompt = 'Pubble-foto’s zoeken', default = initial or s.query or '', vim_edit = true,
+  dialog.input({ prompt = s.structured and 'Foto: onderwerp (komma = of), plaats, uitsluiten' or 'Pubble-foto’s zoeken',
+    default = initial or s.editor_text or s.query or '', vim_edit = true,
     on_open = function(buf, win)
       s.input_win = win
       vim.b[buf].pubble_photo_source = s.source
@@ -208,8 +209,8 @@ local function ask_query(s, initial)
       end
       return
     end
-    -- A pasted multi-line query is still one search. Python owns query rules.
-    query = query and vim.trim(query:gsub('%s+', ' ')) or nil
+    -- Preserve field lines; only legacy input is flattened. Python owns rules.
+    query = query and vim.trim(s.structured and query or query:gsub('%s+', ' ')) or nil
     if query and query ~= '' then
       search(s, query, 0)
     elseif not s.buffer then
@@ -218,7 +219,22 @@ local function ask_query(s, initial)
   end)
 end
 
-local function render(s, data)
+local render
+local function project(s, hidden)
+  if s.busy or not current(s) or not s.data or not s.data.candidates then return end
+  stop_browser(s)
+  run(s, { 'view' }, vim.json.encode({ candidates = s.data.candidates,
+    editor_text = s.data.editor_text, hidden_sources = hidden }), function(data)
+    s.hidden = hidden
+    local updated = vim.tbl_extend('force', s.data, data)
+    render(s, updated)
+  end)
+end
+
+render = function(s, data)
+  s.data = data
+  if data.query then s.query = data.query end
+  if data.editor_text then s.editor_text = data.editor_text end
   if not s.buffer or not vim.api.nvim_buf_is_valid(s.buffer) then
     if s.source_win and vim.api.nvim_win_is_valid(s.source_win)
         and vim.api.nvim_win_get_buf(s.source_win) == s.source then
@@ -245,23 +261,68 @@ local function render(s, data)
     map('p', function() open_browser_choice(s) end, 'Alle voorbeelden in browser bekijken en kiezen')
     map('s', function() ask_query(s) end, 'Andere zoekwoorden')
     map(']p', function()
-      if type(s.next_offset) == 'number' then search(s, s.query, s.next_offset) end
+      if type(s.next_offset) == 'number' then search(s, s.editor_text or s.query, s.next_offset) end
     end, 'Volgende resultaten')
+    map('x', function()
+      local photo = selected(s)
+      if not photo or not s.structured then return end
+      local hidden = vim.deepcopy(s.hidden or {})
+      table.insert(hidden, photo.edition .. ':' .. tostring(photo.source_article_id))
+      project(s, hidden)
+    end, 'Heel bronartikel verbergen')
+    map('u', function()
+      local hidden = vim.deepcopy(s.hidden or {})
+      if #hidden > 0 then table.remove(hidden); project(s, hidden) end
+    end, 'Laatste verborgen bron herstellen')
+    map('<Tab>', function()
+      local photo = selected(s)
+      if not photo or not s.structured then return end
+      local id = photo.edition .. ':' .. tostring(photo.source_article_id)
+      s.expanded[id] = not s.expanded[id]
+      render(s, s.data)
+    end, 'Alle foto’s van bronartikel tonen/inklappen')
     map('q', function() close(s) end, 'Terug zonder fotokeuze')
   end
   s.rows = {}
   s.photos = data.photos or {}
   local lines = { 'Pubble-foto’s · ' .. s.query,
-    'o: foto | p: voorbeelden | Enter: kies | s: zoekwoorden | ]p: volgende pagina | q: terug',
+    'o: foto | p: browser | Enter: kies | s: filters | ]p: volgende | q: terug',
     '112 uitgesloten. Controleer context en gebruiksrechten van de foto.', '' }
-  for i, photo in ipairs(data.photos or {}) do
+  if data.groups then
+    lines[4] = 'Tab: groep open/dicht | x: verberg bron | u: herstel (' .. #(s.hidden or {}) .. ' verborgen)'
+  end
+  local displayed = {}
+  for _, group in ipairs(data.groups or {}) do
+    for index, photo in ipairs(group.photos) do
+      if index == 1 or s.expanded[group.source_key] then
+        table.insert(displayed, { photo = photo, group = index == 1 and group or nil })
+      end
+    end
+  end
+  if not data.groups then
+    for _, photo in ipairs(data.photos or {}) do table.insert(displayed, { photo = photo }) end
+  end
+  for i, entry in ipairs(displayed) do
+    local photo = entry.photo
     local first = #lines + 1
+    if entry.group then
+      table.insert(lines, string.format('%s %s · %d foto’s',
+        s.expanded[entry.group.source_key] and '▼' or '▶', one_line(entry.group.source_title), #entry.group.photos))
+    end
     vim.list_extend(lines, {
       string.format('%d. %s [%s · %s]', i, one_line(photo.source_title), one_line(photo.edition), one_line(photo.date)),
-      '   Bijschrift: ' .. (photo.caption ~= '' and one_line(photo.caption) or '(leeg)'),
-      '   Credit: ' .. (photo.credit ~= '' and one_line(photo.credit) or '(leeg)'), '',
+      '   Bijschrift: ' .. (photo.caption ~= '' and one_line(photo.display_caption or photo.caption) or '(leeg)'),
+      '   Credit: ' .. (photo.credit ~= '' and one_line(photo.display_credit or photo.credit) or '(leeg)'),
     })
+    if photo.match_reason then table.insert(lines, '   Match: ' .. one_line(photo.match_reason)) end
+    table.insert(lines, '')
     for row = first, #lines do s.rows[row] = photo end
+  end
+  if (data.filtered_photos or 0) > 0 then
+    table.insert(lines, string.format('%d fotoverwijzingen weggefilterd of verborgen.', data.filtered_photos))
+  end
+  if (data.keywords_unavailable or 0) > 0 then
+    table.insert(lines, string.format('Fototrefwoorden niet opgehaald/beschikbaar voor %d beelden; bijschrift/kop blijven meetellen.', data.keywords_unavailable))
   end
   if #(data.photos or {}) == 0 then table.insert(lines, 'Geen selecteerbare foto’s op deze pagina. Probeer s of ]p.') end
   if (data.excluded_articles or 0) > 0 or (data.unclassified_articles or 0) > 0 then
@@ -282,9 +343,15 @@ end
 search = function(s, query, offset)
   if s.busy then return end
   stop_browser(s)
-  s.query = query
+  local args = { 'search', '--query', query, '--offset', tostring(offset) }
+  local input
+  if s.structured then
+    s.editor_text = query
+    args = { 'search', '--fields', '--offset', tostring(offset) }
+    input = vim.json.encode({ editor_text = query, hidden_sources = s.hidden })
+  else s.query = query end
   notify('Pubble-foto’s zoeken…', vim.log.levels.INFO)
-  run(s, { 'search', '--query', query, '--offset', tostring(offset) }, nil, function(data) render(s, data) end)
+  run(s, args, input, function(data) render(s, data) end)
 end
 
 function M.open(buf)
@@ -307,9 +374,12 @@ function M.open(buf)
   end
   if existing then close(existing) end
   local source_win = vim.api.nvim_get_current_buf() == buf and vim.api.nvim_get_current_win() or vim.fn.bufwinid(buf)
-  local s = { source = buf, source_win = source_win, tick = vim.api.nvim_buf_get_changedtick(buf) }
+  local s = { source = buf, source_win = source_win, tick = vim.api.nvim_buf_get_changedtick(buf), hidden = {}, expanded = {} }
   sessions[buf] = s
-  run(s, { 'suggest' }, text(buf), function(data) ask_query(s, data.query) end)
+  run(s, { 'suggest' }, text(buf), function(data)
+    s.structured = type(data.editor_text) == 'string'
+    ask_query(s, data.editor_text or data.query)
+  end)
 end
 
 function M.setup()
