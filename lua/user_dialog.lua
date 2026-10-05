@@ -24,7 +24,9 @@ local function next_dialog()
     -- Continue below with the native overlay for this request.
   end
   vim.cmd('stopinsert')
+  local return_win = vim.api.nvim_get_current_win()
   local buf = vim.api.nvim_create_buf(false, true)
+  local vim_edit = opts.input and opts.vim_edit == true
   local width = math.max(1, math.min(90, vim.o.columns - 4))
   local lines = vim.split(opts.prompt or 'Maak een keuze', '\n', { plain = true })
   table.insert(lines, '')
@@ -37,8 +39,16 @@ local function next_dialog()
   end
   table.insert(lines, '')
   table.insert(lines, opts.required and 'Enter: antwoord kiezen • Escape sluit deze vraag niet' or 'Enter: kiezen • Escape: annuleren')
+  if vim_edit then
+    -- Keep help outside the editable text: normal Vim motions, paste and undo
+    -- must never turn prompt/footer lines into the submitted value.
+    lines = vim.split(opts.default or '', '\n', { plain = true })
+    first = 1
+  end
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = opts.input == true
+  vim.bo[buf].buftype = 'nofile'
+  vim.bo[buf].swapfile = false
   local visual_lines = 0
   for _, line in ipairs(lines) do
     visual_lines = visual_lines + math.max(1, math.ceil(vim.fn.strdisplaywidth(line) / width))
@@ -48,20 +58,29 @@ local function next_dialog()
     relative = 'editor', width = width, height = height,
     row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
     col = math.max(0, math.floor((vim.o.columns - width) / 2)),
-    style = 'minimal', border = 'rounded', title = ' Keuze ',
+    style = 'minimal', border = 'rounded',
+    title = vim_edit and (' ' .. (opts.prompt or 'Invoer') .. ' ') or ' Keuze ',
+    footer = vim_edit and ' Esc: Normal | Enter: zoeken | Ctrl-C: annuleren ' or nil,
   })
   vim.wo[win].wrap = true
   vim.wo[win].cursorline = true
   local selected = opts.input and 1 or math.max(1, math.min(opts.default or 1, #items))
   local finished = false
+  local function input_value()
+    if vim_edit then return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n') end
+    return vim.api.nvim_buf_get_lines(buf, first - 1, first, false)[1]
+  end
   local function cursor()
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_set_cursor(win, { first + selected - 1, 0 }) end
   end
   local function finish(index)
     if finished then return end
     finished = true
+    local restore_focus = vim.api.nvim_get_current_win() == win
+    if opts.input then vim.cmd('stopinsert') end
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
     if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
+    if restore_focus and vim.api.nvim_win_is_valid(return_win) then vim.api.nvim_set_current_win(return_win) end
     active = false
     suspend_active = nil
     vim.schedule(next_dialog)
@@ -69,7 +88,7 @@ local function next_dialog()
   end
   suspend_active = function()
     if opts.input then
-      request.opts.default = vim.api.nvim_buf_get_lines(buf, first - 1, first, false)[1]
+      request.opts.default = input_value()
     else request.opts.default = selected end
     finished = true
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
@@ -81,7 +100,7 @@ local function next_dialog()
   local function map(key, action) vim.keymap.set('n', key, action, { buffer = buf, nowait = true, silent = true }) end
   local function accept()
     if opts.input then
-      finish(vim.api.nvim_buf_get_lines(buf, first - 1, first, false)[1])
+      finish(input_value())
     else
       local index = vim.api.nvim_win_get_cursor(win)[1] - first + 1
       finish(index >= 1 and index <= #items and index or selected)
@@ -92,11 +111,19 @@ local function next_dialog()
     vim.keymap.set('i', '<CR>', function() vim.cmd('stopinsert'); accept() end, { buffer = buf })
     vim.keymap.set('i', '<Esc>', function()
       vim.cmd('stopinsert')
-      if not opts.required then finish(nil) end
+      if not vim_edit and not opts.required then finish(nil) end
     end, { buffer = buf })
+    if vim_edit then
+      vim.keymap.set('i', '<C-c>', function()
+        vim.cmd('stopinsert')
+        if not opts.required then finish(nil) end
+      end, { buffer = buf })
+    end
   end
   for _, key in ipairs({ '<Esc>', '<C-c>' }) do
-    map(key, function() if not opts.required then finish(nil) end end)
+    if not (vim_edit and key == '<Esc>') then
+      map(key, function() if not opts.required then finish(nil) end end)
+    end
   end
   if not opts.input then
     for _, key in ipairs({ 'j', '<Down>' }) do map(key, function() selected = math.min(#items, selected + 1); cursor() end) end
@@ -116,6 +143,7 @@ local function next_dialog()
     else finish(nil) end
   end })
   cursor()
+  if opts.on_open then opts.on_open(buf, win) end
   if opts.input then vim.cmd('startinsert!') end
 end
 

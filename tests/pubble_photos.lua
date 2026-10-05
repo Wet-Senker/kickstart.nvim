@@ -6,7 +6,10 @@ vim.system = function(cmd, opts, callback)
   table.insert(requests, { cmd = cmd, opts = opts, callback = callback })
   return {}
 end
-dialog.input = function(opts, callback) callback(opts.default) end
+dialog.input = function(opts, callback)
+  assert(opts.vim_edit == true, 'fotozoekinvoer moet Vim-bewerking ondersteunen')
+  callback(opts.default)
+end
 dialog.confirm = function() return 1 end
 local function reply(index, data, code)
   data.version = data.version or 1
@@ -46,6 +49,9 @@ assert(requests[3].cmd[4] == 'search')
 reply(3, data)
 local picker = vim.api.nvim_get_current_buf()
 assert(picker ~= a)
+for _, key in ipairs({ '/', 'n', 'g', 'v' }) do
+  assert(vim.fn.maparg(key, 'n', false, true).buffer ~= 1, 'Vim-toets overschreven: ' .. key)
+end
 vim.api.nvim_win_set_cursor(0, { 5, 0 })
 local opened
 require('ordered_browser').open_urls = function(urls) opened = urls[1] end

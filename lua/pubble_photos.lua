@@ -55,6 +55,9 @@ end
 local function dispose(s)
   s.closed = true
   if sessions[s.source] == s then sessions[s.source] = nil end
+  if s.input_win and vim.api.nvim_win_is_valid(s.input_win) then
+    vim.api.nvim_win_close(s.input_win, true)
+  end
   if s.busy and s.process and type(s.process.kill) == 'function' then
     pcall(s.process.kill, s.process, 15)
   end
@@ -65,6 +68,10 @@ local function close(s)
   dispose(s)
   if s.buffer and vim.api.nvim_buf_is_valid(s.buffer) then
     vim.api.nvim_buf_delete(s.buffer, { force = true })
+  end
+  if s.source_win and vim.api.nvim_win_is_valid(s.source_win)
+      and vim.api.nvim_win_get_buf(s.source_win) == s.source then
+    vim.api.nvim_set_current_win(s.source_win)
   end
 end
 
@@ -107,13 +114,36 @@ end
 
 local search
 local function ask_query(s, initial)
-  dialog.input({ prompt = 'Pubble-foto’s zoeken (alle kranten): ', default = initial or s.query or '' }, function(query)
-    if query and vim.trim(query) ~= '' and current(s) then search(s, query, 0) end
+  if s.busy or not current(s) then return end
+  dialog.input({ prompt = 'Pubble-foto’s zoeken', default = initial or s.query or '', vim_edit = true,
+    on_open = function(buf, win)
+      s.input_win = win
+      vim.b[buf].pubble_photo_source = s.source
+    end,
+  }, function(query)
+    s.input_win = nil
+    if not current(s) then
+      if not s.closed then
+        notify('Artikel is intussen gewijzigd. Open de fotokeuze opnieuw; niets overschreven.', vim.log.levels.WARN)
+      end
+      return
+    end
+    -- A pasted multi-line query is still one search. Python owns query rules.
+    query = query and vim.trim(query:gsub('%s+', ' ')) or nil
+    if query and query ~= '' then
+      search(s, query, 0)
+    elseif not s.buffer then
+      close(s)
+    end
   end)
 end
 
 local function render(s, data)
   if not s.buffer or not vim.api.nvim_buf_is_valid(s.buffer) then
+    if s.source_win and vim.api.nvim_win_is_valid(s.source_win)
+        and vim.api.nvim_win_get_buf(s.source_win) == s.source then
+      vim.api.nvim_set_current_win(s.source_win)
+    end
     vim.cmd('botright vsplit')
     s.buffer = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_win_set_buf(0, s.buffer)
@@ -132,18 +162,18 @@ local function render(s, data)
       local photo = selected(s)
       if photo then browser.open_urls({ photo.preview_url }) end
     end, 'Foto online bekijken')
-    map('g', function()
+    map('p', function()
       if s.gallery then browser.open_urls({ s.gallery }) end
     end, 'Alle voorbeelden in browser bekijken')
-    map('/', function() ask_query(s) end, 'Andere zoekwoorden')
-    map('n', function()
+    map('s', function() ask_query(s) end, 'Andere zoekwoorden')
+    map(']p', function()
       if type(s.next_offset) == 'number' then search(s, s.query, s.next_offset) end
     end, 'Volgende resultaten')
     map('q', function() close(s) end, 'Terug zonder fotokeuze')
   end
   s.rows = {}
   local lines = { 'Pubble-foto’s · ' .. s.query,
-    'o: bekijk foto | g: alle voorbeelden | Enter: kies | /: zoek | n: volgende | q: terug',
+    'o: foto | p: voorbeelden | Enter: kies | s: zoekwoorden | ]p: volgende pagina | q: terug',
     'Kies alleen beeld waarvan context en gebruiksrechten passen bij dit artikel.', '' }
   for i, photo in ipairs(data.photos or {}) do
     local first = #lines + 1
@@ -154,13 +184,13 @@ local function render(s, data)
     })
     for row = first, #lines do s.rows[row] = photo end
   end
-  if #(data.photos or {}) == 0 then table.insert(lines, 'Geen selecteerbare foto’s op deze pagina. Probeer / of n.') end
+  if #(data.photos or {}) == 0 then table.insert(lines, 'Geen selecteerbare foto’s op deze pagina. Probeer s of ]p.') end
   if (data.unreadable_articles or 0) > 0 or (data.unavailable_photos or 0) > 0 then
     table.insert(lines, string.format('Niet leesbaar: %d artikelen; niet selecteerbaar: %d foto’s (metadata/voorbeeld ontbreekt).',
       data.unreadable_articles or 0, data.unavailable_photos or 0))
   end
   s.next_offset = data.next_offset
-  if type(s.next_offset) == 'number' then table.insert(lines, 'Meer resultaten beschikbaar: n.') end
+  if type(s.next_offset) == 'number' then table.insert(lines, 'Meer resultaten beschikbaar: ]p.') end
   vim.bo[s.buffer].modifiable = true
   vim.api.nvim_buf_set_lines(s.buffer, 0, -1, false, lines)
   vim.bo[s.buffer].modifiable = false
@@ -178,6 +208,7 @@ end
 
 function M.open(buf)
   buf = buf or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(buf) then return end
   buf = vim.b[buf].pubble_photo_source or buf
   if not vim.api.nvim_buf_is_valid(buf) then return end
   if not vim.bo[buf].modifiable or vim.bo[buf].readonly then
@@ -188,8 +219,14 @@ function M.open(buf)
     notify('Wacht tot de huidige verzending klaar is.', vim.log.levels.WARN)
     return
   end
-  if sessions[buf] then close(sessions[buf]) end
-  local s = { source = buf, tick = vim.api.nvim_buf_get_changedtick(buf) }
+  local existing = sessions[buf]
+  if existing and current(existing) and existing.input_win and vim.api.nvim_win_is_valid(existing.input_win) then
+    vim.api.nvim_set_current_win(existing.input_win)
+    return
+  end
+  if existing then close(existing) end
+  local source_win = vim.api.nvim_get_current_buf() == buf and vim.api.nvim_get_current_win() or vim.fn.bufwinid(buf)
+  local s = { source = buf, source_win = source_win, tick = vim.api.nvim_buf_get_changedtick(buf) }
   sessions[buf] = s
   run(s, { 'suggest' }, text(buf), function(data) ask_query(s, data.query) end)
 end
