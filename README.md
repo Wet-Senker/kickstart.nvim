@@ -18,11 +18,17 @@ Bestaande foto uit Pubble nodig? Gebruik `<leader>pf` / `:PubbleFoto`, of
 ingevuld in een tijdelijke Vim-buffer: Escape gaat naar Normal-modus, gewone
 bewerkingen/undo/plakken werken, Enter zoekt en Ctrl-C annuleert. De artikelbuffer
 en cursorpositie blijven behouden. In de lijst: `o` bekijkt de foto online, `p` toont alle
-voorbeelden in een browsertab, Enter kiest, `s` zoekt opnieuw, `]p` bladert en
+voorbeelden in een browsertab (klik daar op **Gebruik deze foto**), Enter kiest
+in de lijst, `s` zoekt opnieuw, `]p` bladert en
 `q` annuleert. Op macOS openen tabs op de achtergrond. De foto's worden niet
 gedownload; alleen de browser kan cachen. Controleer na kiezen `b:` en `c:` in
 het artikel en verzend met een volgende `<leader>aw`. De bronfoto blijft gelijk.
 Werkt met de bijgewerkte Texttools-core (`pubble_photo_cli`).
+De browserkeuze gebruikt een tijdelijke lokale verbinding, maximaal vijftien
+minuten. Kiezen, opnieuw zoeken, `q` en afsluiten van NeoVim stoppen de verbinding.
+Een gewijzigde artikelbuffer weigert een late keuze. Er wordt alleen een
+bestaand beeld-ID overgenomen, nooit geüpload of automatisch gepubliceerd.
+Werk beide repositories bij; bij een fout blijft Enter in de lijst beschikbaar.
 `/`, `n`, `N`, `gg` en `G` blijven gewone Vim-navigatie in de resultatenlijst.
 112-bronartikelen worden door Texttools bij alle kranten uitgesloten. De lijst
 vermeldt ook overgeslagen artikelen waarvan de rubriek niet leesbaar is.
