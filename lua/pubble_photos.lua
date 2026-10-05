@@ -174,7 +174,7 @@ local function render(s, data)
   s.rows = {}
   local lines = { 'Pubble-foto’s · ' .. s.query,
     'o: foto | p: voorbeelden | Enter: kies | s: zoekwoorden | ]p: volgende pagina | q: terug',
-    'Kies alleen beeld waarvan context en gebruiksrechten passen bij dit artikel.', '' }
+    '112 uitgesloten. Controleer context en gebruiksrechten van de foto.', '' }
   for i, photo in ipairs(data.photos or {}) do
     local first = #lines + 1
     vim.list_extend(lines, {
@@ -185,6 +185,10 @@ local function render(s, data)
     for row = first, #lines do s.rows[row] = photo end
   end
   if #(data.photos or {}) == 0 then table.insert(lines, 'Geen selecteerbare foto’s op deze pagina. Probeer s of ]p.') end
+  if (data.excluded_articles or 0) > 0 or (data.unclassified_articles or 0) > 0 then
+    table.insert(lines, string.format('Overgeslagen: %d 112-artikelen; %d artikelen zonder leesbare rubriek.',
+      data.excluded_articles or 0, data.unclassified_articles or 0))
+  end
   if (data.unreadable_articles or 0) > 0 or (data.unavailable_photos or 0) > 0 then
     table.insert(lines, string.format('Niet leesbaar: %d artikelen; niet selecteerbaar: %d foto’s (metadata/voorbeeld ontbreekt).',
       data.unreadable_articles or 0, data.unavailable_photos or 0))

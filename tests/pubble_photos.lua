@@ -25,7 +25,8 @@ end
 local candidate = { image_metadata_id = 731, source_article_id = 912,
   source_title = 'Bronartikel', edition = 'B', date = '2026-10-01',
   preview_url = 'https://images.pubble.cloud/photo.jpg', caption = 'Bijschrift\nmet tweede regel', credit = 'Fotograaf' }
-local data = { version = 1, photos = { candidate }, gallery_html = '<html>metadata only</html>' }
+local data = { version = 1, photos = { candidate }, gallery_html = '<html>metadata only</html>',
+  excluded_articles = 3, unclassified_articles = 1 }
 local function mapping(buf, key)
   for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
     if map.lhs == key then return map.callback end
@@ -49,6 +50,9 @@ assert(requests[3].cmd[4] == 'search')
 reply(3, data)
 local picker = vim.api.nvim_get_current_buf()
 assert(picker ~= a)
+local display = table.concat(vim.api.nvim_buf_get_lines(picker, 0, -1, false), '\n')
+assert(display:find('112 uitgesloten', 1, true))
+assert(display:find('3 112-artikelen; 1 artikelen zonder leesbare rubriek', 1, true))
 for _, key in ipairs({ '/', 'n', 'g', 'v' }) do
   assert(vim.fn.maparg(key, 'n', false, true).buffer ~= 1, 'Vim-toets overschreven: ' .. key)
 end

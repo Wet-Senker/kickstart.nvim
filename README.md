@@ -24,6 +24,8 @@ gedownload; alleen de browser kan cachen. Controleer na kiezen `b:` en `c:` in
 het artikel en verzend met een volgende `<leader>aw`. De bronfoto blijft gelijk.
 Werkt met de bijgewerkte Texttools-core (`pubble_photo_cli`).
 `/`, `n`, `N`, `gg` en `G` blijven gewone Vim-navigatie in de resultatenlijst.
+112-bronartikelen worden door Texttools bij alle kranten uitgesloten. De lijst
+vermeldt ook overgeslagen artikelen waarvan de rubriek niet leesbaar is.
 
 ```
 Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL ===` + tekst → Neovim
