@@ -124,7 +124,7 @@ end
 local function open_browser_choice(s)
   if s.busy or not current(s) then return end
   if not s.photos or #s.photos == 0 then
-    notify('Geen foto’s op deze pagina. Zoek eerst met s of blader met ]p.', vim.log.levels.INFO)
+    notify('Geen foto’s geladen. Zoek eerst met s of haal meer op met ]p.', vim.log.levels.INFO)
     return
   end
   if s.browser_choice then
@@ -262,7 +262,7 @@ render = function(s, data)
     map('s', function() ask_query(s) end, 'Andere zoekwoorden')
     map(']p', function()
       if type(s.next_offset) == 'number' then search(s, s.editor_text or s.query, s.next_offset) end
-    end, 'Volgende resultaten')
+    end, 'Meer resultaten toevoegen')
     map('x', function()
       local photo = selected(s)
       if not photo or not s.structured then return end
@@ -286,10 +286,13 @@ render = function(s, data)
   s.rows = {}
   s.photos = data.photos or {}
   local lines = { 'Pubble-foto’s · ' .. s.query,
-    'o: foto | p: browser | Enter: kies | s: filters | ]p: volgende | q: terug',
+    'o: foto | p: browser | Enter: kies | s: filters | ]p: meer | q: terug',
     '112 uitgesloten. Controleer context en gebruiksrechten van de foto.', '' }
   if data.groups then
     lines[4] = 'Tab: groep open/dicht | x: verberg bron | u: herstel (' .. #(s.hidden or {}) .. ' verborgen)'
+  end
+  if type(data.new_photos) == 'number' then
+    table.insert(lines, string.format('%d unieke foto’s geladen; laatste pagina: %d nieuwe foto’s.', #s.photos, data.new_photos))
   end
   local displayed = {}
   for _, group in ipairs(data.groups or {}) do
@@ -322,15 +325,15 @@ render = function(s, data)
     table.insert(lines, string.format('%d fotoverwijzingen weggefilterd of verborgen.', data.filtered_photos))
   end
   if (data.keywords_unavailable or 0) > 0 then
-    table.insert(lines, string.format('Fototrefwoorden niet opgehaald/beschikbaar voor %d beelden; bijschrift/kop blijven meetellen.', data.keywords_unavailable))
+    table.insert(lines, string.format('Laatste pagina: fototrefwoorden niet opgehaald/beschikbaar voor %d beelden; bijschrift/kop blijven meetellen.', data.keywords_unavailable))
   end
-  if #(data.photos or {}) == 0 then table.insert(lines, 'Geen selecteerbare foto’s op deze pagina. Probeer s of ]p.') end
+  if #(data.photos or {}) == 0 then table.insert(lines, 'Geen selecteerbare foto’s geladen. Probeer s of ]p.') end
   if (data.excluded_articles or 0) > 0 or (data.unclassified_articles or 0) > 0 then
-    table.insert(lines, string.format('Overgeslagen: %d 112-artikelen; %d artikelen zonder leesbare rubriek.',
+    table.insert(lines, string.format('Laatste pagina — overgeslagen: %d 112-artikelen; %d artikelen zonder leesbare rubriek.',
       data.excluded_articles or 0, data.unclassified_articles or 0))
   end
   if (data.unreadable_articles or 0) > 0 or (data.unavailable_photos or 0) > 0 then
-    table.insert(lines, string.format('Niet leesbaar: %d artikelen; niet selecteerbaar: %d foto’s (metadata/voorbeeld ontbreekt).',
+    table.insert(lines, string.format('Laatste pagina — niet leesbaar: %d artikelen; niet selecteerbaar: %d foto’s (metadata/voorbeeld ontbreekt).',
       data.unreadable_articles or 0, data.unavailable_photos or 0))
   end
   s.next_offset = data.next_offset
@@ -348,10 +351,18 @@ search = function(s, query, offset)
   if s.structured then
     s.editor_text = query
     args = { 'search', '--fields', '--offset', tostring(offset) }
-    input = vim.json.encode({ editor_text = query, hidden_sources = s.hidden })
+    local payload = { editor_text = query, hidden_sources = s.hidden }
+    if offset > 0 and s.data and s.data.fields then
+      payload.previous = { version = 1, fields = s.data.fields,
+        candidates = s.data.candidates, next_offset = s.data.next_offset }
+    end
+    input = vim.json.encode(payload)
   else s.query = query end
   notify('Pubble-foto’s zoeken…', vim.log.levels.INFO)
-  run(s, args, input, function(data) render(s, data) end)
+  run(s, args, input, function(data)
+    if offset == 0 then s.expanded = {} end
+    render(s, data)
+  end)
 end
 
 function M.open(buf)

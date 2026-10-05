@@ -22,7 +22,7 @@ Uitsluiten filtert kop/bijschrift/fototrefwoorden; `avondvierdaagse` dekt ook
 bewerkingen/undo/plakken werken, Enter zoekt en Ctrl-C annuleert. De artikelbuffer
 en cursorpositie blijven behouden. In de lijst: `o` bekijkt de foto online, `p` toont alle
 voorbeelden in een browsertab (klik daar op **Gebruik deze foto**), Enter kiest
-in de lijst, `s` wijzigt filters, `]p` bladert en
+in de lijst, `s` wijzigt filters, `]p` voegt meer resultaten toe en
 `q` annuleert. Op macOS openen tabs op de achtergrond. De foto's worden niet
 gedownload; alleen de browser kan cachen. Controleer na kiezen `b:` en `c:` in
 het artikel en verzend met een volgende `<leader>aw`. De bronfoto blijft gelijk.
@@ -36,6 +36,12 @@ twaalf artikel-GETs en twaalf extra metadata-GETs per pagina, vier GETs tegelijk
 (plus retries). Deze extra metadata kan de zoekactie vertragen; latentie op een
 oude Mac moet nog worden gemeten. Hide/undo doet één lokaal subprocess, geen
 netwerkcall; uitklappen doet alleen een lokale redraw.
+Alle geladen pagina's vormen één lijst met unieke foto-ID's; alternatieve
+bronverwijzingen blijven bewaard. `p` toont dezelfde unieke selectie. Een
+nieuwe zoekopdracht begint opnieuw; een mislukte vervolgpagina laat de vorige
+resultaten intact. Geen automatische scan bij alleen dubbele resultaten en
+geen extra API-/AI-calls voor ontdubbelen. Wel groeit de tijdelijke metadata
+en lokale sortering zolang je meer pagina's ophaalt. Sluiten ruimt dit op.
 De browserkeuze gebruikt een tijdelijke lokale verbinding, maximaal vijftien
 minuten. Kiezen, opnieuw zoeken, `q` en afsluiten van NeoVim stoppen de verbinding.
 Een gewijzigde artikelbuffer weigert een late keuze. Er wordt alleen een
