@@ -587,15 +587,34 @@ cd ~/.config/nvim
 bash tests/run_headless.sh
 ```
 
-De GitHub Actions-workflow voor deze repository is op 16 september 2026
-verwijderd: de runner beschikte niet over de private Texttools-repository en
-faalde daardoor op ontbrekende CLI's. Draai deze suite daarom vóór iedere push
-lokaal. Herstel CI door beide repositories read-only uit te checken en Texttools
-te installeren; zie de actuele prioriteiten in
-`~/workspace/texttools/VERBETERPLAN.md`.
+Installeer eerst Texttools met `uv sync --locked` in die repository. De runner
+gebruikt `TEXTTOOLS_ROOT` (standaard `~/workspace/texttools`), `NVIM_BIN`
+(standaard `nvim`) en `PYTHON_BIN` (standaard `python3`). Hij werkt vanuit iedere
+werkdirectory, isoleert state/cache/logs per test en draait zonder API-secrets.
+Python-subprocessen mogen geen externe sockets verbinden; loopback/Unix sockets
+voor lokale tests blijven toegestaan. Een geblokkeerde netwerkpoging maakt de
+test rood, ook wanneer de applicatie de fout opvangt. Dit is een testvangnet,
+geen beveiligingssandbox voor willekeurige native programma's.
 
-Bekend open punt op 18 september 2026: de volledige suite stopt reproduceerbaar
-in `tests/duplicate_stages.lua` met `pending_jobs bleef hangen`. De nieuwe
-editieresolutie/agenda-doublurerunner van de handmatige kalenderactie moet in dat
-testscenario expliciet worden gestubd en de jobbalans moet daarna voor succes,
-fout en annulering worden vastgezet. Verhoog niet alleen de timeout.
+Iedere test krijgt maximaal 60 seconden, waarna ook achtergelaten subprocessen
+worden gestopt. De overige tests draaien door; iedere failure geeft een rode
+eindstatus. Gericht herhalen kan met:
+
+```bash
+bash tests/run_headless.sh duplicate_stages.lua edition_detection.lua
+```
+
+De eerdere instabiliteit in die twee tests is opgelost door de onafhankelijke
+agenda-/herkenningsadapters te mocken. De editie-integratie blijft de echte
+Python-resolver gebruiken; de bestaande assertion-timeouts zijn niet verhoogd.
+
+`.github/workflows/ci.yml` draait dezelfde suite op pushes naar `master` en
+handmatig op `master`. Hiervoor is `TEXTTOOLS_READ_KEY` vereist: een aparte
+**alleen-lezen deploy key** op `Wet-Senker/texttools`, waarvan de private helft
+als Actions-secret op deze NeoVim-repository staat. De workflow meldt expliciet
+een fout als die ontbreekt. Geen `pull_request_target` en geen private checkout
+bij externe PR's; test zulke wijzigingen lokaal na beoordeling. Checkoutcredentials
+blijven niet beschikbaar tijdens tests. Geen uploads van private broncode of logs.
+Texttools-CI test op zijn beurt de huidige Python-code tegen de publieke
+NeoVim-`master`, zonder extra toegangssleutel. Beide kanten installeren de
+Python-dependencies uit `uv.lock` en gebruiken NeoVim 0.12.3.

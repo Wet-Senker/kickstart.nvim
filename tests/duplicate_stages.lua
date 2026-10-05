@@ -1,4 +1,19 @@
 local ai = require 'ai_text'
+-- Deze test controleert de artikel-doublurepoort, niet de onafhankelijke
+-- editie-/agenda-I/O die een handmatige kalenderactie eveneens start.
+local original_calendar_resolver = ai._calendar_edition_resolver
+local original_agenda_candidates = ai._agenda_duplicate_candidates
+local calendar_resolutions, agenda_checks = 0, 0
+ai._calendar_edition_resolver = function(_, _, done)
+  calendar_resolutions = calendar_resolutions + 1
+  vim.schedule(function() done({ editions = { 'B', 'D' } }) end)
+end
+ai._agenda_duplicate_candidates = function(_, _, done)
+  agenda_checks = agenda_checks + 1
+  vim.schedule(function() done({ performed = true, candidates = {} }) end)
+end
+local original_system = vim.system
+vim.system = function() error('doubluretest startte onverwacht een echt subprocess') end
 local original_runner = ai._duplicate_stage_runner
 local runs, pending, temporary, options, last_command = 0, nil, nil, nil, nil
 ai._duplicate_stage_runner = function(command, callback, opts)
@@ -20,7 +35,10 @@ local function buffer()
   return buf
 end
 local function settled(buf)
-  assert(vim.wait(1000, function() return (vim.b[buf].pending_jobs or 0) == 0 end), 'pending_jobs bleef hangen')
+  assert(vim.wait(1000, function()
+    return (vim.b[buf].pending_jobs or 0) == 0
+      and vim.b[buf].manual_calendar_duplicate_pending ~= true
+  end), 'pending_jobs of handmatige agendacontrole bleef hangen')
 end
 local success = { version = 1, performed = true, candidates = {} }
 local buf = buffer()
@@ -100,6 +118,31 @@ pending(false, success)
 settled(abandoned_calendar)
 assert(resumed == 1, 'geannuleerde doublurecontrole startte alsnog kalender-AI')
 assert(vim.b[abandoned_calendar].calendar_ai_waiting_for_duplicate ~= true, 'geannuleerd kalenderverzoek bleef hangen')
+assert(calendar_resolutions == 2 and agenda_checks == 2, 'onafhankelijke controles niet afgerond')
+-- Een falende agenda-/editiecontrole moet dezelfde poort ook vrijgeven.
+for _, failure in ipairs({ 'edities', 'agenda' }) do
+  local resolver = ai._calendar_edition_resolver
+  local candidates = ai._agenda_duplicate_candidates
+  if failure == 'edities' then
+    ai._calendar_edition_resolver = function(_, _, done)
+      vim.schedule(function() done(nil) end)
+    end
+  else
+    ai._agenda_duplicate_candidates = function(_, _, done)
+      vim.schedule(function() done(nil) end)
+    end
+  end
+  local failed_check = buffer()
+  ai._check_duplicate_stage(failed_check, { 'B', 'D' }, 'importeren', function(ok) approved = ok end)
+  vim.api.nvim_set_current_buf(failed_check)
+  ai.articlemeta_calendar_buffer()
+  pending(true, success)
+  settled(failed_check)
+  assert(approved, failure .. '-fout blokkeerde artikelgoedkeuring')
+  ai._calendar_edition_resolver = resolver
+  ai._agenda_duplicate_candidates = candidates
+end
+assert(resumed == 3, 'foutpad hervatte kalender niet precies eenmaal')
 ai._resume_deferred_calendar = original_resume
 
 local removed = buffer()
@@ -207,4 +250,7 @@ assert(ai._duplicate_check_is_current(rewritten), 'controle op de nieuwe tekst w
 
 ai.cancel_ai = original_cancel
 ai._duplicate_stage_runner = original_runner
+ai._calendar_edition_resolver = original_calendar_resolver
+ai._agenda_duplicate_candidates = original_agenda_candidates
+vim.system = original_system
 print 'duplicate stages: OK'

@@ -1,4 +1,14 @@
 local ai = require 'ai_text'
+-- Editieresolutie/datelines blijven echte Python-integratie. Het resultaat
+-- mag niet afhangen van Pubble-I/O, AI of de snelheid van nevencontroles.
+local original_agenda_candidates = ai._agenda_duplicate_candidates
+local original_column_runner = ai._column_recognition_runner
+local original_rubriek_runner = ai._rubriek_check_runner
+ai._agenda_duplicate_candidates = function(_, _, done)
+  vim.schedule(function() done({ performed = true, candidates = {} }) end)
+end
+ai._column_recognition_runner = function(_, _, done) done({}) end
+ai._rubriek_check_runner = function(_, done) done(nil) end
 
 local original_duplicate_runner = ai._duplicate_stage_runner
 local duplicate_runs = {}
@@ -284,5 +294,8 @@ ai._duplicate_stage_runner = normal_test_runner
 ai._start_calendar_analysis = original_calendar_start
 
 ai._duplicate_stage_runner = original_duplicate_runner
+ai._agenda_duplicate_candidates = original_agenda_candidates
+ai._column_recognition_runner = original_column_runner
+ai._rubriek_check_runner = original_rubriek_runner
 
 print 'edition detection: OK'
