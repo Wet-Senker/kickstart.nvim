@@ -13,6 +13,15 @@ daarna de terminal en Neovim. De twee doublure-testbranches blijven beschikbaar.
 
 ## Workflow
 
+Bestaande foto uit Pubble nodig? Gebruik `<leader>pf` / `:PubbleFoto`, of
+**Foto zoeken** bij de fotocontrole van `<leader>aw`. Zoekwoorden zijn vooraf
+ingevuld en bewerkbaar. In de lijst: `o` bekijkt de foto online, `g` toont alle
+voorbeelden in een browsertab, Enter kiest, `/` zoekt opnieuw, `n` bladert en
+`q` annuleert. Op macOS openen tabs op de achtergrond. De foto's worden niet
+gedownload; alleen de browser kan cachen. Controleer na kiezen `b:` en `c:` in
+het artikel en verzend met een volgende `<leader>aw`. De bronfoto blijft gelijk.
+Werkt met de bijgewerkte Texttools-core (`pubble_photo_cli`).
+
 ```
 Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL ===` + tekst → Neovim
 

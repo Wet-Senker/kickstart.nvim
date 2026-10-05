@@ -418,8 +418,8 @@ M._missing_photo_choice = function()
     "Er is geen foto gekoppeld.\n\n"
       .. "Een gepubliceerd artikel heeft er een nodig. Zet een foto in de "
       .. "Pubble Inbox en druk opnieuw <leader>aw, of plaats het artikel nu "
-      .. "ongepubliceerd.",
-    "&Ongepubliceerd plaatsen\n&Annuleren",
+      .. "ongepubliceerd. Je kunt ook een bestaande Pubble-foto zoeken en kiezen.",
+    "&Ongepubliceerd plaatsen\n&Annuleren\n&Foto zoeken",
     2
   )
 end
@@ -5711,8 +5711,12 @@ function M.pubble_send(target_buf)
       -- een hele verzendvoorbereiding te kosten. De waarborg in send_published
       -- en in pubble-send blijft staan als vangnet.
       if resolved.has_photo == false then
-        if M._missing_photo_choice() == 1 then
+        local photo_choice = M._missing_photo_choice()
+        if photo_choice == 1 then
           send_unpublished()
+        elseif photo_choice == 3 then
+          discard_unpublished_temp()
+          require('pubble_photos').open(buf)
         else
           discard_unpublished_temp()
           notify_workflow(
@@ -7852,6 +7856,7 @@ local help_categories = {
     label = "Foto en vormgeving",
     prompt = "Foto of vormgeving:",
     items = {
+      { label = "Bestaande Pubble-foto zoeken en kiezen (<leader>pf)", action = function() require('pubble_photos').open() end },
       { label = "Bijschrift invoeren (globaal, alle foto's)", insert = "Bijschrift: " },
       { label = "Fotograaf of fotocredit invoeren (globaal)", insert = "Foto: " },
       { label = "Bijschrift foto 1 (b1:)", insert = "b1: " },
