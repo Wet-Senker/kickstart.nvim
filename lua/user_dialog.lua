@@ -129,6 +129,11 @@ local function next_dialog()
     for _, key in ipairs({ 'j', '<Down>' }) do map(key, function() selected = math.min(#items, selected + 1); cursor() end) end
     for _, key in ipairs({ 'k', '<Up>' }) do map(key, function() selected = math.max(1, selected - 1); cursor() end) end
     for i = 1, math.min(9, #items) do map(tostring(i), function() finish(i) end) end
+    for shortcut, index in pairs(opts.shortcuts or {}) do
+      if type(index) == 'number' and index >= 1 and index <= #items then
+        map(shortcut, function() finish(index) end)
+      end
+    end
   end
   vim.api.nvim_create_autocmd('WinClosed', { pattern = tostring(win), once = true, callback = function()
     if finished then return end
@@ -154,7 +159,7 @@ function M.select(items, opts, done)
     items = items,
     opts = opts,
     done = done,
-    provider = not opts.required and manual_select_provider or nil,
+    provider = not opts.required and not opts.native and manual_select_provider or nil,
   })
   vim.schedule(next_dialog)
 end

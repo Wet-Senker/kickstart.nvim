@@ -64,7 +64,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>al` | LinkedIn-post genereren — toont bewerkbare `## LinkedIn` sectie; in een krantreview alleen voor die krant |
 | `<leader>aV` | Overzicht van bron en afzonderlijke krantversiebuffers |
 | `<leader>aG` | Huidige krantversie opslaan en expliciet goedkeuren |
-| `<leader>aw` | Publicatie voorbereiden; vangnet voor doublures en onbewerkte import; toont zo nodig eerst `## Kranttijdsversies` en eventvervolgen. Bij een verstreken krantdeadline: alleen web, expliciet toch krant, of annuleren. Vanaf twee foto's krijgt de Pubble-kop `(n foto's)`, behalve bij 112 |
+| `<leader>aw` | Publicatie voorbereiden; vangnet voor doublures en onbewerkte import; toont zo nodig eerst `## Kranttijdsversies` en eventvervolgen. Bij een verstreken krantdeadline: overlay met reden; `w` alleen web, `t` toch krant, `a`/Escape annuleren (ook 1–3 of `j`/`k` + Enter). Vanaf twee foto's krijgt de Pubble-kop `(n foto's)`, behalve bij 112 |
 | `<leader>ax` | Vormgevingstekst (FOTO/FOTOBIJSCHRIFT/STREAMER + vette intro) + foto('s) naar het Bureaublad; vraagt een bestandsnaam |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |

@@ -346,6 +346,14 @@ doorzetten wordt het weeknummer in de krantwerktitel van die te late editie
 vervangen door `z`, zodat de bewuste uitzondering direct zichtbaar is. De
 werkelijke deadline blijft voor controles apart bewaard.
 
+De krantdeadlinekeuze verschijnt asynchroon boven de tekst, met de reden voor
+de grens. Kies met `j`/`k` en Enter, 1–3 of `w`/`t`/`a`; Escape annuleert.
+Navigatietoetsen schrijven geen herhaalde keuzeregels. Een antwoord na een
+tekstwijziging stopt de verzending. Bij actueel nieuws krijgt iedere krant haar
+eigen eerstvolgende wekelijkse cyclus: op 6 oktober 2026 B week 42, SW week 41.
+Een zichtbare kalenderdatum corrigeert ook eerder gecachete krantwerktitels;
+handmatige `week:`-keuzes en vaste `z`-rubrieken blijven behouden.
+
 De lichte SEO-instructie loopt alleen mee wanneer de keuze vóór de rewrite al
 vaststaat: een 112-template/`rubriek: 112`, `agenda: ja` of een zichtbare
 `## Kalender`-sectie. `agenda: nee` sluit evenement-SEO uit. Een pas na de

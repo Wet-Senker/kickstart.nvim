@@ -4603,7 +4603,10 @@ local function effective_skipped_newspapers(buf)
 end
 
 local function late_newspaper_message(review)
-  local lines = { "De krantdeadline is verstreken:" }
+  local lines = { "De eerstvolgende krant valt buiten de berekende plaatsingsperiode:" }
+  if type(review.reason) == "string" and review.reason ~= "" then
+    table.insert(lines, "Reden: " .. review.reason)
+  end
   for _, item in ipairs(type(review.items) == "table" and review.items or {}) do
     if item.too_late == true then
       local name = type(item.name) == "string" and item.name or tostring(item.edition or "krant")
@@ -4627,44 +4630,55 @@ local function late_newspaper_message(review)
 end
 
 M._late_newspaper_message = late_newspaper_message
-M._late_newspaper_confirm = function(review)
-  return require('user_dialog').confirm(
-    late_newspaper_message(review),
-    "Alleen &website voor te late krant(en)\n&Toch ook naar de krant\n&Annuleren",
-    1
-  )
+M._late_newspaper_confirm = function(review, done)
+  require('user_dialog').select({
+    "Alleen website voor deze krant(en) [w]",
+    "Toch ook naar de krant [t]",
+    "Annuleren [a]",
+  }, {
+    prompt = late_newspaper_message(review), native = true,
+    shortcuts = { w = 1, W = 1, t = 2, T = 2, a = 3, A = 3 },
+  }, function(_, index) done(index) end)
 end
 
-local function review_late_newspapers(buf, review)
+local function review_late_newspapers(buf, review, done)
   local late = type(review) == "table" and review.late_editions or nil
   if type(late) ~= "table" or #late == 0 then
     vim.b[buf].late_newspaper_decision = nil
-    return true
+    done(true)
+    return
   end
 
   local signature = type(review.signature) == "string" and review.signature or ""
   local remembered = vim.b[buf].late_newspaper_decision
   if type(remembered) == "table" and remembered.signature == signature then
-    return remembered.mode == "website" or remembered.mode == "force"
+    done(remembered.mode == "website" or remembered.mode == "force")
+    return
   end
 
-  local choice = M._late_newspaper_confirm(review)
-  if choice == 1 then
-    vim.b[buf].late_newspaper_decision = {
-      signature = signature,
-      mode = "website",
-      editions = late,
-    }
-    return true
-  elseif choice == 2 then
-    vim.b[buf].late_newspaper_decision = {
-      signature = signature,
-      mode = "force",
-      editions = late,
-    }
-    return true
+  if vim.b[buf].late_newspaper_review_pending then
+    done(false)
+    return
   end
-  return false
+  local tick = vim.api.nvim_buf_get_changedtick(buf)
+  vim.b[buf].late_newspaper_review_pending = true
+  M._late_newspaper_confirm(review, function(choice)
+    if not vim.api.nvim_buf_is_valid(buf) then done(false); return end
+    vim.b[buf].late_newspaper_review_pending = nil
+    if vim.api.nvim_buf_get_changedtick(buf) ~= tick then
+      notify_workflow("Artikel gewijzigd tijdens de keuze; start de verzending opnieuw.", vim.log.levels.WARN)
+      done(false)
+      return
+    end
+    if choice == 1 or choice == 2 then
+      vim.b[buf].late_newspaper_decision = {
+        signature = signature,
+        mode = choice == 1 and "website" or "force",
+        editions = late,
+      }
+      done(true)
+    else done(false) end
+  end)
 end
 
 M._review_late_newspapers = review_late_newspapers
@@ -4742,6 +4756,10 @@ M._finalize_published_buffer = finalize_published_buffer
 function M.pubble_send(target_buf)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  if vim.b[buf].late_newspaper_review_pending then
+    notify_workflow("Beantwoord eerst de openstaande krantkeuze.", vim.log.levels.INFO)
+    return
+  end
   -- Eerst controleren, dan pas routeren. De weekendbatch neemt een eigen
   -- afslag en zou deze blokkade anders overslaan; dat kan vandaag geen kwaad
   -- omdat een weekendbuffer bij één krant hoort en dus nooit krantversies
@@ -5786,8 +5804,8 @@ function M.pubble_send(target_buf)
 
       local resolved_web_only = type(vim.b[buf].skip_newspaper_editions) == "table"
           and #vim.b[buf].skip_newspaper_editions == #resolved.editions
-      if not resolved_web_only
-          and not review_late_newspapers(buf, resolved.newspaper_deadline_review) then
+      local function after_deadline_review(accepted)
+      if not accepted then
         discard_unpublished_temp()
         notify_workflow("Verzending geannuleerd.", vim.log.levels.INFO)
         return
@@ -6158,6 +6176,12 @@ function M.pubble_send(target_buf)
       end)
     end)
       end)
+      end
+      if resolved_web_only then
+        after_deadline_review(true)
+      else
+        review_late_newspapers(buf, resolved.newspaper_deadline_review, after_deadline_review)
+      end
     end)
     end,
     'Publicatie · Voorbereiden',
