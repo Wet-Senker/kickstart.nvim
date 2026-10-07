@@ -14,8 +14,9 @@ daarna de terminal en Neovim. De twee doublure-testbranches blijven beschikbaar.
 ## Workflow
 
 Bestaande foto uit Pubble nodig? Gebruik `<leader>pf` / `:PubbleFoto`, of
-**Foto zoeken** bij de fotocontrole van `<leader>aw`. Onderwerp, Plaats en
-Uitsluiten staan in een tijdelijke Vim-buffer. Onderwerp ondersteunt maximaal
+**Foto zoeken** bij de fotocontrole van `<leader>aw`. Bron, Onderwerp, Plaats en
+Uitsluiten staan in een tijdelijke Vim-buffer. Kies bij Bron tussen
+`Artikelfoto's` (standaard), `Beeldbank` of `Beide`. Onderwerp ondersteunt maximaal
 drie komma-gescheiden alternatieven; Plaats mag leeg voor algemene foto's.
 Uitsluiten filtert kop/bijschrift/fototrefwoorden; `avondvierdaagse` dekt ook
 `Avond4Daagse`. Escape gaat naar Normal-modus, gewone
@@ -30,12 +31,11 @@ Werkt met de bijgewerkte Texttools-core (`pubble_photo_cli`).
 Foto's staan per bronartikel gegroepeerd: Tab klapt open/dicht, `x` verbergt de
 hele bron in deze sessie (ook in de browser), `u` herstelt de laatste bron.
 De rangschikking weegt beschikbare fototrefwoorden boven bijschrift boven kop;
-een matchreden is zichtbaar. Geen beeldherkenning/AI. Zoekbron blijft eerdere
-artikelen van alle kranten, nog niet de losse beeldbank. Maximaal drie zoekcalls,
-twaalf artikel-GETs en twaalf extra metadata-GETs per pagina, vier GETs tegelijk
-(plus retries). Deze extra metadata kan de zoekactie vertragen; latentie op een
-oude Mac moet nog worden gemeten. Hide/undo doet één lokaal subprocess, geen
-netwerkcall; uitklappen doet alleen een lokale redraw.
+een matchreden is zichtbaar. Geen beeldherkenning/AI. De losse beeldbank werkt
+ook zonder bronartikel. Ontbreekt een veilige thumbnail, dan opent `o` de foto in
+Pubble en toont het raster een Pubble-link. Bekend eenmalig gebruik wordt
+geblokkeerd; controleer altijd context en rechten. Hide/undo doet één lokaal
+subprocess, geen netwerkcall; uitklappen doet alleen een lokale redraw.
 Alle geladen pagina's vormen één lijst met unieke foto-ID's; alternatieve
 bronverwijzingen blijven bewaard. `p` toont dezelfde unieke selectie. Een
 nieuwe zoekopdracht begint opnieuw; een mislukte vervolgpagina laat de vorige
@@ -50,10 +50,12 @@ matches komen eerst, dan bevestigde fototrefwoorden/bijschrift/kop;
 enkelvoud/meervoud telt niet dubbel. `Gevonden via` toont de zoekherkomst.
 Met `p` zie je een compact raster van drie foto's naast elkaar, of minder op
 smalle schermen. Klikken vergroot/sluit het beeld; **Gebruik deze foto** kiest.
-Combinaties kosten meer netwerkcalls: maximaal vijftien zoekvragen en vijftien
-unieke artikel-details per pagina, met hergebruik van dezelfde artikelgegevens;
-beeldmetadata blijft maximaal twaalf GETs. Een oude zoekcursor vraagt opnieuw zoeken;
-geen extra AI-call, upload of automatische publicatie.
+Combinaties kosten meer netwerkcalls. Artikelfoto's gebruikt maximaal vijftien
+zoekvragen, vijftien unieke artikel-details en twaalf keyword-GETs per pagina.
+Beeldbank gebruikt maximaal vijftien zoekvragen en vijftien unieke metadata-GETs;
+`Beide` telt de begrensde routes op. Details worden gecachet en vier GETs lopen
+tegelijk. Een oude zoekcursor vraagt opnieuw zoeken; geen extra AI-call, download,
+upload of automatische publicatie. Latentie op een oude Mac moet nog worden gemeten.
 
 De browserkeuze gebruikt een tijdelijke lokale verbinding, maximaal vijftien
 minuten. Kiezen, opnieuw zoeken, `q` en afsluiten van NeoVim stoppen de verbinding.
@@ -61,8 +63,9 @@ Een gewijzigde artikelbuffer weigert een late keuze. Er wordt alleen een
 bestaand beeld-ID overgenomen, nooit geüpload of automatisch gepubliceerd.
 Werk beide repositories bij; bij een fout blijft Enter in de lijst beschikbaar.
 `/`, `n`, `N`, `gg` en `G` blijven gewone Vim-navigatie in de resultatenlijst.
-112-bronartikelen worden door Texttools bij alle kranten uitgesloten. De lijst
-vermeldt ook overgeslagen artikelen waarvan de rubriek niet leesbaar is.
+112-bronartikelen worden door Texttools bij alle kranten uitgesloten. De directe
+beeldbank heeft op verzoek geen 112-herkomstfilter; de lijst meldt dit zodat je
+de zichtbare foto's zelf beoordeelt. Ook onleesbare artikelrubrieken worden gemeld.
 
 ```
 Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL ===` + tekst → Neovim

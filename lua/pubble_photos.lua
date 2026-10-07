@@ -36,7 +36,7 @@ local function run(s, args, input, done)
         return
       end
       local decoded, data = pcall(vim.json.decode, result.stdout or '')
-      if result.code ~= 0 or not decoded or type(data) ~= 'table' or data.version ~= 1 then
+      if result.code ~= 0 or not decoded or type(data) ~= 'table' or (data.version ~= 1 and data.version ~= 2) then
         notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr)
           or 'Fotokeuze mislukt; artikel is niet gewijzigd.', vim.log.levels.ERROR)
         return
@@ -195,7 +195,7 @@ local search
 local function ask_query(s, initial)
   if s.busy or not current(s) then return end
   stop_browser(s)
-  dialog.input({ prompt = s.structured and 'Foto: zoekwoorden en plaats, los én gecombineerd; uitsluiten' or 'Pubble-foto’s zoeken',
+  dialog.input({ prompt = s.search_help or (s.structured and 'Foto: zoekwoorden en plaats, los én gecombineerd; uitsluiten' or 'Pubble-foto’s zoeken'),
     default = initial or s.editor_text or s.query or '', vim_edit = true,
     on_open = function(buf, win)
       s.input_win = win
@@ -256,7 +256,10 @@ render = function(s, data)
     map('<CR>', function() choose(s) end, 'Deze foto kiezen')
     map('o', function()
       local photo = selected(s)
-      if photo then browser.open_urls({ photo.preview_url }) end
+      if photo then
+        local url = type(photo.preview_url) == 'string' and photo.preview_url ~= '' and photo.preview_url or photo.source_url
+        if url then browser.open_urls({ url }) end
+      end
     end, 'Foto online bekijken')
     map('p', function() open_browser_choice(s) end, 'Alle voorbeelden in browser bekijken en kiezen')
     map('s', function() ask_query(s) end, 'Andere zoekwoorden')
@@ -267,7 +270,7 @@ render = function(s, data)
       local photo = selected(s)
       if not photo or not s.structured then return end
       local hidden = vim.deepcopy(s.hidden or {})
-      table.insert(hidden, photo.edition .. ':' .. tostring(photo.source_article_id))
+      table.insert(hidden, photo.source_key or (photo.edition .. ':' .. tostring(photo.source_article_id)))
       project(s, hidden)
     end, 'Heel bronartikel verbergen')
     map('u', function()
@@ -277,7 +280,7 @@ render = function(s, data)
     map('<Tab>', function()
       local photo = selected(s)
       if not photo or not s.structured then return end
-      local id = photo.edition .. ':' .. tostring(photo.source_article_id)
+      local id = photo.source_key or (photo.edition .. ':' .. tostring(photo.source_article_id))
       s.expanded[id] = not s.expanded[id]
       render(s, s.data)
     end, 'Alle foto’s van bronartikel tonen/inklappen')
@@ -287,7 +290,7 @@ render = function(s, data)
   s.photos = data.photos or {}
   local lines = { 'Pubble-foto’s · ' .. s.query,
     'o: foto | p: browser | Enter: kies | s: filters | ]p: meer | q: terug',
-    '112 uitgesloten. Controleer context en gebruiksrechten van de foto.', '' }
+    data.policy_note or '112 uitgesloten. Controleer context en gebruiksrechten van de foto.', '' }
   if data.groups then
     lines[4] = 'Tab: groep open/dicht | x: verberg bron | u: herstel (' .. #(s.hidden or {}) .. ' verborgen)'
   end
@@ -318,6 +321,12 @@ render = function(s, data)
       '   Credit: ' .. (photo.credit ~= '' and one_line(photo.display_credit or photo.credit) or '(leeg)'),
     })
     if photo.match_reason then table.insert(lines, '   Match: ' .. one_line(photo.match_reason)) end
+    if photo.reuse_notice and photo.reuse_notice ~= '' then
+      table.insert(lines, '   Let op: ' .. one_line(photo.reuse_notice))
+    end
+    if photo.source_kind == 'image_library' and (not photo.preview_url or photo.preview_url == '') then
+      table.insert(lines, '   Geen direct voorbeeld; o opent de foto in Pubble.')
+    end
     if type(photo.search_terms) == 'table' and #photo.search_terms > 0 then
       table.insert(lines, '   Gevonden via: ' .. one_line(table.concat(photo.search_terms, ', ')))
     end
@@ -329,6 +338,10 @@ render = function(s, data)
   end
   if (data.keywords_unavailable or 0) > 0 then
     table.insert(lines, string.format('Laatste pagina: fototrefwoorden niet opgehaald/beschikbaar voor %d beelden; bijschrift/kop blijven meetellen.', data.keywords_unavailable))
+  end
+  if (data.restricted_photos or 0) > 0 or (data.unreadable_photos or 0) > 0 then
+    table.insert(lines, string.format('Beeldbank — overgeslagen: %d voor eenmalig gebruik; %d niet-leesbare beelden.',
+      data.restricted_photos or 0, data.unreadable_photos or 0))
   end
   if #(data.photos or {}) == 0 then table.insert(lines, 'Geen selecteerbare foto’s geladen. Probeer s of ]p.') end
   if (data.excluded_articles or 0) > 0 or (data.unclassified_articles or 0) > 0 then
@@ -356,7 +369,7 @@ search = function(s, query, offset)
     args = { 'search', '--fields', '--offset', tostring(offset) }
     local payload = { editor_text = query, hidden_sources = s.hidden }
     if offset > 0 and s.data and s.data.fields then
-      payload.previous = { version = 1, fields = s.data.fields,
+      payload.previous = { version = s.data.version or 1, fields = s.data.fields,
         candidates = s.data.candidates, next_offset = s.data.next_offset,
         query_strategy = s.data.query_strategy }
     end
@@ -393,6 +406,7 @@ function M.open(buf)
   sessions[buf] = s
   run(s, { 'suggest' }, text(buf), function(data)
     s.structured = type(data.editor_text) == 'string'
+    s.search_help = data.field_help
     ask_query(s, data.editor_text or data.query)
   end)
 end
