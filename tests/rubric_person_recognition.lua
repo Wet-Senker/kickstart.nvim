@@ -104,7 +104,7 @@ wait_for(function() return vim.b[jan_buf].recognized_rubric == 'ondernemen' end,
 
 local jan_text = text(jan_buf)
 assert(decision_seen and #decision_seen.candidates == 1, 'unieke naam gaf geen gerichte bevestiging')
-assert(jan_text:find('z - 1 Ondernemen in Kampen Jan Groen', 1, true), 'Ondernemen-werktitel ontbreekt')
+assert(jan_text:find('z - OIK Jan Groen', 1, true), 'Ondernemen-werktitel ontbreekt')
 assert(jan_text:find('Column Ondernemen in Kampen: Een aangeleverde kop', 1, true), 'Ondernemen-template ontbreekt')
 assert(layout_export.pending(jan_buf), 'Ondernemen-exportplan ontbreekt')
 assert(vim.fn.filereadable(inbox .. '/Jan Groen.jpg') == 1, 'gevonden persoonsfoto is niet voorbereid')
@@ -157,8 +157,8 @@ local seen_roles = {}
 for _, item in ipairs(nardus_candidates) do seen_roles[item.id] = true end
 assert(seen_roles.raadspraat, 'Raadspraatkandidaat ontbreekt')
 assert(seen_roles.ondernemen, 'Ondernemenkandidaat ontbreekt')
-assert(nardus_text:find('z - 1 Ondernemen in Kampen Nardus Koster', 1, true), 'gekozen Nardus-rol is niet toegepast')
-assert(not nardus_text:find('z - 1 Raadspraat', 1, true), 'niet-gekozen Nardus-rol is toegepast')
+assert(nardus_text:find('z - OIK Nardus Koster', 1, true), 'gekozen Nardus-rol is niet toegepast')
+assert(not nardus_text:find('z - RAADSPRAAT', 1, true), 'niet-gekozen Nardus-rol is toegepast')
 assert(vim.fn.filereadable(inbox .. '/Nardus Koster.jpg') == 1, 'verkeerde Nardus-foto voorbereid')
 
 -- Een core-uitkomst voor een inmiddels gewijzigde buffer mag de oude

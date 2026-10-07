@@ -89,10 +89,10 @@ assert(vim.fn.filereadable(kiek_plan.dir .. '/' .. kiek_plan.txt_name) == 0, 'Ki
 assert(vim.fn.glob(desktop .. '/*_lezersnieuws') == '', 'Kamper Kiek maakte toch lezersnieuws aan')
 local kiek_text = table.concat(vim.api.nvim_buf_get_lines(kiek_buf, 0, -1, false), '\n')
 assert(
-  kiek_text:find('newspaper:\n  working_title: "z - 1 Kamper Kiek"', 1, true),
+  kiek_text:find('newspaper:\n  working_title: "z - KAMPER KIEK"', 1, true),
   'Kamper Kiek kreeg niet de vaste z-werktitel'
 )
-assert(kiek_text:find('prio: 1', 1, true), 'Kamper Kiek verloor de bestaande prioriteitscode')
+assert(not kiek_text:find('prio: 1', 1, true), 'z-rubriek Kamper Kiek mag geen prio-controlregel krijgen (buiten de weekplanning)')
 assert(kiek_text:find('\ne: B\n', 1, true), 'Kamper Kiek kreeg niet automatisch editie B')
 assert(kiek_text:find('=== ARTIKEL ===', 1, true), 'Kamper Kiek verloor de artikelgrens')
 assert(kiek_text:find('De Kamper Kiek op de wîêk', 1, true), 'vaste Kamper-Kiekkop ontbreekt')

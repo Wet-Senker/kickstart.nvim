@@ -56,7 +56,7 @@ M.templates = {
     -- volstaat hier bv. edition = 'D' of edition = 'B, SW').
     id = 'kamper_kiek',
     edition = 'B',
-    working_title = 'z - 1 Kamper Kiek',
+    working_title = 'z - KAMPER KIEK',
     -- De speciale Kiek-flow registreert gemeentenieuws; nooit de generieke
     -- lezersnieuwsexport uit apply().
     no_export = true,
@@ -562,7 +562,7 @@ function M.raadspraat_menu(target_buf, context, done)
       if not require_empty_inbox(inbox) then return end
 
       local bijschrift = 'Deze editie van Raadspraat is geschreven door ' .. naam .. ' van ' .. partij_in_bijschrift(party) .. '.'
-      local working_title = 'z - 1 Raadspraat ' .. party .. ' ' .. naam
+      local working_title = 'z - RAADSPRAAT ' .. party .. ' ' .. naam
 
       -- Minimal frontmatter stub — articlemeta preserves working_title and caption if set.
       local fm_lines = {
@@ -735,7 +735,7 @@ function M.ondernemen_menu(target_buf, context, done)
     if functie ~= '' and not functie:match('%.$') then functie = functie .. '.' end
 
     local bijschrift = 'Deze editie van Ondernemen in Kampen is geschreven door ' .. naam .. ', ' .. functie
-    local working_title = 'z - 1 Ondernemen in Kampen ' .. naam
+    local working_title = 'z - OIK ' .. naam
 
     local fm_lines = {
       '---',
@@ -839,7 +839,15 @@ local function apply(t, vars, target_buf)
   -- website de column-slotregel eronder zet ("Wil je reageren op deze
   -- column?") i.p.v. de gewone nieuwsregel. Zie web_closing.py.
   local is_112 = t.name == '112 nieuws'
-  local control = { is_112 and 'prio: 2' or 'prio: 1' }
+  -- Map-export-rubrieken (werktitel begint met `z `) lopen buiten de
+  -- krantweekplanning en krijgen daarom geen prio in de werktitel: dan geen
+  -- prio-controlregel, zodat articlemeta de prio-loze `z - NAAM`-titel behoudt.
+  local is_map_export = type(t.working_title) == 'string'
+    and t.working_title:match('^z%s')
+  local control = {}
+  if not is_map_export then
+    table.insert(control, is_112 and 'prio: 2' or 'prio: 1')
+  end
   local replaces_rubriek = false
   if t.column then
     table.insert(control, 'rubriek: column')
@@ -1052,7 +1060,7 @@ stock_rubrieken = {
     edition     = 'B',
     stock_image = 'hondenhoek.jpg',
     txt_name    = '1.hondenhoekFOTO.txt',
-    working_title = 'z - 1 Hondenhoek',
+    working_title = 'z - HONDENHOEK',
     normalize = normalize_hondenhoek,
     preserve_full_body = true,
     template    = {
@@ -1068,7 +1076,7 @@ stock_rubrieken = {
     edition     = 'B',
     stock_image = 'open-hof.jpg',
     txt_name    = '1.openHofFOTO.txt',
-    working_title = 'z - 1 Open Hof',
+    working_title = 'z - OPEN HOF',
     template    = {
       'Verslag Open Hof: {{title}}',
       '',
@@ -1082,7 +1090,7 @@ stock_rubrieken = {
     edition     = 'B',
     stock_image = 'nog-even-dit.jpg',
     txt_name    = '1.nogEvenDitFOTO.txt',
-    working_title = 'z - 1 Nog Even Dit',
+    working_title = 'z - NOG EVEN DIT',
     template    = {
       'Nog Even Dit',
       '',

@@ -164,7 +164,7 @@ ai_text._duplicate_stage_runner = function(command, callback)
     local compared = table.concat(vim.fn.readfile(command[2]), '\n')
     assert(
       compared:find('De Kamper Kiek op de wîêk', 1, true)
-        and compared:find('newspaper:\n  working_title: "z - 1 Kamper Kiek"', 1, true),
+        and compared:find('newspaper:\n  working_title: "z - KAMPER KIEK"', 1, true),
       'doublurecontrole startte voordat de rubriekopmaak was toegepast'
     )
     formatted_duplicate_seen = true
@@ -229,7 +229,7 @@ assert(
 
 local output = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
 assert(
-  output:find('newspaper:\n  working_title: "z - 1 Kamper Kiek"', 1, true),
+  output:find('newspaper:\n  working_title: "z - KAMPER KIEK"', 1, true),
   'automatische Kamper Kiek kreeg niet de vaste z-werktitel'
 )
 assert(output:find('De Kamper Kiek op de wîêk', 1, true), 'automatisch template ontbreekt')
@@ -303,7 +303,7 @@ assert(
 )
 
 local honden_output = table.concat(vim.api.nvim_buf_get_lines(honden_buf, 0, -1, false), '\n')
-assert(honden_output:find('newspaper:\n  working_title: "z - 1 Hondenhoek"', 1, true), 'Hondenhoekfrontmatter ontbreekt')
+assert(honden_output:find('newspaper:\n  working_title: "z - HONDENHOEK"', 1, true), 'Hondenhoekfrontmatter ontbreekt')
 assert(honden_output:find('\ne: B\n', 1, true), 'automatische Hondenhoek kreeg niet editie B')
 assert(honden_output:find('\nHondenhoek\n', 1, true), 'vaste Hondenhoektitel ontbreekt')
 assert(not honden_output:find('\nHondenhoek:\n', 1, true), 'aangeleverde Hondenhoekkop bleef dubbel staan')
