@@ -35,6 +35,14 @@ M.config = {
 -- the article, lines below it go to the bottom, your imported text stays in
 -- the middle. Any other {{marker}} is left in place for you to fill by hand.
 -- ============================================================
+-- Leugenbankien (Appien Floep): de openingszin hoort zonder punt te eindigen
+-- ("'t Is maar wat in disse stad"); haal die ene punt standaard weg.
+local function normalize_leugenbankien(lines)
+  local text = table.concat(lines, '\n')
+  text = text:gsub('disse stad%.', 'disse stad', 1)
+  return vim.split(text, '\n', { plain = true })
+end
+
 M.templates = {
   -- TIER 1 — plain stock text
   {
@@ -156,6 +164,23 @@ M.templates = {
       '{{body}}',
       '',
       'Wij vinden zorgvuldige berichtgeving belangrijk en gaan zorgvuldig om met de privacy van betrokkenen. Zie je iets dat niet klopt of heb je aanvullende informatie? Mail het de redactie via redactie.debrug@brugmedia.nl.',
+    },
+  },
+
+  {
+    -- Dialectcolumn van "Appien Floep"; wordt bij import automatisch herkend aan
+    -- de "disse stad"-uitdrukking + de ondertekening. Alleen een vaste kop en de
+    -- tekst; geen intro-alinea. Print + web (x - 1).
+    name = 'Leugenbankien',
+    id = 'leugenbankien',
+    column = true,
+    no_export = true,
+    working_title = 'x - 1 LEUGENBANKIEN',
+    normalize = normalize_leugenbankien,
+    text = {
+      'Leugenbankien',
+      '',
+      '{{body}}',
     },
   },
 
@@ -289,6 +314,43 @@ local function upsert_newspaper_frontmatter(frontmatter, working_title, priority
     table.insert(result, newspaper_index + 1, '  working_title: "' .. working_title .. '"')
   end
   return result
+end
+
+-- Lees één veld uit het `newspaper:`-blok van de frontmatter (bv. `keyword`,
+-- `planning_date`); nil als het ontbreekt of leeg/null is.
+local function read_newspaper_field(frontmatter, key)
+  if type(frontmatter) ~= 'table' then return nil end
+  local in_newspaper = false
+  for _, line in ipairs(frontmatter) do
+    if line:match('^newspaper:%s*$') then
+      in_newspaper = true
+    elseif in_newspaper and line:match('^%S') then
+      break -- volgend top-level blok of sluit-delimiter
+    elseif in_newspaper then
+      local value = line:match('^%s+' .. key .. ':%s*(.-)%s*$')
+      if value then
+        value = value:gsub('^"(.*)"$', '%1'):gsub("^'(.*)'$", '%1')
+        if value == '' or value == 'null' then return nil end
+        return value
+      end
+    end
+  end
+  return nil
+end
+
+-- Vaste-titel-rubrieken krijgen een AI-trefwoord + aanleverdatum achter de
+-- werktitel, zodat twee columns van dezelfde rubriek die kort na elkaar
+-- binnenkomen niet dezelfde werktitel krijgen. Trefwoord en datum komen uit de
+-- gedeelde metadata-stap (newspaper.keyword / newspaper.planning_date). De
+-- aanwezigheid van planning_date is het signaal dat die stap gedraaid heeft;
+-- zonder dat (bv. een kale buffer) blijft de werktitel ongewijzigd.
+local function with_rubriek_disambiguator(working_title, frontmatter)
+  if type(working_title) ~= 'string' then return working_title end
+  local date = read_newspaper_field(frontmatter, 'planning_date')
+  if not date then return working_title end
+  local keyword = read_newspaper_field(frontmatter, 'keyword')
+  local suffix = keyword and (keyword .. ' ' .. date) or date
+  return working_title .. ' ' .. suffix
 end
 
 -- Splits een zichtbare pv-buffer in beschermd tagblok en artikeltekst. Oude
@@ -819,12 +881,16 @@ local function apply(t, vars, target_buf)
   local existing_fm = visible_frontmatter(buf_lines)
   local existing_header, content = split_visible_article(buf_lines)
   if vars.source_body then content = vim.split(vars.source_body, '\n', { plain = true }) end
+  -- Templategebonden opschoning van de aangeleverde tekst (bv. Leugenbankien:
+  -- de punt na de openingszin weg) vóór de titel/body-substitutie.
+  if type(t.normalize) == 'function' then content = t.normalize(content) end
   existing_header = with_default_edition(
     existing_header,
     t.edition or (t.column and 'B' or nil)
   )
 
-  existing_fm = upsert_newspaper_frontmatter(existing_fm, t.working_title, 1)
+  local resolved_working_title = with_rubriek_disambiguator(t.working_title, existing_fm)
+  existing_fm = upsert_newspaper_frontmatter(existing_fm, resolved_working_title, 1)
 
   if t.name == '112 nieuws' and not vars.prefix then
     vars.prefix = detect_112_prefix(content)
@@ -1032,6 +1098,9 @@ function M.apply_detected_rubric(id, buf, candidate, done)
   if id == 'natuurvereniging' then
     return M.apply_template_by_name('Column Natuurvereniging', { source_body = candidate.normalized_body }, buf)
   end
+  if id == 'leugenbankien' then
+    return M.apply_template_by_name('Leugenbankien', { source_body = candidate.normalized_body }, buf)
+  end
   if id == 'kamper_kiek' then
     for _, template in ipairs(M.templates) do
       if template.name == 'Kiek op de wiek (Sander de Rouwe)' then
@@ -1127,17 +1196,25 @@ function M.stock_rubriek_flow(config, target_buf, candidate)
     return false, 'stock_image_missing'
   end
 
-  -- Minimale frontmatter stub voor working_title en priority.
+  -- Minimale frontmatter stub voor working_title en priority. Lees het
+  -- AI-trefwoord + de aanleverdatum uit de bestaande frontmatter, zodat de vaste
+  -- rubriektitel ook hier onderscheidend wordt en bij herhaald toepassen stabiel
+  -- blijft.
+  local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
+  local original_fm = visible_frontmatter(buf_lines)
   local fm_lines = {
     '---',
     'newspaper:',
-    '  working_title: "' .. config.working_title .. '"',
+    '  working_title: "' .. with_rubriek_disambiguator(config.working_title, original_fm) .. '"',
     '  priority: 1',
-    '---',
-    '',
   }
+  local kw = read_newspaper_field(original_fm, 'keyword')
+  if kw then table.insert(fm_lines, '  keyword: "' .. kw .. '"') end
+  local pd = read_newspaper_field(original_fm, 'planning_date')
+  if pd then table.insert(fm_lines, '  planning_date: ' .. pd) end
+  table.insert(fm_lines, '---')
+  table.insert(fm_lines, '')
 
-  local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
   local existing_header, article_lines = split_visible_article(buf_lines)
   if candidate and candidate.normalized_body then article_lines = vim.split(candidate.normalized_body, '\n', { plain = true }) end
   if config.normalize then article_lines = config.normalize(article_lines) end

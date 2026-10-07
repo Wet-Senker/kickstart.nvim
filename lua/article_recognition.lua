@@ -459,11 +459,61 @@ local function hondenhoek_detection(text)
   })
 end
 
+local function leugenbankien_detection(text)
+  local t = text:lower()
+  local evidence = {}
+  local has_phrase = t:find('disse stad') ~= nil
+  local has_author = t:find('appien floep') ~= nil
+
+  -- Al toegepast: de vaste kop "Leugenbankien" staat al als losse regel
+  -- (de werktitel "… LEUGENBANKIEN" telt niet mee door de hoofdletters/opmaak).
+  local has_kop = false
+  for line in (text .. '\n'):gmatch('([^\n]*)\n') do
+    if line:gsub('[*_#>%s]', ''):lower() == 'leugenbankien' then
+      has_kop = true
+      break
+    end
+  end
+  if has_kop and (has_phrase or has_author) then
+    return result({
+      id = 'leugenbankien',
+      label = 'Leugenbankien',
+      category = 'rubric',
+      policy = 'auto',
+      state = 'already_applied',
+      evidence = { 'vaste Leugenbankien-kop staat al boven de tekst' },
+    })
+  end
+
+  -- Herkenbaar aan de vaste "disse stad"-uitdrukking én de ondertekening
+  -- "Appien Floep"; samen leveren ze automatische toepassing.
+  local confidence = 0
+  if has_phrase then
+    confidence = confidence + 50
+    add_evidence(evidence, 'vaste uitdrukking “disse stad”')
+  end
+  if has_author then
+    confidence = confidence + 50
+    add_evidence(evidence, 'ondertekening Appien Floep')
+  end
+
+  return result({
+    id = 'leugenbankien',
+    label = 'Leugenbankien',
+    category = 'rubric',
+    policy = 'auto',
+    points = math.min(100, confidence),
+    confidence = math.min(100, confidence),
+    evidence = evidence,
+  })
+end
+
 local DETECTORS = {
   calendar_detection,
   emergency_detection,
   kamper_kiek_detection,
   hondenhoek_detection,
+  leugenbankien_detection,
 }
 
 local function sort_by_confidence(results)
