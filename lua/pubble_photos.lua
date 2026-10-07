@@ -195,7 +195,7 @@ local search
 local function ask_query(s, initial)
   if s.busy or not current(s) then return end
   stop_browser(s)
-  dialog.input({ prompt = s.structured and 'Foto: onderwerp (komma = of), plaats, uitsluiten' or 'Pubble-foto’s zoeken',
+  dialog.input({ prompt = s.structured and 'Foto: zoekwoorden en plaats, los én gecombineerd; uitsluiten' or 'Pubble-foto’s zoeken',
     default = initial or s.editor_text or s.query or '', vim_edit = true,
     on_open = function(buf, win)
       s.input_win = win
@@ -318,6 +318,9 @@ render = function(s, data)
       '   Credit: ' .. (photo.credit ~= '' and one_line(photo.display_credit or photo.credit) or '(leeg)'),
     })
     if photo.match_reason then table.insert(lines, '   Match: ' .. one_line(photo.match_reason)) end
+    if type(photo.search_terms) == 'table' and #photo.search_terms > 0 then
+      table.insert(lines, '   Gevonden via: ' .. one_line(table.concat(photo.search_terms, ', ')))
+    end
     table.insert(lines, '')
     for row = first, #lines do s.rows[row] = photo end
   end
@@ -354,7 +357,8 @@ search = function(s, query, offset)
     local payload = { editor_text = query, hidden_sources = s.hidden }
     if offset > 0 and s.data and s.data.fields then
       payload.previous = { version = 1, fields = s.data.fields,
-        candidates = s.data.candidates, next_offset = s.data.next_offset }
+        candidates = s.data.candidates, next_offset = s.data.next_offset,
+        query_strategy = s.data.query_strategy }
     end
     input = vim.json.encode(payload)
   else s.query = query end

@@ -42,6 +42,19 @@ nieuwe zoekopdracht begint opnieuw; een mislukte vervolgpagina laat de vorige
 resultaten intact. Geen automatische scan bij alleen dubbele resultaten en
 geen extra API-/AI-calls voor ontdubbelen. Wel groeit de tijdelijke metadata
 en lokale sortering zolang je meer pagina's ophaalt. Sluiten ruimt dit op.
+Sinds 7 oktober stelt de fotozoeker maximaal twee onderwerpen plus bekende
+woordvarianten voor (maximaal drie onderwerpwoorden). Onderwerp en plaats worden
+los én in alle betekenisvolle combinaties gezocht, zonder categorie-/locatiefilter.
+`hond` met `Zwolle` zoekt dus `hond`, `Zwolle` en `hond Zwolle`. Specifiekere
+matches komen eerst, dan bevestigde fototrefwoorden/bijschrift/kop;
+enkelvoud/meervoud telt niet dubbel. `Gevonden via` toont de zoekherkomst.
+Met `p` zie je een compact raster van drie foto's naast elkaar, of minder op
+smalle schermen. Klikken vergroot/sluit het beeld; **Gebruik deze foto** kiest.
+Combinaties kosten meer netwerkcalls: maximaal vijftien zoekvragen en vijftien
+unieke artikel-details per pagina, met hergebruik van dezelfde artikelgegevens;
+beeldmetadata blijft maximaal twaalf GETs. Een oude zoekcursor vraagt opnieuw zoeken;
+geen extra AI-call, upload of automatische publicatie.
+
 De browserkeuze gebruikt een tijdelijke lokale verbinding, maximaal vijftien
 minuten. Kiezen, opnieuw zoeken, `q` en afsluiten van NeoVim stoppen de verbinding.
 Een gewijzigde artikelbuffer weigert een late keuze. Er wordt alleen een

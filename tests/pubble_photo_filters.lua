@@ -31,7 +31,7 @@ local tick = vim.api.nvim_buf_get_changedtick(source)
 local editor = 'Onderwerp: hond, honden\nPlaats: Milligerplas\nUitsluiten: avondvierdaagse'
 local a = { image_metadata_id = 1, source_article_id = 100, source_title = 'Bron A',
   edition = 'SW', date = '', caption = '<p>Hond</p>', display_caption = 'Hond',
-  credit = 'F', preview_url = 'https://images.pubble.cloud/example.jpg', match_reason = 'bijschrift: hond' }
+  credit = 'F', preview_url = 'https://images.pubble.cloud/example.jpg', match_reason = 'bijschrift: hond', search_terms = { 'hond', 'honden' } }
 local b = vim.tbl_extend('force', a, { image_metadata_id = 2, caption = 'Tweede hond', display_caption = 'Tweede hond' })
 local c = vim.tbl_extend('force', a, { image_metadata_id = 3, source_article_id = 200, source_title = 'Bron B' })
 local groups = { { source_key = 'SW:100', source_title = 'Bron A', photos = { a, b } },
@@ -48,6 +48,7 @@ local function display() return table.concat(vim.api.nvim_buf_get_lines(picker, 
 assert(display():find('2 foto’s', 1, true))
 assert(not display():find('Tweede hond', 1, true), 'initially collapse per source')
 assert(display():find('Bijschrift: Hond', 1, true), 'display plain metadata')
+assert(display():find('Gevonden via: hond, honden', 1, true), 'zoektermherkomst ontbreekt')
 vim.api.nvim_win_set_cursor(0, { 5, 0 })
 local count = #requests
 key('<Tab>')
