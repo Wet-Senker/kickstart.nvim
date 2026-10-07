@@ -41,6 +41,7 @@ M.templates = {
     name = 'Column Natuurvereniging',
     id = 'natuurvereniging',
     column = true,
+    working_title = 'z - NATUURVERENIGING',
     text = {
   'Column Natuurvereniging: {{title}}',
   '',
@@ -72,6 +73,7 @@ M.templates = {
   {
     name = 'Column Kamper Ambassadeur',
     column = true,
+    working_title = 'x - 1 KAMPER AMBASSADEUR',
     -- Geen lezersnieuws-export: deze column gaat gewoon naar website + print.
     no_export = true,
     text = {
@@ -84,6 +86,7 @@ M.templates = {
   {
     name = 'Column Vogelgroep Kampen',
     column = true,
+    working_title = 'z - VOGELGROEP KAMPEN',
     text = {
       "Column Vogelgroep Kampen: {{title}}",
       "",
@@ -95,6 +98,7 @@ M.templates = {
   {
     name = 'Uit de Kunst',
     column = true,
+    working_title = 'z - UIT DE KUNST',
     text = {
       "Uit de Kunst",
       "",
@@ -106,6 +110,7 @@ M.templates = {
 
  {
     name = 'Stadsdichter Berber Bouma',
+    working_title = 'z - STADSDICHTER',
     text = {
       "Stadsdichter Berber Bouma geeft woorden aan Kampen",
       "",
@@ -116,6 +121,7 @@ M.templates = {
   },
   {
     name = 'Eregalerij kampioenen',
+    working_title = 'x - 1 EREGALERIJ',
     no_export = true,
     text = {
       "De Brug zet kampioenen in de eregalerij",
@@ -128,6 +134,7 @@ M.templates = {
 
   {
     name = 'Humor met een boodschap',
+    working_title = 'x - 1 HUMOR',
     column = true,
     image = 'humor.jpg',
     no_export = true,
