@@ -228,6 +228,53 @@ assert(not vim.tbl_contains(calls[2], '--dry-run'), 'de tweede aanroep liep nog 
 assert(done_args[1] == true and done_args[3] == true,
   'na automatische generatie hoort de review voltooid te zijn')
 
+-- 9. Een web-only editie hoort niet in de kranttijdscontrole. Live 8-10-2026:
+-- na "alleen website" voor de te late editie D vroeg Neovim toch om een
+-- kranttijdsversie voor D, en faalde de verzending daarna op "verwacht geen,
+-- gevonden D". Alleen printedities gaan naar pubble-print-timing.
+dialog.confirm = function()
+  error('er mag geen kranttijdsvraag komen voor een web-only editie')
+end
+local function editions_of(cmd)
+  for index, value in ipairs(cmd) do
+    if value == '--editions' then return vim.json.decode(cmd[index + 1]) end
+  end
+end
+local function with_late_website(editions)
+  return function(buf)
+    vim.b[buf].late_newspaper_decision = {
+      signature = 'D:2026-10-08', mode = 'website', editions = editions,
+    }
+  end
+end
+calls, done_args = run_prepare({ ok_result {} }, with_late_website({ 'D' }), { 'K', 'B', 'D' })
+assert(vim.deep_equal(editions_of(calls[1]), { 'K', 'B' }),
+  'web-only editie D ging toch mee naar de kranttijdscontrole: ' .. vim.json.encode(editions_of(calls[1])))
+assert(done_args[1] == true and vim.tbl_contains(done_args[4], 'D'),
+  'het eindresultaat moet de web-only editie D blijven noemen')
+
+-- 9b. Hetzelfde voor een editie die via skip_newspaper_editions web-only is.
+calls, done_args = run_prepare({ ok_result {} }, function(buf)
+  vim.b[buf].skip_newspaper_editions = { 'D' }
+end, { 'K', 'B', 'D' })
+assert(vim.deep_equal(editions_of(calls[1]), { 'K', 'B' }), 'skip-editie ging toch mee')
+assert(vim.tbl_contains(done_args[4], 'D'), 'skip-editie verdween uit het eindresultaat')
+
+-- 9c. Zonder web-only edities blijft alles ongewijzigd.
+calls, done_args = run_prepare({ ok_result {} }, nil, { 'K', 'B', 'D' })
+assert(vim.deep_equal(editions_of(calls[1]), { 'K', 'B', 'D' }), 'edities zijn ten onrechte gefilterd')
+
+-- 9d. "Alleen website" voor de rest blijft ALLE edities web-only maken, ook de
+-- editie die al web-only was (anders raakt die uit skip_newspaper_editions).
+dialog.confirm = function() return 2 end -- Alleen website
+calls, done_args = run_prepare({
+  ok_result { requires_review = true, targets = { { edition = 'K', transitions = {} } } },
+}, with_late_website({ 'D' }), { 'K', 'B', 'D' })
+assert(#calls == 1 and done_args[1] == true, 'alleen-website deed een extra aanroep')
+table.sort(done_args[4])
+assert(vim.deep_equal(done_args[4], { 'B', 'D', 'K' }),
+  'alleen-website moet alle edities web-only maken: ' .. vim.json.encode(done_args[4]))
+
 vim.system, dialog.select, dialog.confirm = original_system, original_select, original_confirm
 
 print 'print timing dry run: OK'

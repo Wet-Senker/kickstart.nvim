@@ -4576,7 +4576,13 @@ M._needs_edition_send_confirmation = needs_edition_send_confirmation
 local function merged_edition_codes(...)
   local result = {}
   local seen = {}
-  for _, values in ipairs({ ... }) do
+  -- select('#') in plaats van ipairs({ ... }): ipairs stopt bij de eerste nil,
+  -- waardoor een nooit gezette eerste lijst (bijvoorbeeld
+  -- skip_newspaper_editions) alle volgende lijsten, zoals een "alleen website"-
+  -- beslissing voor een te late krant, stilzwijgend wegliet.
+  local lists = { ... }
+  for index = 1, select('#', ...) do
+    local values = lists[index]
     if type(values) == "table" then
       for _, code in ipairs(values) do
         if type(code) == "string" and code ~= "" and not seen[code] then
@@ -6257,6 +6263,22 @@ M._past_timing_confirm = function(targets)
 end
 
 temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
+  -- Een web-only editie (krant: nee, of "alleen website" bij een te late
+  -- krant) heeft nooit een kranttijdsversie nodig: er gaat niets naar de krant.
+  -- Zonder dit filter kreeg zo'n editie toch een versie (en de vraag
+  -- "Kranttijdsversie maken?"), en faalde de verzending daarna omdat
+  -- pubble-send alleen de printedities controleert. `all_edition_codes`
+  -- blijft de volledige lijst voor "alles alleen website".
+  local all_edition_codes = edition_codes or {}
+  do
+    local web_only = {}
+    for _, code in ipairs(effective_skipped_newspapers(buf)) do web_only[code] = true end
+    edition_codes = {}
+    for _, code in ipairs(all_edition_codes) do
+      if not web_only[code] then table.insert(edition_codes, code) end
+    end
+  end
+
   -- Editiecodes van de kranttijd-targets, optioneel beperkt tot targets met
   -- een "past"-transitie (het evenement ligt al vóór de latere krantdatum).
   -- Werkt rechtstreeks op de JSON-payload van pubble-print-timing, dus zonder
@@ -6379,7 +6401,7 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
           elseif choice == 2 then
             -- Alleen website: alle edities web-only, geen kranttijdsversie.
             -- Er is nooit AI aangeroepen.
-            done(true, nil, false, edition_codes or {})
+            done(true, nil, false, all_edition_codes)
           else
             done(false, AI_CANCELLED)
           end
@@ -6401,7 +6423,7 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
             and payload.skipped_newspaper_editions or {}
         skipped = merged_edition_codes(
           skipped,
-          late_newspaper_codes(buf, "website")
+          effective_skipped_newspapers(buf)
         )
         done(true, nil, payload.requires_review == true, skipped)
       end)
