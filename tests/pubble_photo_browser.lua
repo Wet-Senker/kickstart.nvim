@@ -65,6 +65,17 @@ assert(#requests == count + 1, 'browser selection must not publish or upload')
 event(browse, { event = 'selected', image_metadata_id = 731 })
 assert(#requests == count + 1, 'duplicate event must be ignored')
 
+-- Paging in the browser refreshes the editor list; the new photo remains selectable.
+source, browse = start()
+local newer = vim.tbl_extend('force', candidate, { image_metadata_id = 732, caption = 'Nieuwe foto' })
+event(browse, { event = 'page', page = { photos = { candidate, newer }, next_offset = vim.NIL } })
+assert(table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n'):find('Nieuwe foto', 1, true))
+event(browse, { event = 'selected', image_metadata_id = 732 })
+selection = requests[#requests]
+assert(vim.json.decode(selection.opts.stdin).photo.image_metadata_id == 732)
+reply(selection, { markdown = 'b: Nieuwe foto\nc: F\n\n=== ARTIKEL ===\n\nKop\n' })
+assert(vim.api.nvim_get_current_buf() == source)
+
 -- A changed article rejects browser events and preserves the new text.
 source, browse = start()
 count = #requests

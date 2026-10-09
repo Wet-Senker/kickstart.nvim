@@ -18,6 +18,12 @@ eq(ai._agenda_mode_from_lines({ "cal: x", "", "Tekst" }), "on", "cal x")
 eq(ai._agenda_mode_from_lines({ "calendar: x", "", "Tekst" }), "on", "calendar x")
 eq(ai._agenda_mode_from_lines({ "agenda: auto", "", "Tekst" }), "auto", "auto")
 eq(ai._agenda_mode_from_lines({ "Gewone tekst" }), "auto", "geen code")
+eq(ai._agenda_mode_from_lines({
+  "---", "calendar_disabled: true", "---", "", "e: B", "agenda: nee", "", "=== ARTIKEL ===", "", "Concert",
+}), "off", "weigering na frontmatter")
+eq(ai._agenda_mode_from_lines({
+  "---", "calendar_disabled: true", "---", "", "e: B", "", "=== ARTIKEL ===", "", "Concert",
+}), "off", "weigering bewaard in frontmatter")
 
 -- 2. reject_calendar: sectie weg, cache gewist, agenda: nee bovenaan.
 local buf = vim.api.nvim_create_buf(false, true)
@@ -117,7 +123,41 @@ assert(
 )
 ai._calendar_send_confirm = original_send_confirm
 
--- 7. De aparte hoofdletter-C-leader is vervallen; verwijderen is de bediening.
+-- 7. Een weigering na YAML-frontmatter mag bij een volgende verzendpoging geen
+-- tweede vraag geven. Al dubbel opgeslagen regels worden vóór verzending
+-- teruggebracht tot precies één, ook wanneer er lege regels tussen staan.
+local frontmatter_no = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(frontmatter_no, 0, -1, false, {
+  "---", "newspaper:", "  editions: B", "---", "", "e: B", "agenda: nee", "", "=== ARTIKEL ===", "",
+  "Concert in Kampen", "", "Op zaterdag 26 september 2026 begint om 20.00 uur een concert.",
+})
+ai._calendar_send_confirm = function() error("bestaande agenda: nee werd opnieuw gevraagd") end
+eq(ai._calendar_decision_before_send(frontmatter_no), "continue", "bestaande weigering")
+local once = vim.api.nvim_buf_get_lines(frontmatter_no, 0, -1, false)
+eq(once[7], "agenda: nee", "bestaande regel blijft staan")
+
+local frontmatter_only = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(frontmatter_only, 0, -1, false, {
+  "---", "calendar_disabled: true", "---", "", "e: B", "", "=== ARTIKEL ===", "",
+  "Concert in Kampen", "", "Op zaterdag 26 september 2026 begint om 20.00 uur een concert.",
+})
+eq(ai._calendar_decision_before_send(frontmatter_only), "continue", "weigering alleen in frontmatter")
+
+local duplicated = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(duplicated, 0, -1, false, {
+  "---", "newspaper:", "  editions: B", "---", "", "agenda: nee", "", "e: B", "agenda: nee", "",
+  "=== ARTIKEL ===", "", "Concert in Kampen", "",
+  "Op zaterdag 26 september 2026 begint om 20.00 uur een concert.",
+})
+eq(ai._calendar_decision_before_send(duplicated), "continue", "dubbele weigering")
+local duplicate_count = 0
+for _, line in ipairs(vim.api.nvim_buf_get_lines(duplicated, 0, -1, false)) do
+  if vim.trim(line) == "agenda: nee" then duplicate_count = duplicate_count + 1 end
+end
+eq(duplicate_count, 1, "dubbele weigering hersteld")
+ai._calendar_send_confirm = original_send_confirm
+
+-- 8. De aparte hoofdletter-C-leader is vervallen; verwijderen is de bediening.
 eq(vim.fn.maparg("<leader>aC", "n"), "", "oude aC-mapping")
 
 print("calendar reject: OK")

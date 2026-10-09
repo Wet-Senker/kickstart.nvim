@@ -34,6 +34,10 @@ assert(not table.concat(lines, '\n'):find('artikelinhoud', 1, true), 'inhoud lek
 local second = workflow_log.start(buf, 'Doublurecontrole')
 assert(second.workflow_id == token.workflow_id, 'één artikel kreeg meerdere workflow-id’s')
 workflow_log.finish(second, 'failed', { error = 'ProcessExit' })
+workflow_log.decision(buf, 'Kranttijdsversie', 'website', { 'K', 'D' })
+local decision = vim.json.decode(vim.fn.readfile(workflow_log.log_path())[5])
+assert(decision.event == 'decision' and decision.choice == 'website', 'krantkeuze ontbreekt in log')
+assert(vim.deep_equal(decision.editions, { 'K', 'D' }), 'editiecodes ontbreken in log')
 
 vim.fn.delete(directory, 'rf')
 print('workflow log: OK')

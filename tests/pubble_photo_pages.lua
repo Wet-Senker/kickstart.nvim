@@ -20,8 +20,8 @@ local function key(k)
   map.callback()
 end
 local function input() return vim.json.decode(requests[#requests].opts.stdin) end
-local editor = 'Onderwerp: hond\nPlaats:\nUitsluiten:'
-local fields = { subject = 'hond', place = '', exclude = '' }
+local editor = "Bron: Artikelfoto's\nOnderwerp: hond\nPlaats:"
+local fields = { subject = 'hond', place = '', exclude = '', source = 'articles' }
 local a = { image_metadata_id = 1, source_article_id = 100, source_title = 'Bron A',
   edition = 'B', date = '', caption = 'Hond', credit = 'F', preview_url = 'https://images.pubble.cloud/example.jpg' }
 local b = vim.tbl_extend('force', a, { source_article_id = 200, source_title = 'Bron B' })
@@ -49,30 +49,30 @@ reply({ query = 'hond', editor_text = editor, fields = fields,
 local count = #requests
 vim.wait(40, function() return false end, 5)
 assert(#requests == count, 'no automatic sweep on a duplicate-only page')
-assert(table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n'):find('0 nieuwe foto’s', 1, true))
+assert(table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n'):find('1 gevonden', 1, true))
 key('p')
 assert(#input().photos == 1, 'browser only receives unique candidates')
-vim.api.nvim_win_set_cursor(0, { 6, 0 })
-key('x')
-assert(requests[#requests].cmd[4] == 'view' and #input().candidates == 2)
-reply({ photos = { b }, groups = { groupb }, filtered_photos = 1 })
-key('p')
-assert(input().photos[1].source_article_id == 200, 'alternative provenance remains selectable')
+key('b')
+assert(input().editor_text:find('Bron: Beeldbank', 1, true))
+assert(not input().previous, 'source switch starts a fresh search')
+reply({ query = 'hond', editor_text = 'Bron: Beeldbank\nOnderwerp: hond\nPlaats:',
+  fields = { subject = 'hond', place = '', exclude = '', source = 'images' },
+  photos = { b }, candidates = { b }, next_offset = 24 })
 key(']p')
-assert(input().previous.next_offset == 24 and #input().previous.candidates == 2)
+assert(input().previous.next_offset == 24 and #input().previous.candidates == 1)
 reply({ query = 'hond', editor_text = editor, fields = fields,
   photos = { b }, candidates = { a, b }, groups = { groupb }, next_offset = vim.NIL, new_photos = 0 })
-edited = 'Onderwerp: kat\nPlaats:\nUitsluiten:'
+edited = "Bron: Artikelfoto's\nOnderwerp: kat\nPlaats:"
 key('s')
 assert(not input().previous, 'new filters must not reuse old candidates/cursor')
 assert(requests[#requests].cmd[7] == '0')
-reply({ query = 'kat', editor_text = edited, fields = { subject = 'kat', place = '', exclude = '' },
+reply({ query = 'kat', editor_text = edited, fields = { subject = 'kat', place = '', exclude = '', source = 'articles' },
   photos = {}, candidates = {}, groups = {}, next_offset = vim.NIL, new_photos = 0 })
 assert(vim.api.nvim_buf_get_changedtick(source) == tick)
 key('q')
 photos.open(source)
 reply({ query = 'hond', editor_text = editor })
-assert(not input().previous and #input().hidden_sources == 0, 'fresh picker has fresh history')
+assert(not input().previous, 'fresh picker has fresh history')
 reply({ query = 'hond', editor_text = editor, fields = fields,
   photos = {}, candidates = {}, groups = {}, next_offset = vim.NIL, new_photos = 0 })
 key('q')

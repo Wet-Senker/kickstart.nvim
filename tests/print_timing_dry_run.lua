@@ -264,16 +264,33 @@ assert(vim.tbl_contains(done_args[4], 'D'), 'skip-editie verdween uit het eindre
 calls, done_args = run_prepare({ ok_result {} }, nil, { 'K', 'B', 'D' })
 assert(vim.deep_equal(editions_of(calls[1]), { 'K', 'B', 'D' }), 'edities zijn ten onrechte gefilterd')
 
--- 9d. "Alleen website" voor de rest blijft ALLE edities web-only maken, ook de
--- editie die al web-only was (anders raakt die uit skip_newspaper_editions).
+-- 9d. "Alleen website" raakt uitsluitend de kranttijd-targets en de edities
+-- die al web-only waren; B zonder datumprobleem blijft naar de krant gaan.
 dialog.confirm = function() return 2 end -- Alleen website
 calls, done_args = run_prepare({
   ok_result { requires_review = true, targets = { { edition = 'K', transitions = {} } } },
 }, with_late_website({ 'D' }), { 'K', 'B', 'D' })
 assert(#calls == 1 and done_args[1] == true, 'alleen-website deed een extra aanroep')
 table.sort(done_args[4])
-assert(vim.deep_equal(done_args[4], { 'B', 'D', 'K' }),
-  'alleen-website moet alle edities web-only maken: ' .. vim.json.encode(done_args[4]))
+assert(vim.deep_equal(done_args[4], { 'D', 'K' }),
+  'alleen-website mag B niet uitsluiten: ' .. vim.json.encode(done_args[4]))
+
+-- De uitsluiting wordt boven de artikelgrens zichtbaar en blijft idempotent.
+local persistent = new_buf()
+local temp_file = vim.fn.tempname() .. '.md'
+vim.fn.writefile(vim.api.nvim_buf_get_lines(persistent, 0, -1, false), temp_file)
+assert(ai._record_newspaper_exclusions(persistent, temp_file, { 'D' }, 'evenement voorbij'),
+  'uitzondering kon niet worden vastgelegd')
+assert(ai._record_newspaper_exclusions(persistent, temp_file, { 'D' }, 'evenement voorbij'),
+  'herhaalde uitzondering mocht niet falen')
+local buffer_text = table.concat(vim.api.nvim_buf_get_lines(persistent, 0, -1, false), '\n')
+local file_text = table.concat(vim.fn.readfile(temp_file), '\n')
+local _, buffer_count = buffer_text:gsub('krantuitzondering: D | evenement voorbij', '')
+local _, file_count = file_text:gsub('krantuitzondering: D | evenement voorbij', '')
+assert(buffer_count == 1 and file_count == 1, 'herhaalde keuze schreef dubbele regels')
+assert(buffer_text:find('krantuitzondering: D | evenement voorbij\n=== ARTIKEL ===', 1, true),
+  'reden staat niet zichtbaar boven de artikelgrens')
+vim.fn.delete(temp_file)
 
 vim.system, dialog.select, dialog.confirm = original_system, original_select, original_confirm
 

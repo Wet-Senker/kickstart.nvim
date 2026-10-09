@@ -33,18 +33,14 @@ reply({ version = 2, fields = { subject = 'hond', place = 'Zwolle', exclude = ''
   query = 'hond Zwolle / hond / Zwolle',
   editor_text = editor, photos = { photo }, candidates = { photo }, next_offset = 4, query_strategy = 2,
   groups = { { source_key = 'image:517929', source_title = 'hond.jpg', photos = { photo } } },
-  policy_note = 'Beeldbank: geen 112-filter.' })
+  policy_note = 'Controleer context en gebruiksrechten.' })
 local display = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n')
-assert(display:find('Geen direct voorbeeld', 1, true))
-assert(display:find('geen 112-filter', 1, true))
+assert(display:find('Beeldbank', 1, true))
+assert(not display:find('112-filter', 1, true))
 vim.api.nvim_win_set_cursor(0, { 5, 0 })
-key('o')
-assert(opened[1] == photo.source_url, 'fallback must open supplied Pubble image page')
-key('x')
-assert(vim.json.decode(requests[#requests].opts.stdin).hidden_sources[1] == 'image:517929')
-reply({ version = 2, photos = {}, groups = {} })
-key('u')
-reply({ version = 2, photos = { photo }, groups = { { source_key = 'image:517929', source_title = 'hond.jpg', photos = { photo } } } })
+key('p')
+assert(requests[#requests].cmd[4] == 'browse')
+assert(vim.json.decode(requests[#requests].opts.stdin).photos[1].source_url == photo.source_url)
 key(']p')
 local previous = vim.json.decode(requests[#requests].opts.stdin).previous
 assert(previous.version == 2 and previous.fields.source == 'images')

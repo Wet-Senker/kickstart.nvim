@@ -98,6 +98,9 @@ assert(deadline_message:find('week 39', 1, true), 'inhoudelijke deadline ontbree
 assert(deadline_message:find(deadline_review.reason, 1, true), 'reden ontbreekt')
 
 local deadline_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(deadline_buf, 0, -1, false, {
+  'e: D', '', '=== ARTIKEL ===', '', 'Kop', '', 'DRONTEN - Tekst.',
+})
 local original_confirm = ai._late_newspaper_confirm
 ai._late_newspaper_confirm = function(_, done) done(1) end
 local accepted
@@ -105,6 +108,9 @@ local function review_done(value) accepted = value end
 ai._review_late_newspapers(deadline_buf, deadline_review, review_done)
 assert(accepted, 'websitekeuze geweigerd')
 assert(vim.b[deadline_buf].late_newspaper_decision.mode == 'website', 'websitekeuze niet onthouden')
+assert(table.concat(vim.api.nvim_buf_get_lines(deadline_buf, 0, -1, false), '\n')
+  :find('krantuitzondering: D | inhoudelijke krantdeadline verstreken', 1, true),
+  'de reden voor web-only staat niet boven het artikel')
 ai._late_newspaper_confirm = function() error('onthouden keuze vroeg opnieuw') end
 accepted = nil
 ai._review_late_newspapers(deadline_buf, deadline_review, review_done)
@@ -112,6 +118,10 @@ assert(accepted, 'onthouden keuze geweigerd')
 
 -- Geen synchrone bevestiging of hoofdthread-wachtlus: precies één native overlay.
 vim.b[deadline_buf].late_newspaper_decision = nil
+vim.b[deadline_buf].skip_newspaper_editions = nil
+vim.api.nvim_buf_set_lines(deadline_buf, 0, -1, false, {
+  'e: D', '', '=== ARTIKEL ===', '', 'Kop', '', 'DRONTEN - Tekst.',
+})
 local pending
 ai._late_newspaper_confirm = function(_, done) pending = done end
 accepted = nil
@@ -124,6 +134,34 @@ vim.api.nvim_buf_set_lines(deadline_buf, 0, -1, false, { 'Nieuwere tekst' })
 pending(2)
 assert(accepted == false and vim.b[deadline_buf].late_newspaper_decision == nil,
   'late keuze accepteerde verouderde artikeltekst')
+ai._late_newspaper_confirm = original_confirm
+
+-- Bij een nieuwe poging komt een al zichtbare web-only-editie niet opnieuw in
+-- de vraag terecht; een andere late editie wordt nog wel apart voorgelegd.
+local partial_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(partial_buf, 0, -1, false, {
+  'e: K, D', 'krantuitzondering: D | evenement voorbij op krantdatum',
+  '', '=== ARTIKEL ===', '', 'Kop', '', 'Tekst.',
+})
+vim.b[partial_buf].skip_newspaper_editions = { 'D' }
+local partial_review = vim.deepcopy(deadline_review)
+partial_review.late_editions = { 'K', 'D' }
+table.insert(partial_review.items, 1, {
+  edition = 'K', name = 'De Brug', too_late = true,
+})
+local asked_review
+ai._late_newspaper_confirm = function(value, done)
+  asked_review = value
+  done(2)
+end
+local partial_accepted
+ai._review_late_newspapers(partial_buf, partial_review, function(value)
+  partial_accepted = value
+end)
+assert(partial_accepted and vim.deep_equal(asked_review.late_editions, { 'K' }),
+  'al overgeslagen D is opnieuw gevraagd')
+assert(#asked_review.items == 1 and asked_review.items[1].edition == 'K',
+  'deadline-uitleg bevatte een reeds overgeslagen editie')
 ai._late_newspaper_confirm = original_confirm
 
 local native_confirm = vim.fn.confirm

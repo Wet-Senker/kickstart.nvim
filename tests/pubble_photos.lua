@@ -51,16 +51,13 @@ reply(3, data)
 local picker = vim.api.nvim_get_current_buf()
 assert(picker ~= a)
 local display = table.concat(vim.api.nvim_buf_get_lines(picker, 0, -1, false), '\n')
-assert(display:find('112 uitgesloten', 1, true))
-assert(display:find('3 112-artikelen; 1 artikelen zonder leesbare rubriek', 1, true))
+assert(display:find('Controleer context en gebruiksrechten', 1, true))
+assert(not display:find('112 uitgesloten', 1, true))
 for _, key in ipairs({ '/', 'n', 'g', 'v' }) do
   assert(vim.fn.maparg(key, 'n', false, true).buffer ~= 1, 'Vim-toets overschreven: ' .. key)
 end
 vim.api.nvim_win_set_cursor(0, { 5, 0 })
-local opened
-require('ordered_browser').open_urls = function(urls) opened = urls[1] end
-mapping(picker, 'o')()
-assert(opened == candidate.preview_url)
+assert(vim.fn.maparg('o', 'n') == '')
 mapping(picker, '<CR>')()
 assert(requests[4].cmd[4] == 'select')
 local payload = vim.json.decode(requests[4].opts.stdin)

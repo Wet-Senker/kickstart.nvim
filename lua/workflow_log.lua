@@ -102,6 +102,22 @@ function M.finish(token, outcome, detail)
   }
 end
 
+-- Log uitsluitend de keuze en editiecodes: geen artikeltekst of vrije reden.
+function M.decision(buf, action, choice, editions)
+  append {
+    ts = timestamp(),
+    kind = 'workflow',
+    event = 'decision',
+    client = 'nvim',
+    run_id = M.workflow_id(buf),
+    workflow_id = M.workflow_id(buf),
+    source = source_for(buf),
+    action = action,
+    choice = choice,
+    editions = editions or {},
+  }
+end
+
 function M.environment(token)
   if type(token) ~= 'table' then return {} end
   return {

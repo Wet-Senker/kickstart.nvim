@@ -5,6 +5,7 @@ local dialog = require 'user_dialog'
 local notify = require('texttools_notify').workflow
 local browser = require 'ordered_browser'
 local sessions = {}
+local render
 
 local function one_line(value)
   return tostring(value or ''):gsub('%c', ' ')
@@ -123,8 +124,8 @@ end
 
 local function open_browser_choice(s)
   if s.busy or not current(s) then return end
-  if not s.photos or #s.photos == 0 then
-    notify('Geen foto’s geladen. Zoek eerst met s of haal meer op met ]p.', vim.log.levels.INFO)
+  if not s.data or not s.photos then
+    notify('Geen zoekresultaten geladen. Zoek eerst met s.', vim.log.levels.INFO)
     return
   end
   if s.browser_choice then
@@ -156,6 +157,8 @@ local function open_browser_choice(s)
       end
       stop_browser(s)
       notify('Deze browserkeuze hoort niet bij de huidige zoekpagina.', vim.log.levels.WARN)
+    elseif data.event == 'page' and type(data.page) == 'table' and type(data.page.photos) == 'table' then
+      render(s, data.page)
     elseif data.event == 'expired' then
       stop_browser(s)
       notify('Foto-overzicht verlopen. Druk p voor een nieuw overzicht.', vim.log.levels.INFO)
@@ -163,7 +166,7 @@ local function open_browser_choice(s)
   end
   local cmd = { commands.bin('python'), '-m', 'texttools.pubble_photo_cli', 'browse' }
   local ok, process = pcall(vim.system, cmd, {
-    text = true, stdin = vim.json.encode({ photos = s.photos }),
+    text = true, stdin = vim.json.encode({ photos = s.photos, page = s.data }),
     stdout = function(err, chunk)
       if err or not chunk then return end
       session.pending = session.pending .. chunk
@@ -195,7 +198,7 @@ local search
 local function ask_query(s, initial)
   if s.busy or not current(s) then return end
   stop_browser(s)
-  dialog.input({ prompt = s.search_help or (s.structured and 'Foto: zoekwoorden en plaats, los én gecombineerd; uitsluiten' or 'Pubble-foto’s zoeken'),
+  dialog.input({ prompt = s.search_help or (s.structured and 'Foto: zoekwoorden en plaats, los én gecombineerd' or 'Pubble-foto’s zoeken'),
     default = initial or s.editor_text or s.query or '', vim_edit = true,
     on_open = function(buf, win)
       s.input_win = win
@@ -216,18 +219,6 @@ local function ask_query(s, initial)
     elseif not s.buffer then
       close(s)
     end
-  end)
-end
-
-local render
-local function project(s, hidden)
-  if s.busy or not current(s) or not s.data or not s.data.candidates then return end
-  stop_browser(s)
-  run(s, { 'view' }, vim.json.encode({ candidates = s.data.candidates,
-    editor_text = s.data.editor_text, hidden_sources = hidden }), function(data)
-    s.hidden = hidden
-    local updated = vim.tbl_extend('force', s.data, data)
-    render(s, updated)
   end)
 end
 
@@ -254,106 +245,34 @@ render = function(s, data)
       vim.keymap.set('n', key, fn, { buffer = s.buffer, silent = true, desc = desc })
     end
     map('<CR>', function() choose(s) end, 'Deze foto kiezen')
-    map('o', function()
-      local photo = selected(s)
-      if photo then
-        local url = type(photo.preview_url) == 'string' and photo.preview_url ~= '' and photo.preview_url or photo.source_url
-        if url then browser.open_urls({ url }) end
-      end
-    end, 'Foto online bekijken')
     map('p', function() open_browser_choice(s) end, 'Alle voorbeelden in browser bekijken en kiezen')
     map('s', function() ask_query(s) end, 'Andere zoekwoorden')
+    map('b', function()
+      if s.busy or not current(s) or not s.data or not s.data.fields then return end
+      local next_source = s.data.fields.source == 'articles' and "Beeldbank" or "Artikelfoto's"
+      local updated = (s.editor_text or ''):gsub('^Bron:[^\n]*', 'Bron: ' .. next_source)
+      search(s, updated, 0)
+    end, 'Wissel tussen artikelfoto’s en beeldbank')
     map(']p', function()
       if type(s.next_offset) == 'number' then search(s, s.editor_text or s.query, s.next_offset) end
     end, 'Meer resultaten toevoegen')
-    map('x', function()
-      local photo = selected(s)
-      if not photo or not s.structured then return end
-      local hidden = vim.deepcopy(s.hidden or {})
-      table.insert(hidden, photo.source_key or (photo.edition .. ':' .. tostring(photo.source_article_id)))
-      project(s, hidden)
-    end, 'Heel bronartikel verbergen')
-    map('u', function()
-      local hidden = vim.deepcopy(s.hidden or {})
-      if #hidden > 0 then table.remove(hidden); project(s, hidden) end
-    end, 'Laatste verborgen bron herstellen')
-    map('<Tab>', function()
-      local photo = selected(s)
-      if not photo or not s.structured then return end
-      local id = photo.source_key or (photo.edition .. ':' .. tostring(photo.source_article_id))
-      s.expanded[id] = not s.expanded[id]
-      render(s, s.data)
-    end, 'Alle foto’s van bronartikel tonen/inklappen')
     map('q', function() close(s) end, 'Terug zonder fotokeuze')
   end
   s.rows = {}
   s.photos = data.photos or {}
-  local lines = { 'Pubble-foto’s · ' .. s.query,
-    'o: foto | p: browser | Enter: kies | s: filters | ]p: meer | q: terug',
-    data.policy_note or '112 uitgesloten. Controleer context en gebruiksrechten van de foto.', '' }
-  if data.groups then
-    lines[4] = 'Tab: groep open/dicht | x: verberg bron | u: herstel (' .. #(s.hidden or {}) .. ' verborgen)'
+  local source = data.source == 'images' and 'Beeldbank' or data.source == 'both' and 'Beide' or "Artikelfoto's"
+  local lines = { 'Pubble-foto’s · ' .. source .. ' · ' .. #s.photos .. ' gevonden',
+    'p: foto-overzicht | b: wissel bron | s: zoekwoorden | ]p: meer | Enter: kies | q: terug',
+    'Controleer context en gebruiksrechten vóór selectie.', '' }
+  for i, photo in ipairs(s.photos) do
+    local label = one_line(photo.display_caption or photo.caption)
+    if label == '' then label = one_line(photo.source_title) end
+    table.insert(lines, string.format('%d. %s · %s', i, one_line(photo.edition), label))
+    s.rows[#lines] = photo
   end
-  if type(data.new_photos) == 'number' then
-    table.insert(lines, string.format('%d unieke foto’s geladen; laatste pagina: %d nieuwe foto’s.', #s.photos, data.new_photos))
-  end
-  local displayed = {}
-  for _, group in ipairs(data.groups or {}) do
-    for index, photo in ipairs(group.photos) do
-      if index == 1 or s.expanded[group.source_key] then
-        table.insert(displayed, { photo = photo, group = index == 1 and group or nil })
-      end
-    end
-  end
-  if not data.groups then
-    for _, photo in ipairs(data.photos or {}) do table.insert(displayed, { photo = photo }) end
-  end
-  for i, entry in ipairs(displayed) do
-    local photo = entry.photo
-    local first = #lines + 1
-    if entry.group then
-      table.insert(lines, string.format('%s %s · %d foto’s',
-        s.expanded[entry.group.source_key] and '▼' or '▶', one_line(entry.group.source_title), #entry.group.photos))
-    end
-    vim.list_extend(lines, {
-      string.format('%d. %s [%s · %s]', i, one_line(photo.source_title), one_line(photo.edition), one_line(photo.date)),
-      '   Bijschrift: ' .. (photo.caption ~= '' and one_line(photo.display_caption or photo.caption) or '(leeg)'),
-      '   Credit: ' .. (photo.credit ~= '' and one_line(photo.display_credit or photo.credit) or '(leeg)'),
-    })
-    if photo.match_reason then table.insert(lines, '   Match: ' .. one_line(photo.match_reason)) end
-    if photo.reuse_notice and photo.reuse_notice ~= '' then
-      table.insert(lines, '   Let op: ' .. one_line(photo.reuse_notice))
-    end
-    if photo.source_kind == 'image_library' and (not photo.preview_url or photo.preview_url == '') then
-      table.insert(lines, '   Geen direct voorbeeld; o opent de foto in Pubble.')
-    end
-    if type(photo.search_terms) == 'table' and #photo.search_terms > 0 then
-      table.insert(lines, '   Gevonden via: ' .. one_line(table.concat(photo.search_terms, ', ')))
-    end
-    table.insert(lines, '')
-    for row = first, #lines do s.rows[row] = photo end
-  end
-  if (data.filtered_photos or 0) > 0 then
-    table.insert(lines, string.format('%d fotoverwijzingen weggefilterd of verborgen.', data.filtered_photos))
-  end
-  if (data.keywords_unavailable or 0) > 0 then
-    table.insert(lines, string.format('Laatste pagina: fototrefwoorden niet opgehaald/beschikbaar voor %d beelden; bijschrift/kop blijven meetellen.', data.keywords_unavailable))
-  end
-  if (data.restricted_photos or 0) > 0 or (data.unreadable_photos or 0) > 0 then
-    table.insert(lines, string.format('Beeldbank — overgeslagen: %d voor eenmalig gebruik; %d niet-leesbare beelden.',
-      data.restricted_photos or 0, data.unreadable_photos or 0))
-  end
-  if #(data.photos or {}) == 0 then table.insert(lines, 'Geen selecteerbare foto’s geladen. Probeer s of ]p.') end
-  if (data.excluded_articles or 0) > 0 or (data.unclassified_articles or 0) > 0 then
-    table.insert(lines, string.format('Laatste pagina — overgeslagen: %d 112-artikelen; %d artikelen zonder leesbare rubriek.',
-      data.excluded_articles or 0, data.unclassified_articles or 0))
-  end
-  if (data.unreadable_articles or 0) > 0 or (data.unavailable_photos or 0) > 0 then
-    table.insert(lines, string.format('Laatste pagina — niet leesbaar: %d artikelen; niet selecteerbaar: %d foto’s (metadata/voorbeeld ontbreekt).',
-      data.unreadable_articles or 0, data.unavailable_photos or 0))
-  end
+  if #s.photos == 0 then table.insert(lines, 'Geen foto’s gevonden. Probeer b, s of ]p.') end
   s.next_offset = data.next_offset
-  if type(s.next_offset) == 'number' then table.insert(lines, 'Meer resultaten beschikbaar: ]p.') end
+  if type(s.next_offset) == 'number' then table.insert(lines, 'Meer resultaten: ]p of knop in browser.') end
   vim.bo[s.buffer].modifiable = true
   vim.api.nvim_buf_set_lines(s.buffer, 0, -1, false, lines)
   vim.bo[s.buffer].modifiable = false

@@ -16,3 +16,4 @@ nvim-pack-lock.json
 # Log-rommel
 nvim.log
 *.log
+__pycache__/

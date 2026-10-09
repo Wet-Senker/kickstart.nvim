@@ -14,28 +14,26 @@ daarna de terminal en Neovim. De twee doublure-testbranches blijven beschikbaar.
 ## Workflow
 
 Bestaande foto uit Pubble nodig? Gebruik `<leader>pf` / `:PubbleFoto`, of
-**Foto zoeken** bij de fotocontrole van `<leader>aw`. Bron, Onderwerp, Plaats en
-Uitsluiten staan in een tijdelijke Vim-buffer. Kies bij Bron tussen
+**Foto zoeken** bij de fotocontrole van `<leader>aw`. Bron, Onderwerp en Plaats
+staan in een tijdelijke Vim-buffer. Kies bij Bron tussen
 `Artikelfoto's` (standaard), `Beeldbank` of `Beide`. Onderwerp ondersteunt maximaal
 drie komma-gescheiden alternatieven; Plaats mag leeg voor algemene foto's.
-Uitsluiten filtert kop/bijschrift/fototrefwoorden; `avondvierdaagse` dekt ook
-`Avond4Daagse`. Escape gaat naar Normal-modus, gewone
+Escape gaat naar Normal-modus, gewone
 bewerkingen/undo/plakken werken, Enter zoekt en Ctrl-C annuleert. De artikelbuffer
-en cursorpositie blijven behouden. In de lijst: `o` bekijkt de foto online, `p` toont alle
-voorbeelden in een browsertab (klik daar op **Gebruik deze foto**), Enter kiest
-in de lijst, `s` wijzigt filters, `]p` voegt meer resultaten toe en
+en cursorpositie blijven behouden. De resultatenlijst heeft één regel per foto.
+`p` toont alle voorbeelden in een browsertab, met knoppen om van bron te wisselen,
+meer resultaten te laden en **Gebruik deze foto** te kiezen. In NeoVim wisselt
+`b` van bron, Enter kiest een foto, `s` wijzigt zoekwoorden, `]p` laadt meer en
 `q` annuleert. Op macOS openen tabs op de achtergrond. De foto's worden niet
 gedownload; alleen de browser kan cachen. Controleer na kiezen `b:` en `c:` in
 het artikel en verzend met een volgende `<leader>aw`. De bronfoto blijft gelijk.
 Werkt met de bijgewerkte Texttools-core (`pubble_photo_cli`).
-Foto's staan per bronartikel gegroepeerd: Tab klapt open/dicht, `x` verbergt de
-hele bron in deze sessie (ook in de browser), `u` herstelt de laatste bron.
-De rangschikking weegt beschikbare fototrefwoorden boven bijschrift boven kop;
-een matchreden is zichtbaar. Geen beeldherkenning/AI. De losse beeldbank werkt
-ook zonder bronartikel. Ontbreekt een veilige thumbnail, dan opent `o` de foto in
-Pubble en toont het raster een Pubble-link. Bekend eenmalig gebruik wordt
-geblokkeerd; controleer altijd context en rechten. Hide/undo doet één lokaal
-subprocess, geen netwerkcall; uitklappen doet alleen een lokale redraw.
+Gecombineerde onderwerp-/plaatstermen hebben in de rangschikking voorrang als ze
+in het bronartikel voorkomen; daarna tellen fototrefwoorden, bijschrift en kop.
+Er is geen beeldherkenning/AI en geen automatische 112-uitsluiting. De losse
+beeldbank werkt ook zonder bronartikel. Ontbreekt een veilige thumbnail, dan
+toont het raster een Pubble-link. Bekend eenmalig gebruik wordt geblokkeerd;
+controleer altijd context en rechten.
 Alle geladen pagina's vormen één lijst met unieke foto-ID's; alternatieve
 bronverwijzingen blijven bewaard. `p` toont dezelfde unieke selectie. Een
 nieuwe zoekopdracht begint opnieuw; een mislukte vervolgpagina laat de vorige
@@ -50,6 +48,7 @@ matches komen eerst, dan bevestigde fototrefwoorden/bijschrift/kop;
 enkelvoud/meervoud telt niet dubbel. `Gevonden via` toont de zoekherkomst.
 Met `p` zie je een compact raster van drie foto's naast elkaar, of minder op
 smalle schermen. Klikken vergroot/sluit het beeld; **Gebruik deze foto** kiest.
+In datzelfde raster kun je van bron wisselen en meer resultaten laden.
 Combinaties kosten meer netwerkcalls. Artikelfoto's gebruikt maximaal vijftien
 zoekvragen, vijftien unieke artikel-details en twaalf keyword-GETs per pagina.
 Beeldbank gebruikt maximaal vijftien zoekvragen en vijftien unieke metadata-GETs;
@@ -63,9 +62,9 @@ Een gewijzigde artikelbuffer weigert een late keuze. Er wordt alleen een
 bestaand beeld-ID overgenomen, nooit geüpload of automatisch gepubliceerd.
 Werk beide repositories bij; bij een fout blijft Enter in de lijst beschikbaar.
 `/`, `n`, `N`, `gg` en `G` blijven gewone Vim-navigatie in de resultatenlijst.
-112-bronartikelen worden door Texttools bij alle kranten uitgesloten. De directe
-beeldbank heeft op verzoek geen 112-herkomstfilter; de lijst meldt dit zodat je
-de zichtbare foto's zelf beoordeelt. Ook onleesbare artikelrubrieken worden gemeld.
+112-bronartikelen worden niet meer automatisch uitgesloten; beoordeel de
+zichtbare foto's zelf. Een oude `Uitsluiten:`-regel wordt nog gelezen maar niet
+meer toegepast.
 
 ```
 Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL ===` + tekst → Neovim
@@ -191,6 +190,7 @@ eronder. `<leader>ah` voegt een gekozen code automatisch boven de grens in.
 
 ```
 editie: B          # of SW, ST, Z, D, K, all, overijssel, flevoland
+wijk: Berkum       # SW: leeg/afwezig/Heel Zwolle = geen ID; auto = straatcontrole
 prio: 2            # 1=moet mee  2=mag mee  3=rest(standaard)  4=nood
 rubriek: 112       # markeert als 112-bericht
 calendar: x        # kalendermetadata ophalen bij <leader>ar of <leader>aw
@@ -215,6 +215,13 @@ Ook een visuele AI-selectie die de marker kruist wordt geweigerd.
 Bij `<leader>aw` valideert Python iedere regel daar strikt. `f:` is geen tag;
 gebruik `c:` of `Foto:`. `***` is bewust iets anders: die regel blijft voor
 inline AI-prompts en gesprekken gereserveerd.
+
+Voor `SW` laat een ontbrekende of lege `wijk:`-regel het Pubble-plaats-ID
+leeg, net als `wijk: Heel Zwolle`. Voor een optionele straatcontrole zet je
+`wijk: auto` boven de grens en druk je `<leader>aw`. Een eenduidige match
+wordt zichtbaar ingevuld; anders kies je zelf uit de lijst. De zichtbare
+regel wint van oude technische metadata en blijft na verzending behouden.
+Controleer een gekozen wijk opnieuw als je later de artikellocatie wijzigt.
 
 Vindt de eerste importinspectie het losse woord `embargo` in de oorspronkelijke
 artikelbody, dan verschijnt direct een waarschuwing en de bovenstaande

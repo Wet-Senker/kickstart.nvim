@@ -49,6 +49,12 @@ ai._check_agenda_duplicates(buf, { 'B' }, function(ok) vervolgd = ok end)
 local tekst = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
 assert(vervolgd == true, 'het artikel moet doorgaan, ook zonder agenda-item')
 assert(tekst:find('agenda: nee', 1, true), 'de weigering is niet vastgelegd')
+ai._agenda_duplicate_candidates = function() error('geweigerd agenda-item werd opnieuw gecontroleerd') end
+ai._agenda_duplicate_confirm = function() error('geweigerd agenda-item werd opnieuw gevraagd') end
+local opnieuw_vervolgd = false
+ai._check_agenda_duplicates(buf, { 'B' }, function(ok) opnieuw_vervolgd = ok end)
+assert(opnieuw_vervolgd == true, 'eerder geweigerd agenda-item blokkeerde vervolg')
+ai._agenda_duplicate_candidates = function(_buf, _codes, done) done(data) end
 
 -- Escape (confirm geeft 0, hier nil) is geen weigering: niets wordt vastgelegd.
 local buf2 = vim.api.nvim_create_buf(false, true)

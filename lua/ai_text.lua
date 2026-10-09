@@ -467,7 +467,7 @@ local _control_keys = {
   bijschrift=true, fotobijschrift=true, onderschrift=true,
   foto=true, fotograaf=true, fotografie=true, credit=true,
   fotocredit=true, fotorechten=true, beeld=true,
-  rubriek=true, week=true, web=true,
+  rubriek=true, week=true, web=true, wijk=true, krantuitzondering=true,
 }
 local function _is_control_key(k)
   k = k:lower()
@@ -483,14 +483,35 @@ M._is_control_key = _is_control_key
 -- calendar_signal.py). Retourneert "on" | "off" | "auto".
 local _AGENDA_ON = { x=true, ja=true, aan=true, t=true, ["true"]=true, yes=true, y=true }
 local _AGENDA_OFF = { f=true, nee=true, ["false"]=true, geen=true, uit=true, no=true, n=true }
+function M._agenda_control_bounds(lines)
+  local first = 1
+  if lines[1] == "---" then
+    for i = 2, #lines do
+      if lines[i] == "---" then first = i + 1; break end
+    end
+  end
+  for i = first, #lines do
+    if vim.trim(lines[i]) == ARTICLE_BOUNDARY then return first, i - 1, true end
+  end
+  return first, #lines, false
+end
+
 local function _agenda_mode_from_lines(lines)
   local mode = "auto"
-  for _, line in ipairs(lines) do
+  local first, last, has_boundary = M._agenda_control_bounds(lines)
+  local disabled_in_frontmatter = false
+  if first > 1 then
+    for i = 2, first - 2 do
+      if vim.trim(lines[i]):lower():match("^calendar_disabled:%s*true%s*$") then
+        disabled_in_frontmatter = true
+        break
+      end
+    end
+  end
+  for i = first, last do
+    local line = lines[i]
     local t = vim.trim(line)
-    if t == "" or t == ARTICLE_BOUNDARY or t == "---" then
-      -- leeg/grens: controleblok is uit; niet verder kijken in de body
-      if t == ARTICLE_BOUNDARY or t == "---" then break end
-    else
+    if t ~= "" then
       local k, v = t:match("^(%a[%a%d_]*)%s*:%s*(.-)%s*$")
       if k then
         k = k:lower()
@@ -500,10 +521,12 @@ local function _agenda_mode_from_lines(lines)
           elseif _AGENDA_ON[v] then mode = "on"
           else mode = "auto" end
         end
+      elseif not has_boundary then
+        break -- legacy zonder grens: de eerste gewone tekst begint het artikel
       end
     end
   end
-  return mode
+  return disabled_in_frontmatter and "off" or mode
 end
 M._agenda_mode_from_lines = _agenda_mode_from_lines
 
@@ -3145,7 +3168,12 @@ M._agenda_duplicate_confirm = agenda_duplicate_prompt
 function M._check_agenda_duplicates(buf, codes, done)
   local fingerprint = nil
   if vim.api.nvim_buf_is_valid(buf) and type(codes) == "table" and #codes > 0 then
-    local current = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+    local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    if _agenda_mode_from_lines(current_lines) == "off" then
+      done(true) -- Een geweigerd agenda-item hoeft niet op doublures te worden gecontroleerd.
+      return
+    end
+    local current = table.concat(current_lines, "\n")
     fingerprint = vim.fn.sha256(table.concat(codes, ",") .. "\n" .. current)
   end
   if not vim.api.nvim_buf_is_valid(buf)
@@ -3746,26 +3774,21 @@ function M.reject_calendar(buf, message)
       while #lines > 0 and vim.trim(lines[#lines]) == "" do table.remove(lines) end
     end
   end
-  local _, body_start = split_frontmatter_lines(lines)
+  local body_start, control_end, has_boundary = M._agenda_control_bounds(lines)
 
   -- Verwijder bestaande agenda-/cal-controleregels in het leidende controleblok
   -- (voorkomt tegenstrijdigheid met een eerdere 'agenda: ja'/'cal: x').
   local out = {}
-  local in_control_zone = true
   for i, line in ipairs(lines) do
     local keep = true
-    if i >= body_start and in_control_zone then
+    if i >= body_start and i <= control_end then
       local t = vim.trim(line)
-      if t == "" or t == ARTICLE_BOUNDARY then
-        in_control_zone = false
-      else
-        local k = t:match("^(%a[%a%d_]*)%s*:")
-        if k then
-          k = k:lower()
-          if k == "agenda" or k == "cal" or k == "calendar" then keep = false end
-        else
-          in_control_zone = false
-        end
+      local k = t:match("^(%a[%a%d_]*)%s*:")
+      if k then
+        k = k:lower()
+        if k == "agenda" or k == "cal" or k == "calendar" then keep = false end
+      elseif t ~= "" and not has_boundary then
+        control_end = i - 1 -- legacy zonder grens: artikeltekst niet aanraken
       end
     end
     if keep then table.insert(out, line) end
@@ -3804,7 +3827,21 @@ local function calendar_decision_before_send(buf)
   local visible = has_calendar_section(lines)
 
   if agenda_mode == "off" then
-    if visible then
+    local first, last, has_boundary = M._agenda_control_bounds(lines)
+    local agenda_controls = 0
+    for i = first, last do
+      local t = vim.trim(lines[i])
+      local k = t:match("^(%a[%a%d_]*)%s*:")
+      if k then
+        k = k:lower()
+        if k == "agenda" or k == "cal" or k == "calendar" then
+          agenda_controls = agenda_controls + 1
+        end
+      elseif t ~= "" and not has_boundary then
+        break
+      end
+    end
+    if visible or agenda_controls > 1 then
       M.reject_calendar(buf)
     else
       vim.b[buf].cached_calendar_metadata = nil
@@ -4601,6 +4638,47 @@ local function late_newspaper_codes(buf, mode)
   return type(decision.editions) == "table" and decision.editions or {}
 end
 
+-- Maak een per-editie-webkeuze zichtbaar én herstelbaar. De Python-parser
+-- vertaalt deze controleregels naar newspaper.skip_editions/skip_reasons; de
+-- Neovim-buffer en het reeds voorbereide tijdelijke verzendbestand krijgen
+-- dezelfde regel, zodat een retry niet van een verborgen b:-status afhangt.
+function M._record_newspaper_exclusions(buf, file, codes, reason)
+  if not vim.api.nvim_buf_is_valid(buf) or type(codes) ~= "table" or #codes == 0 then
+    return false
+  end
+  local explanation = vim.trim(tostring(reason or "alleen website gekozen")):gsub("[\r\n|]", " ")
+  local function add(lines)
+    local boundary
+    local existing = {}
+    for i, line in ipairs(lines) do
+      if vim.trim(line) == ARTICLE_BOUNDARY then boundary = i; break end
+      local code = vim.trim(line):match("^krantuitzondering:%s*([%w]+)%s*|")
+      if code then existing[code:upper()] = true end
+    end
+    if not boundary then return nil end
+    local changed = false
+    for _, code in ipairs(codes) do
+      code = tostring(code):upper()
+      if not existing[code] then
+        table.insert(lines, boundary, "krantuitzondering: " .. code .. " | " .. explanation)
+        boundary = boundary + 1
+        existing[code] = true
+        changed = true
+      end
+    end
+    return changed
+  end
+  local buffer_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local changed = add(buffer_lines)
+  if changed == nil then return false end
+  if changed then vim.api.nvim_buf_set_lines(buf, 0, -1, false, buffer_lines) end
+  if type(file) == "string" and file ~= "" and vim.fn.filereadable(file) == 1 then
+    local file_lines = vim.fn.readfile(file)
+    if add(file_lines) then vim.fn.writefile(file_lines, file) end
+  end
+  return true
+end
+
 local function effective_skipped_newspapers(buf)
   return merged_edition_codes(
     vim.b[buf].skip_newspaper_editions,
@@ -4655,7 +4733,27 @@ local function review_late_newspapers(buf, review, done)
     return
   end
 
-  local signature = type(review.signature) == "string" and review.signature or ""
+  -- Een eerder gekozen web-only-editie mag niet opnieuw als te laat worden
+  -- voorgelegd. Houd de melding ook beperkt tot de overgebleven printedities.
+  local skipped = {}
+  for _, code in ipairs(effective_skipped_newspapers(buf)) do skipped[code] = true end
+  local pending = {}
+  for _, code in ipairs(late) do
+    if not skipped[code] then table.insert(pending, code) end
+  end
+  if #pending == 0 then
+    done(true)
+    return
+  end
+  local filtered_review = vim.deepcopy(review)
+  filtered_review.late_editions = pending
+  filtered_review.items = {}
+  for _, item in ipairs(type(review.items) == "table" and review.items or {}) do
+    if not skipped[item.edition] then table.insert(filtered_review.items, item) end
+  end
+
+  local signature = (type(review.signature) == "string" and review.signature or "")
+    .. ":" .. table.concat(pending, ",")
   local remembered = vim.b[buf].late_newspaper_decision
   if type(remembered) == "table" and remembered.signature == signature then
     done(remembered.mode == "website" or remembered.mode == "force")
@@ -4668,7 +4766,7 @@ local function review_late_newspapers(buf, review, done)
   end
   local tick = vim.api.nvim_buf_get_changedtick(buf)
   vim.b[buf].late_newspaper_review_pending = true
-  M._late_newspaper_confirm(review, function(choice)
+  M._late_newspaper_confirm(filtered_review, function(choice)
     if not vim.api.nvim_buf_is_valid(buf) then done(false); return end
     vim.b[buf].late_newspaper_review_pending = nil
     if vim.api.nvim_buf_get_changedtick(buf) ~= tick then
@@ -4677,13 +4775,28 @@ local function review_late_newspapers(buf, review, done)
       return
     end
     if choice == 1 or choice == 2 then
+      if choice == 1 then
+        if not M._record_newspaper_exclusions(
+            buf, nil, pending, "inhoudelijke krantdeadline verstreken"
+          ) then
+          done(false)
+          return
+        end
+        vim.b[buf].skip_newspaper_editions = merged_edition_codes(
+          effective_skipped_newspapers(buf), pending
+        )
+      end
       vim.b[buf].late_newspaper_decision = {
         signature = signature,
         mode = choice == 1 and "website" or "force",
-        editions = late,
+        editions = pending,
       }
+      require('workflow_log').decision(buf, 'Krantdeadline', choice == 1 and 'website' or 'force', pending)
       done(true)
-    else done(false) end
+    else
+      require('workflow_log').decision(buf, 'Krantdeadline', 'cancel', pending)
+      done(false)
+    end
   end)
 end
 
@@ -5178,6 +5291,14 @@ function M.pubble_send(target_buf)
     if not allowed then
       discard_unpublished_temp()
       vim.notify(message, vim.log.levels.ERROR)
+      return
+    end
+    local late_website = late_newspaper_codes(buf, "website")
+    if #late_website > 0 and not M._record_newspaper_exclusions(
+        buf, temp_file, late_website, "inhoudelijke krantdeadline verstreken"
+      ) then
+      discard_unpublished_temp()
+      vim.notify("Krantuitzondering kon niet in het artikel worden vastgelegd.", vim.log.levels.ERROR)
       return
     end
     _do_pubble_send(display_dates or {})
@@ -5730,6 +5851,23 @@ function M.pubble_send(target_buf)
         return
       end
       resolved_publication = resolved
+      -- De Swollenaer heeft één expliciete wijkkeuze per webartikel. De Python-
+      -- actie zoekt lokaal/PDOK en het zichtbare wijk:-veld wordt vóór iedere
+      -- Pubble-write vastgelegd. Ook webconcepten zonder foto volgen dit pad.
+      local wijk = require('swollenaer_wijk')
+      if wijk.needs_choice(resolved) then
+        wijk.ensure(buf, temp_file, resolved, function(outcome)
+          discard_unpublished_temp()
+          if outcome == 'restart' then
+            vim.schedule(function() M.pubble_send(buf) end)
+          elseif outcome == 'continue' then
+            vim.schedule(function() M.pubble_send(buf) end)
+          else
+            notify_workflow(outcome, vim.log.levels.ERROR)
+          end
+        end)
+        return
+      end
       -- Meteen na de resolve, vóór de doublurecontrole en de AI-calls: zonder
       -- foto kan dit artikel alleen als concept weg, dus dat hoeft niet eerst
       -- een hele verzendvoorbereiding te kosten. De waarborg in send_published
@@ -6238,11 +6376,16 @@ local function temporal_print_command(
   return command
 end
 
-M._newspaper_time_version_choice = function()
+M._newspaper_time_version_choice = function(targets)
+  local editions = {}
+  for _, target in ipairs(targets or {}) do
+    if type(target.edition) == "string" then table.insert(editions, target.edition) end
+  end
+  local label = #editions > 0 and (" voor " .. table.concat(editions, ", ")) or ""
   return require('user_dialog').confirm(
-    "Voor de krant is een andere tijdsversie nodig (de tekst verwijst naar een "
-      .. "datum die in de latere krant anders leest). Wat wil je?",
-    "&Kranttijdsversie maken en gebruiken\nAlleen &website (geen krant)\n&Annuleren",
+    "Voor de krant is een andere tijdsversie nodig" .. label
+      .. " (de tekst verwijst naar een datum die in de latere krant anders leest). Wat wil je?",
+    "&Kranttijdsversie maken en gebruiken\nAlleen &website voor deze editie(s)\n&Annuleren",
     1
   )
 end
@@ -6268,7 +6411,7 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
   -- Zonder dit filter kreeg zo'n editie toch een versie (en de vraag
   -- "Kranttijdsversie maken?"), en faalde de verzending daarna omdat
   -- pubble-send alleen de printedities controleert. `all_edition_codes`
-  -- blijft de volledige lijst voor "alles alleen website".
+  -- blijft beschikbaar voor de overige krantversies.
   local all_edition_codes = edition_codes or {}
   do
     local web_only = {}
@@ -6365,6 +6508,7 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
           end
           local choice = M._past_timing_confirm(payload.targets)
           if choice == 1 then
+            require('workflow_log').decision(buf, 'Kranttijd verlopen evenement', 'rewrite', past_target_editions)
             -- Met allow_past_rewrite=true blijft requires_review voor deze
             -- targets altijd waar (zie prepare_timing_workspace): een tweede
             -- dry-run zou hier dus gegarandeerd meteen de kranttijdskeuze
@@ -6372,8 +6516,32 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
             -- dus confirmed=true gaat direct door naar de echte generatie.
             run(true, false, true)
           elseif choice == 2 then
-            run(false, true)
+            require('workflow_log').decision(buf, 'Kranttijd verlopen evenement', 'website', past_target_editions)
+            -- Alleen de verlopen edities vallen af. Overige kranttargets
+            -- krijgen in dezelfde flow alsnog hun eigen tijdsversie.
+            if not M._record_newspaper_exclusions(
+                buf, file, past_target_editions, "evenement voorbij op krantdatum"
+              ) then
+              done(false, "Krantuitzondering kon niet worden vastgelegd")
+              return
+            end
+            vim.b[buf].skip_newspaper_editions = merged_edition_codes(
+              effective_skipped_newspapers(buf), past_target_editions
+            )
+            local skip_set = {}
+            for _, code in ipairs(past_target_editions) do skip_set[code] = true end
+            local remaining = {}
+            for _, code in ipairs(edition_codes) do
+              if not skip_set[code] then table.insert(remaining, code) end
+            end
+            edition_codes = remaining
+            if #edition_codes == 0 then
+              done(true, nil, false, effective_skipped_newspapers(buf))
+            else
+              run(false, false, false)
+            end
           else
+            require('workflow_log').decision(buf, 'Kranttijd verlopen evenement', 'cancel', past_target_editions)
             done(false, AI_CANCELLED)
           end
           return
@@ -6395,14 +6563,27 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
             run(allow_past_rewrite, skip_past_newspaper, true)
             return
           end
-          local choice = M._newspaper_time_version_choice()
+          local choice = M._newspaper_time_version_choice(payload.targets)
           if choice == 1 then
+            require('workflow_log').decision(buf, 'Kranttijdsversie', 'rewrite', review_target_editions)
             run(allow_past_rewrite, skip_past_newspaper, true)
           elseif choice == 2 then
-            -- Alleen website: alle edities web-only, geen kranttijdsversie.
-            -- Er is nooit AI aangeroepen.
-            done(true, nil, false, all_edition_codes)
+            -- Alleen de edities met een kranttijdprobleem worden web-only;
+            -- onveranderde krantversies blijven beschikbaar voor print.
+            local target_editions = timing_target_editions(payload.targets, false)
+            if #target_editions == 0 then target_editions = edition_codes end
+            require('workflow_log').decision(buf, 'Kranttijdsversie', 'website', target_editions)
+            if not M._record_newspaper_exclusions(
+                buf, file, target_editions, "geen aangepaste kranttijdversie gekozen"
+              ) then
+              done(false, "Krantuitzondering kon niet worden vastgelegd")
+              return
+            end
+            done(true, nil, false, merged_edition_codes(
+              effective_skipped_newspapers(buf), target_editions
+            ))
           else
+            require('workflow_log').decision(buf, 'Kranttijdsversie', 'cancel', review_target_editions)
             done(false, AI_CANCELLED)
           end
           return
