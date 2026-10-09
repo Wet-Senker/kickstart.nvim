@@ -65,7 +65,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>aV` | Overzicht van bron en afzonderlijke krantversiebuffers |
 | `<leader>aG` | Huidige krantversie opslaan en expliciet goedkeuren |
 | `<leader>aw` | Publicatie voorbereiden; vangnet voor doublures en onbewerkte import; toont zo nodig eerst `## Kranttijdsversies` en eventvervolgen. Bij een verstreken krantdeadline: overlay met reden; `w` alleen web, `t` toch krant, `a`/Escape annuleren (ook 1–3 of `j`/`k` + Enter). Vanaf twee foto's krijgt de Pubble-kop `(n foto's)`, behalve bij 112 |
-| `<leader>ax` | Vormgevingstekst (FOTO/FOTOBIJSCHRIFT/STREAMER + vette intro) + foto('s) naar het Bureaublad; vraagt een bestandsnaam |
+| `<leader>ax` | Vormgevingstekst + foto('s) naar het Bureaublad; een met `<leader>pf` gekozen Pubble-foto wordt als origineel gedownload, anders worden de losse Inbox-foto's gebruikt |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen |
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |
 | `<leader>aa` | **Archiefzoeker** — eerder geschreven over dit onderwerp, uit het hele archief. Vijf per keer, per jaar gegroepeerd; nogmaals drukken geeft de volgende vijf |

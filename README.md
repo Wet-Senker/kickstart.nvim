@@ -27,7 +27,8 @@ meer resultaten te laden en **Gebruik deze foto** te kiezen. In NeoVim wisselt
 `b` van bron, Enter kiest een foto, `s` wijzigt zoekwoorden, `]p` laadt meer,
 `a` maakt een controleerbare AI-stockprompt en `i` importeert de gedownloade foto;
 `q` annuleert. Op macOS openen tabs op de achtergrond. De foto's worden niet
-gedownload; alleen de browser kan cachen. Controleer na kiezen `b:` en `c:` in
+gedownload; alleen de browser kan cachen. Het oude archiefbijschrift wordt niet
+overgenomen: `b:` is optioneel. Controleer na kiezen altijd de verplichte `c:` in
 het artikel en verzend met een volgende `<leader>aw`. De bronfoto blijft gelijk.
 Werkt met de bijgewerkte Texttools-core (`pubble_photo_cli`).
 Gecombineerde onderwerp-/plaatstermen hebben in de rangschikking voorrang als ze
@@ -422,6 +423,11 @@ welke foto erbij hoort, ook nadat die naar `used` is verplaatst. Bij een
 ontbrekende of gewijzigde foto blijft het exportplan staan en meldt NeoVim de
 fout; `<leader>aw` kan de ontbrekende stap hervatten. Dit kost alleen bij een
 vormgevingsexport één extra asynchroon Python-proces plus lokale fotokopieën.
+De losse directe actie `<leader>ax` gebruikt bij een eerdere `<leader>pf`-keuze
+juist het originele Pubble-beeld en downloadt dit onder de gevraagde
+vormgevingsnaam. Zonder zo'n selectie blijven de losse Pubble Inbox-foto's de
+bron. De downloadroute doet drie read-only netwerkacties en geen AI- of
+Pubble-write; NeoVim blijft tijdens de asynchrone export bruikbaar.
 
 ---
 

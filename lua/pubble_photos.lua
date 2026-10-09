@@ -128,8 +128,8 @@ local function choose(s, photo, confirmed)
     if vim.api.nvim_buf_get_name(source) ~= '' and vim.bo[source].buftype == '' then
       saved = pcall(vim.cmd, 'silent update')
     end
-    notify(saved and 'Foto gekozen. Controleer b: (bijschrift) en c: (credit); daarna <leader>aw om te verzenden.'
-      or 'Foto staat in de buffer, maar opslaan mislukte. Sla eerst op; controleer b: en c:, daarna <leader>aw.',
+    notify(saved and 'Foto gekozen. Controleer c: (verplicht); b: is optioneel. Daarna <leader>aw om te verzenden.'
+      or 'Foto staat in de buffer, maar opslaan mislukte. Sla eerst op; controleer c: (verplicht), daarna <leader>aw.',
       saved and vim.log.levels.INFO or vim.log.levels.WARN, { ttl = 12 })
   end)
 end
