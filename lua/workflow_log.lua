@@ -118,6 +118,40 @@ function M.decision(buf, action, choice, editions)
   }
 end
 
+-- Schrijf alleen vooraf benoemde, niet-vrije diagnosevelden. Zo kan de
+-- tijdlijn uitleggen waarom een deterministische controle koos of vastliep,
+-- zonder artikeltekst, adresregels of andere redactionele inhoud te loggen.
+local diagnostic_keys = {
+  status = true,
+  reason = true,
+  request_mode = true,
+  chosen = true,
+  literal_area_count = true,
+  street_count = true,
+  cache_hits = true,
+  pdok_requests = true,
+  pdok_matches = true,
+  unresolved_count = true,
+  lookup_error_types = true,
+}
+
+function M.diagnostic(buf, action, detail)
+  local safe = {}
+  for key, value in pairs(type(detail) == 'table' and detail or {}) do
+    if diagnostic_keys[key] then safe[key] = value end
+  end
+  append(vim.tbl_extend('force', {
+    ts = timestamp(),
+    kind = 'workflow',
+    event = 'diagnostic',
+    client = 'nvim',
+    run_id = M.workflow_id(buf),
+    workflow_id = M.workflow_id(buf),
+    source = source_for(buf),
+    action = action,
+  }, safe))
+end
+
 function M.environment(token)
   if type(token) ~= 'table' then return {} end
   return {

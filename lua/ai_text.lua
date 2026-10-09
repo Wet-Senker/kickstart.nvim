@@ -4872,6 +4872,26 @@ local function finalize_published_buffer(buf, file_path, marker_block, archive_p
 end
 M._finalize_published_buffer = finalize_published_buffer
 
+-- De datumkiezer is asynchrone clientstate: zolang hij openstaat mag een
+-- tweede <leader>aw geen nieuwe voorbereiding en geen tweede menu starten.
+-- Een generatie-token voorkomt dat een late callback van een oude keuze een
+-- inmiddels nieuwere planningsvraag vrijgeeft.
+function M._begin_publication_planning(buf)
+  if not vim.api.nvim_buf_is_valid(buf) then return nil end
+  if vim.b[buf].publication_planning_pending ~= nil then return nil end
+  local generation = (tonumber(vim.b[buf].publication_planning_generation) or 0) + 1
+  vim.b[buf].publication_planning_generation = generation
+  vim.b[buf].publication_planning_pending = generation
+  return generation
+end
+
+function M._finish_publication_planning(buf, generation)
+  if not vim.api.nvim_buf_is_valid(buf) then return false end
+  if vim.b[buf].publication_planning_pending ~= generation then return false end
+  vim.b[buf].publication_planning_pending = nil
+  return true
+end
+
 function M.pubble_send(target_buf)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
@@ -4904,6 +4924,13 @@ function M.pubble_send(target_buf)
   end
   if vim.b[buf].publication_in_progress then
     notify_workflow("Deze publicatierun is al bezig.", vim.log.levels.INFO)
+    return
+  end
+  if vim.b[buf].publication_planning_pending ~= nil then
+    notify_workflow(
+      "Beantwoord of annuleer eerst de openstaande publicatieplanning.",
+      vim.log.levels.INFO
+    )
     return
   end
 
@@ -6038,6 +6065,28 @@ function M.pubble_send(target_buf)
       -- Bij fout in pubble-schedule: toon alsnog een minimale dialog per editie.
       -- Geef het tijdelijke artikel mee: pubble-schedule gebruikt
       -- calendar.event_date als uiterste aanbevelingsdatum voor events.
+      local planning_generation = M._begin_publication_planning(buf)
+      if not planning_generation then
+        discard_unpublished_temp()
+        notify_workflow(
+          "Beantwoord of annuleer eerst de openstaande publicatieplanning.",
+          vim.log.levels.INFO
+        )
+        return
+      end
+      workflow_log.diagnostic(buf, "Publicatieplanning", { status = "opened" })
+
+      local function finish_planning(choice)
+        if M._finish_publication_planning(buf, planning_generation) then
+          workflow_log.decision(
+            buf,
+            "Publicatieplanning",
+            choice,
+            resolved.editions
+          )
+        end
+      end
+
       vim.system({ pubble_schedule, editie, "--article", temp_file }, { text = true }, function(sched_result)
     vim.schedule(function()
       local display_dates = {}
@@ -6147,12 +6196,15 @@ function M.pubble_send(target_buf)
           end,
         }, function(priority)
           if priority == nil then
+            finish_planning("cancelled")
             discard_unpublished_temp()
             notify_workflow("Verzending geannuleerd.", vim.log.levels.INFO)
           elseif set_priority_control(buf, priority) then
+            finish_planning("priority")
             discard_unpublished_temp()
             vim.schedule(function() M.pubble_send(buf) end)
           else
+            finish_planning("priority_failed")
             discard_unpublished_temp()
             notify_workflow("Prioriteit kon niet worden aangepast.", vim.log.levels.ERROR)
           end
@@ -6190,6 +6242,7 @@ function M.pubble_send(target_buf)
             prompt = krant_naam .. volgnr .. "  —  week " .. week_nr .. ":",
           }, function(choice, choice_idx)
             if choice == nil then
+              finish_planning("cancelled")
               discard_unpublished_temp()
               notify_workflow("Verzending geannuleerd.", vim.log.levels.INFO)
               return
@@ -6200,11 +6253,13 @@ function M.pubble_send(target_buf)
             elseif value == "__prev__" then
               show_week(week_offset - 1)
             elseif value == "__unpublished__" then
+              finish_planning("unpublished")
               send_unpublished()
             elseif value == "__priority__" then
               choose_priority_and_restart()
             else
               display_dates[code] = value
+              if idx == #edition_codes then finish_planning("adjusted_dates") end
               ask_edition(idx + 1)
             end
           end)
@@ -6304,17 +6359,21 @@ function M.pubble_send(target_buf)
         prompt = table.concat(prompt_lines, "\n"),
       }, function(choice)
         if choice == nil then
+          finish_planning("cancelled")
           discard_unpublished_temp()
           notify_workflow("Verzending geannuleerd.", vim.log.levels.INFO)
         elseif choice == accept_label then
+          finish_planning("recommended_dates")
           send_published(recommended)
         elseif choice == adjust_label then
           ask_edition(1)
         elseif choice == priority_label then
           choose_priority_and_restart()
         elseif choice == unpublished_label then
+          finish_planning("unpublished")
           send_unpublished()
         else
+          finish_planning("direct")
           send_published({})
         end
       end)

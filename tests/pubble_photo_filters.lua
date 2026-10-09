@@ -57,11 +57,14 @@ reply({ query = 'hond', editor_text = 'Bron: Beeldbank\nOnderwerp: hond, honden\
   photos = { a }, candidates = { a }, source = 'images' })
 assert(display():find('Beeldbank', 1, true))
 key('b')
-assert(vim.json.decode(requests[#requests].opts.stdin).editor_text:find("Bron: Artikelfoto's", 1, true))
-reply({ query = 'hond', editor_text = editor, photos = { a }, candidates = { a }, source = 'articles' })
+local both_editor = 'Bron: Beide\nOnderwerp: hond, honden\nPlaats: Milligerplas'
+assert(vim.json.decode(requests[#requests].opts.stdin).editor_text:find('Bron: Beide', 1, true))
+reply({ query = 'hond', editor_text = both_editor,
+  fields = { source = 'both', subject = 'hond, honden', place = 'Milligerplas', exclude = '' },
+  photos = { a }, candidates = { a }, source = 'both' })
 key('s')
-assert(defaults[#defaults] == editor)
-reply({ query = 'hond', editor_text = editor, photos = {}, candidates = {}, source = 'articles' })
+assert(defaults[#defaults] == both_editor)
+reply({ query = 'hond', editor_text = both_editor, photos = {}, candidates = {}, source = 'both' })
 assert(vim.api.nvim_buf_get_changedtick(source) == tick)
 key('q')
 assert(vim.api.nvim_get_current_buf() == source)

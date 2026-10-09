@@ -20,10 +20,12 @@ staan in een tijdelijke Vim-buffer. Kies bij Bron tussen
 drie komma-gescheiden alternatieven; Plaats mag leeg voor algemene foto's.
 Escape gaat naar Normal-modus, gewone
 bewerkingen/undo/plakken werken, Enter zoekt en Ctrl-C annuleert. De artikelbuffer
-en cursorpositie blijven behouden. De resultatenlijst heeft één regel per foto.
+en cursorpositie blijven behouden. De resultatenlijst heeft één regel per foto
+met een witregel tussen opeenvolgende resultaten.
 `p` toont alle voorbeelden in een browsertab, met knoppen om van bron te wisselen,
 meer resultaten te laden en **Gebruik deze foto** te kiezen. In NeoVim wisselt
-`b` van bron, Enter kiest een foto, `s` wijzigt zoekwoorden, `]p` laadt meer en
+`b` van bron, Enter kiest een foto, `s` wijzigt zoekwoorden, `]p` laadt meer,
+`a` maakt een controleerbare AI-stockprompt en `i` importeert de gedownloade foto;
 `q` annuleert. Op macOS openen tabs op de achtergrond. De foto's worden niet
 gedownload; alleen de browser kan cachen. Controleer na kiezen `b:` en `c:` in
 het artikel en verzend met een volgende `<leader>aw`. De bronfoto blijft gelijk.
@@ -46,13 +48,18 @@ los én in alle betekenisvolle combinaties gezocht, zonder categorie-/locatiefil
 `hond` met `Zwolle` zoekt dus `hond`, `Zwolle` en `hond Zwolle`. Specifiekere
 matches komen eerst, dan bevestigde fototrefwoorden/bijschrift/kop;
 enkelvoud/meervoud telt niet dubbel. `Gevonden via` toont de zoekherkomst.
+`sport, landstede` met `Zwolle` levert zeven routes op: alle drie samen, drie
+paren en drie losse termen. De eerste pagina verdeelt maximaal 36 bronrecords
+over die routes; honderden Pubble-treffers worden met `]p` vervolgd. De toets en
+melding voor meer bronresultaten staan alleen in beeld als Pubble een volgende
+pagina meldt.
 Met `p` zie je een compact raster van drie foto's naast elkaar, of minder op
 smalle schermen. Klikken vergroot/sluit het beeld; **Gebruik deze foto** kiest.
 In datzelfde raster kun je van bron wisselen en meer resultaten laden.
 Combinaties kosten meer netwerkcalls. Artikelfoto's gebruikt maximaal vijftien
-zoekvragen, vijftien unieke artikel-details en twaalf keyword-GETs per pagina.
-Beeldbank gebruikt maximaal vijftien zoekvragen en vijftien unieke metadata-GETs;
-`Beide` telt de begrensde routes op. Details worden gecachet en vier GETs lopen
+zoekvragen, circa 36 unieke artikel-details en twaalf keyword-GETs per pagina.
+Beeldbank gebruikt maximaal vijftien zoekvragen en circa 36 metadata-GETs;
+`Beide` deelt hetzelfde budget over beide routes. Details worden gecachet en vier GETs lopen
 tegelijk. Een oude zoekcursor vraagt opnieuw zoeken; geen extra AI-call, download,
 upload of automatische publicatie. Latentie op een oude Mac moet nog worden gemeten.
 
@@ -60,6 +67,10 @@ De browserkeuze gebruikt een tijdelijke lokale verbinding, maximaal vijftien
 minuten. Kiezen, opnieuw zoeken, `q` en afsluiten van NeoVim stoppen de verbinding.
 Een gewijzigde artikelbuffer weigert een late keuze. Er wordt alleen een
 bestaand beeld-ID overgenomen, nooit geüpload of automatisch gepubliceerd.
+Een AI-stockimport kopieert eerst alleen het gecontroleerde lokale beeld naast
+het artikel. Pas de latere gewone verzending uploadt dit bestand met de
+ingevoerde archieftags naar de algemene Pubble-stocklibrary (locatie 24) en
+koppelt het nieuwe beeld-ID aan de publicatiedoelen.
 Werk beide repositories bij; bij een fout blijft Enter in de lijst beschikbaar.
 `/`, `n`, `N`, `gg` en `G` blijven gewone Vim-navigatie in de resultatenlijst.
 112-bronartikelen worden niet meer automatisch uitgesloten; beoordeel de
@@ -190,7 +201,7 @@ eronder. `<leader>ah` voegt een gekozen code automatisch boven de grens in.
 
 ```
 editie: B          # of SW, ST, Z, D, K, all, overijssel, flevoland
-wijk: Berkum       # SW: leeg/afwezig/Heel Zwolle = geen ID; auto = straatcontrole
+wijk: Berkum       # SW: ontbrekend = automatische controle; leeg/Heel Zwolle = hele stad
 prio: 2            # 1=moet mee  2=mag mee  3=rest(standaard)  4=nood
 rubriek: 112       # markeert als 112-bericht
 calendar: x        # kalendermetadata ophalen bij <leader>ar of <leader>aw
@@ -216,11 +227,13 @@ Bij `<leader>aw` valideert Python iedere regel daar strikt. `f:` is geen tag;
 gebruik `c:` of `Foto:`. `***` is bewust iets anders: die regel blijft voor
 inline AI-prompts en gesprekken gereserveerd.
 
-Voor `SW` laat een ontbrekende of lege `wijk:`-regel het Pubble-plaats-ID
-leeg, net als `wijk: Heel Zwolle`. Voor een optionele straatcontrole zet je
-`wijk: auto` boven de grens en druk je `<leader>aw`. Een eenduidige match
-wordt zichtbaar ingevuld; anders kies je zelf uit de lijst. De zichtbare
-regel wint van oude technische metadata en blijft na verzending behouden.
+Voor `SW` start een ontbrekende `wijk:`-regel bij `<leader>aw` automatisch de
+deterministische wijkcontrole. Zonder signaal wordt `wijk: Heel Zwolle`
+zichtbaar ingevuld; bij één wijknaam of straatmatch bevestig je het voorstel
+in een verplicht menu. Een lege regel en `wijk: Heel Zwolle` betekenen bewust
+de hele stad. `wijk: auto` forceert de controle en vult een eenduidige match
+direct in. De zichtbare regel wint van oude technische metadata en blijft na
+verzending behouden. De veilige diagnose staat in `:TexttoolsLog`.
 Controleer een gekozen wijk opnieuw als je later de artikellocatie wijzigt.
 
 Vindt de eerste importinspectie het losse woord `embargo` in de oorspronkelijke

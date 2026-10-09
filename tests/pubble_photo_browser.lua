@@ -28,8 +28,11 @@ local function start()
   vim.api.nvim_set_current_buf(source)
   vim.api.nvim_buf_set_lines(source, 0, -1, false, { '=== ARTIKEL ===', '', 'Kop', '', 'Tekst' })
   photos.open(source)
-  reply(requests[#requests], { query = 'hond' })
-  reply(requests[#requests], { photos = { candidate }, next_offset = 12 })
+  local editor_text = 'Bron: Beide\nOnderwerp: hond\nPlaats: Zwolle'
+  reply(requests[#requests], { query = 'hond', editor_text = editor_text })
+  reply(requests[#requests], { photos = { candidate }, candidates = { candidate },
+    next_offset = 12, source = 'both', query_strategy = 2, editor_text = editor_text,
+    fields = { source = 'both', subject = 'hond', place = 'Zwolle', exclude = '' } })
   key('p')
   local browse = requests[#requests]
   assert(browse.cmd[4] == 'browse')
@@ -65,11 +68,34 @@ assert(#requests == count + 1, 'browser selection must not publish or upload')
 event(browse, { event = 'selected', image_metadata_id = 731 })
 assert(#requests == count + 1, 'duplicate event must be ignored')
 
+-- Dezelfde b-toets doorloopt in NeoVim alle drie de bronnen. Iedere wissel
+-- gebruikt opnieuw de gestructureerde Python-zoekactie.
+source, browse = start()
+for _, expected in ipairs({ "Artikelfoto's", 'Beeldbank', 'Beide' }) do
+  key('b')
+  local search_request = requests[#requests]
+  local search_payload = vim.json.decode(search_request.opts.stdin)
+  assert(search_payload.editor_text:find('Bron: ' .. expected, 1, true),
+    'b schakelde niet door naar ' .. expected)
+  local source_key = expected == "Artikelfoto's" and 'articles'
+    or expected == 'Beeldbank' and 'images' or 'both'
+  reply(search_request, { photos = { candidate }, candidates = { candidate },
+    next_offset = vim.NIL, source = source_key, query_strategy = 2,
+    editor_text = search_payload.editor_text,
+    fields = { source = source_key, subject = 'hond', place = 'Zwolle', exclude = '' } })
+end
+key('q')
+
 -- Paging in the browser refreshes the editor list; the new photo remains selectable.
 source, browse = start()
 local newer = vim.tbl_extend('force', candidate, { image_metadata_id = 732, caption = 'Nieuwe foto' })
 event(browse, { event = 'page', page = { photos = { candidate, newer }, next_offset = vim.NIL } })
-assert(table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n'):find('Nieuwe foto', 1, true))
+local page_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+local page_text = table.concat(page_lines, '\n')
+assert(page_text:find('Nieuwe foto', 1, true))
+assert(page_lines[6] == '', 'tussen fotoresultaten ontbreekt een witregel')
+assert(not page_text:find('Meer resultaten', 1, true), 'afgeronde zoekactie toont toch meer resultaten')
+assert(not page_lines[2]:find(']p', 1, true), 'afgeronde zoekactie toont toch de meer-toets')
 event(browse, { event = 'selected', image_metadata_id = 732 })
 selection = requests[#requests]
 assert(vim.json.decode(selection.opts.stdin).photo.image_metadata_id == 732)

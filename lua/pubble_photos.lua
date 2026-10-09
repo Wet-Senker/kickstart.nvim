@@ -6,6 +6,8 @@ local notify = require('texttools_notify').workflow
 local browser = require 'ordered_browser'
 local sessions = {}
 local render
+local ai_prompt
+local ai_import
 
 local function one_line(value)
   return tostring(value or ''):gsub('%c', ' ')
@@ -13,6 +15,16 @@ end
 
 local function text(buf)
   return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n') .. '\n'
+end
+
+local function copy_to_clipboard(value)
+  vim.fn.setreg('"', value)
+  if vim.fn.has('mac') == 1 and vim.fn.executable('/usr/bin/pbcopy') == 1 then
+    vim.fn.system({ '/usr/bin/pbcopy' }, value)
+    return vim.v.shell_error == 0
+  end
+  local ok = pcall(vim.fn.setreg, '+', value)
+  return ok and vim.fn.getreg('+') == value
 end
 
 local function current(s)
@@ -159,6 +171,10 @@ local function open_browser_choice(s)
       notify('Deze browserkeuze hoort niet bij de huidige zoekpagina.', vim.log.levels.WARN)
     elseif data.event == 'page' and type(data.page) == 'table' and type(data.page.photos) == 'table' then
       render(s, data.page)
+    elseif data.event == 'action' and data.action == 'ai' then
+      ai_prompt(s)
+    elseif data.event == 'action' and data.action == 'import' then
+      ai_import(s)
     elseif data.event == 'expired' then
       stop_browser(s)
       notify('Foto-overzicht verlopen. Druk p voor een nieuw overzicht.', vim.log.levels.INFO)
@@ -192,6 +208,68 @@ local function open_browser_choice(s)
     s.browser_choice = nil
     notify('Browserkeuze kon niet starten. Gebruik Enter in de fotolijst.', vim.log.levels.WARN)
   end
+end
+
+ai_prompt = function(s)
+  if s.busy or not current(s) then return end
+  run(s, { 'ai-prompt' }, text(s.source), function(data)
+    if type(data.prompt) ~= 'string' or type(data.chatgpt_url) ~= 'string' then return end
+    dialog.input({
+      prompt = 'AI-stockprompt controleren · Enter: kopiëren en ChatGPT openen',
+      default = data.prompt,
+      vim_edit = true,
+    }, function(prompt)
+      if not prompt or vim.trim(prompt) == '' or not current(s) then return end
+      local copied = copy_to_clipboard(prompt)
+      if browser.open_urls({ data.chatgpt_url }) then
+        notify(copied
+          and 'Beeldprompt gekopieerd. Plak hem in ChatGPT; importeer de download daarna met i.'
+          or 'ChatGPT is geopend, maar het systeemklembord werkte niet. De prompt staat wel in het gewone Vim-register.',
+          copied and vim.log.levels.INFO or vim.log.levels.WARN, { ttl = 12 })
+      else
+        notify('Prompt staat op het klembord, maar ChatGPT kon niet worden geopend.', vim.log.levels.WARN)
+      end
+    end)
+  end)
+end
+
+ai_import = function(s)
+  if s.busy or not current(s) then return end
+  local article_path = vim.api.nvim_buf_get_name(s.source)
+  if article_path == '' then
+    notify('Sla het artikel eerst op voordat je een AI-stockfoto importeert.', vim.log.levels.WARN)
+    return
+  end
+  local form = table.concat({
+    'Bestand: ' .. vim.fn.expand('~/Downloads/'),
+    'Archieftags: ',
+    'Bijschrift: Illustratief beeld',
+    'Credit: AI-gegenereerd beeld (OpenAI)',
+  }, '\n')
+  dialog.input({
+    prompt = 'AI-stockfoto importeren · vul bestand en ChatGPT-archieftags in',
+    default = form,
+    vim_edit = true,
+  }, function(value)
+    if not value or vim.trim(value) == '' or not current(s) then return end
+    run(s, { 'ai-import' }, vim.json.encode({
+      markdown = text(s.source),
+      article_path = article_path,
+      form_text = value,
+    }), function(data)
+      if type(data.markdown) ~= 'string' or not current(s) then return end
+      vim.api.nvim_buf_set_lines(s.source, 0, -1, false,
+        vim.split(data.markdown:gsub('\n$', ''), '\n', { plain = true }))
+      local source = s.source
+      close(s)
+      vim.api.nvim_set_current_buf(source)
+      local saved = pcall(vim.cmd, 'silent update')
+      local tags = type(data.keywords) == 'table' and table.concat(data.keywords, ', ') or ''
+      notify((saved and 'AI-stockfoto geïmporteerd' or 'AI-stockfoto geïmporteerd; opslaan mislukte')
+        .. ' voor algemene beeldbank 24. Tags: ' .. tags .. '. Verzenden blijft handmatig.',
+        saved and vim.log.levels.INFO or vim.log.levels.WARN, { ttl = 15 })
+    end)
+  end)
 end
 
 local search
@@ -247,12 +325,18 @@ render = function(s, data)
     map('<CR>', function() choose(s) end, 'Deze foto kiezen')
     map('p', function() open_browser_choice(s) end, 'Alle voorbeelden in browser bekijken en kiezen')
     map('s', function() ask_query(s) end, 'Andere zoekwoorden')
+    map('a', function() ai_prompt(s) end, 'Nieuwe AI-stockfoto maken via ChatGPT')
+    map('i', function() ai_import(s) end, 'Gegenereerde AI-stockfoto importeren')
     map('b', function()
       if s.busy or not current(s) or not s.data or not s.data.fields then return end
-      local next_source = s.data.fields.source == 'articles' and "Beeldbank" or "Artikelfoto's"
+      local next_source = ({
+        articles = 'Beeldbank',
+        images = 'Beide',
+        both = "Artikelfoto's",
+      })[s.data.fields.source] or 'Beide'
       local updated = (s.editor_text or ''):gsub('^Bron:[^\n]*', 'Bron: ' .. next_source)
       search(s, updated, 0)
-    end, 'Wissel tussen artikelfoto’s en beeldbank')
+    end, 'Wissel bron: artikelfoto’s, beeldbank, beide')
     map(']p', function()
       if type(s.next_offset) == 'number' then search(s, s.editor_text or s.query, s.next_offset) end
     end, 'Meer resultaten toevoegen')
@@ -260,19 +344,31 @@ render = function(s, data)
   end
   s.rows = {}
   s.photos = data.photos or {}
+  s.next_offset = data.next_offset
+  local has_more = type(s.next_offset) == 'number'
   local source = data.source == 'images' and 'Beeldbank' or data.source == 'both' and 'Beide' or "Artikelfoto's"
-  local lines = { 'Pubble-foto’s · ' .. source .. ' · ' .. #s.photos .. ' gevonden',
-    'p: foto-overzicht | b: wissel bron | s: zoekwoorden | ]p: meer | Enter: kies | q: terug',
+  local route = type(data.query_count) == 'number' and (' · ' .. data.query_count .. ' zoekcombinaties') or ''
+  local controls = 'p: foto-overzicht | b: bron | s: zoeken | a: AI-stock | i: import | Enter: kies | q: terug'
+  if has_more then controls = controls .. ' | ]p: meer laden' end
+  local lines = { 'Pubble-foto’s · ' .. source .. ' · ' .. #s.photos .. ' gevonden' .. route,
+    controls,
     'Controleer context en gebruiksrechten vóór selectie.', '' }
   for i, photo in ipairs(s.photos) do
     local label = one_line(photo.display_caption or photo.caption)
     if label == '' then label = one_line(photo.source_title) end
     table.insert(lines, string.format('%d. %s · %s', i, one_line(photo.edition), label))
     s.rows[#lines] = photo
+    if i < #s.photos then table.insert(lines, '') end
   end
-  if #s.photos == 0 then table.insert(lines, 'Geen foto’s gevonden. Probeer b, s of ]p.') end
-  s.next_offset = data.next_offset
-  if type(s.next_offset) == 'number' then table.insert(lines, 'Meer resultaten: ]p of knop in browser.') end
+  if #s.photos == 0 then
+    table.insert(lines, has_more
+      and 'Geen foto’s op deze pagina. Met ]p controleer je de volgende bronresultaten.'
+      or 'Geen foto’s gevonden. Probeer een andere bron of andere zoekwoorden.')
+  end
+  if has_more then
+    table.insert(lines, '')
+    table.insert(lines, 'Meer bronresultaten beschikbaar: ]p of de knop in de browser.')
+  end
   vim.bo[s.buffer].modifiable = true
   vim.api.nvim_buf_set_lines(s.buffer, 0, -1, false, lines)
   vim.bo[s.buffer].modifiable = false
