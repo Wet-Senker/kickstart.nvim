@@ -55,7 +55,7 @@ vim.fn.confirm = function() calls = calls + 1; return table.remove(answers, 1) e
 assert(dialog.confirm('Verplicht?', '&Ja', 1, true) == 1 and calls == 3,
   'verplichte vraag niet opnieuw gesteld bij Escape')
 vim.fn.confirm = original_confirm_native
--- Import policies are explicit; hand-triggered rewrite questions allow Escape.
+-- Import policies are explicit; zonder alternatief verschijnt geen modusmenu.
 local ai = require('ai_text')
 local original_confirm = dialog.confirm
 local original_select = dialog.select
@@ -65,14 +65,31 @@ ai._calendar_date_confirm(5); assert(required == true, 'agendavraag niet verplic
 ai._112_confirm('112'); assert(required == true, '112-vraag niet verplicht')
 ai._rubric_confirm({ candidates = {} }); assert(required == true, 'rubriekvraag niet verplicht')
 ai._rubriek_confirm_simple('Sport'); assert(required == true, 'sportvraag niet verplicht')
-dialog.select = function(_, opts, done)
-  required = opts.required
-  done(nil, nil)
-end
-ai._edition_mode_choice_async({ 'B', 'SW' }, { 'Brug', 'Swollenaer' }, nil, function() end)
-assert(required ~= true, 'handmatige rewritevraag niet annuleerbaar of niet asynchroon')
+dialog.select = function() error('algemene herschrijfroute zonder alternatief opende een keuzemenu') end
+local selected
+ai._edition_mode_choice_async(
+  { 'B', 'SW' }, { 'Brug', 'Swollenaer' },
+  { automatic_option_id = 'general', options = { { id = 'general' } } },
+  function(index) selected = index end
+)
+assert(selected == 1, 'automatische algemene variant ontbreekt')
 dialog.confirm = original_confirm
 dialog.select = original_select
+
+ai._edition_mode_choice_async(
+  { 'B', 'SW' }, { 'Brug', 'Swollenaer' },
+  { requires_choice = true, recommended_option_id = 'targeted',
+    recommendation_reason = 'Gevonden: Zwolle → De Swollenaer.',
+    options = { { id = 'general', label = 'Eén algemene versie' },
+      { id = 'targeted', label = 'Gerichte varianten' } } },
+  function(index) selected = index end
+)
+shown()
+local menu_text = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n')
+assert(menu_text:find('Zwolle → De Swollenaer', 1, true), 'motivatie niet zichtbaar in menu')
+assert(menu_text:find('1. Gerichte varianten (advies)', 1, true), 'advies niet zichtbaar als eerste optie')
+key('<CR>')
+assert(selected == 2, 'Enter op aanbevolen optie koos de verkeerde strategie')
 
 -- In de echte configuratie injecteert telescope-ui-select zijn fuzzy provider.
 -- Alleen handmatige selecties gebruiken die; verplichte vragen blijven native.
@@ -91,6 +108,36 @@ assert(fuzzy_choice == 'Beta' and fuzzy_calls == 1, 'handmatig menu gebruikte fu
 dialog.select({ 'Expliciet' }, { prompt = 'Import', required = true }, function(item) choice = item end)
 shown(); key('<CR>')
 assert(choice == 'Expliciet' and fuzzy_calls == 1, 'verplichte vraag gebruikte fuzzy provider')
+
+-- Met fuzzy provider ingesteld blijft dit menu leesbaar op 80 kolommen.
+local previous_columns, previous_lines = vim.o.columns, vim.o.lines
+vim.o.columns, vim.o.lines = 80, 24
+ai._edition_mode_choice_async(
+  { 'B', 'SW' }, nil,
+  { requires_choice = true, recommended_option_id = 'targeted',
+    recommendation_reason = 'Gevonden: Zwolle → De Swollenaer. Lokale nadruk alleen als de bron die inhoudelijk draagt.',
+    options = { { id = 'general', label = string.rep('Te lange optie ', 10) },
+      { id = 'targeted', label = string.rep('Te brede optie ', 10) } } },
+  function(index) selected = index end
+)
+shown()
+assert(fuzzy_calls == 1, 'krantmenu gaf motivatie aan een afkappende fuzzy prompt')
+local menu_win = vim.api.nvim_get_current_win()
+local compact_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+local compact_text = table.concat(compact_lines, '\n')
+assert(compact_text:find('Welke krantversies?', 1, true), 'compacte titel ontbreekt')
+assert(compact_text:find('1. Gerichte varianten (advies)', 1, true), 'lange strategielabel niet ingekort')
+assert(not compact_text:find('Te brede optie', 1, true), 'breed label bleef staan')
+assert(vim.wo[menu_win].wrap, 'motivatie wordt niet omgebroken')
+assert(vim.api.nvim_win_get_width(menu_win) <= 76, 'menu past niet op 80 kolommen')
+local rows = 0
+for _, line in ipairs(compact_lines) do
+  rows = rows + math.max(1, math.ceil(vim.fn.strdisplaywidth(line) / vim.api.nvim_win_get_width(menu_win)))
+end
+assert(rows <= vim.api.nvim_win_get_height(menu_win), 'menuhoogte verbergt tekst op 80x24')
+key('<Esc>')
+assert(selected == 0, 'compact krantmenu kan niet worden geannuleerd')
+vim.o.columns, vim.o.lines = previous_columns, previous_lines
 
 -- Zonder werkende optionele provider blijft de bestaande overlay beschikbaar.
 dialog.setup({ manual_select = function() error('picker ontbreekt') end })

@@ -16,17 +16,13 @@ vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split('e: all\n\n=== ARTIKEL =
 ai._mark_duplicate_check_done(buf)
 vim.b[buf].calendar_autodetect_suppressed = true
 ai._capture_import_baseline(buf)
--- Sinds 185e7e7 staat er altijd een aparte "Splitsen"-optie naast "Algemeen";
--- "Gerichte varianten" is een derde, extra optie die alleen verschijnt bij
--- onderscheidende gebiedssignalen (hier: IJsselmuiden, Dronten) en is dan de
--- aanbevolen keuze.
+local menu_count = 0
 dialog.select = function(items, opts, done)
-  assert(opts.prompt:find('IJsselmuiden', 1, true) and opts.prompt:find('Dronten', 1, true))
-  assert(opts.prompt:find('geen bewijs', 1, true))
-  assert(#items == 4, 'algemeen, splitsen, gerichte varianten, annuleren: ' .. #items)
-  assert(items[3]:find('overige', 1, true) and items[#items] == 'Annuleren')
-  assert(opts.default == 3, 'gerichte varianten (met onderscheidend signaal) is de aanbevolen keuze')
-  done(items[3], 3)
+  menu_count = menu_count + 1
+  assert(items[1].index == 2, 'gerichte adviesoptie staat niet bovenaan')
+  assert(opts.prompt:find('IJsselmuiden → De Brug', 1, true), 'motivatie uit de echte kern ontbreekt')
+  assert(next(requested) == nil, 'AI startte voor de moduskeuze')
+  done(items[1])
 end
 vim.system = function(command, opts, callback)
   if command[1] == 'bash' then error('overbodige tussenherschrijving') end
@@ -53,6 +49,7 @@ vim.system = function(command, opts, callback)
 end
 ai.rewrite_article_buffer()
 wait(function() return review._review_buffers[buf] ~= nil end)
+assert(menu_count == 1, 'modusmenu werd niet precies eenmaal gevraagd')
 assert(vim.tbl_count(requested) == 3, 'niet precies drie unieke teksten aangevraagd')
 assert(requested.SW[2] == 'krantversie_algemeen' and requested.SW[4] == 'SW,ST,Z,K')
 -- Eén buffer per unieke tekst: De Brug, De Drontenaar en één gedeelde voor de

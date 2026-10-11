@@ -112,6 +112,8 @@ local function review_help_entry(review_buf)
   local summary = type(source) == "number" and vim.api.nvim_buf_is_valid(source)
       and current_help_summary(source) or {}
   local name = variant.name or vim.b[review_buf].edition_code or "onbekende krant"
+  local social_scope = variant_edition_count(variant) > 1
+      and "voor deze gedeelde groep" or "voor alleen deze krant"
   local status = variant.status or "review"
   local modified = vim.bo[review_buf].modified
   local entry = {
@@ -151,7 +153,7 @@ local function review_help_entry(review_buf)
       {
         heading = "Andere hoofdopties",
         lines = {
-          "<leader>af/al  Maak Facebook- of LinkedIn-tekst voor alleen deze krant.",
+          "<leader>af/al  Maak Facebook- of LinkedIn-tekst " .. social_scope .. ".",
           "<leader>aV  Overzicht openen of een andere krantversie kiezen.",
           ":tabclose   De review voorlopig verlaten.",
         },
@@ -222,7 +224,7 @@ local function review_help_entry(review_buf)
     {
       heading = "Andere hoofdopties",
       lines = {
-        "<leader>af/al  Maak Facebook- of LinkedIn-tekst voor alleen deze krant.",
+          "<leader>af/al  Maak Facebook- of LinkedIn-tekst " .. social_scope .. ".",
         "<leader>aV  Overzicht openen of een andere krantversie kiezen.",
       },
     },
@@ -384,9 +386,12 @@ local function review_name(source_buf, variant, modified)
   local source_name = vim.api.nvim_buf_get_name(source_buf)
   source_name = source_name ~= "" and vim.fs.basename(source_name) or "onopgeslagen artikel"
   local status = modified and "gewijzigd" or (STATUS_LABELS[variant.status] or variant.status)
+  local scope = variant_edition_count(variant) > 1
+      and ("Gedeelde krantversie " .. table.concat(variant.editions, "/"))
+      or ("Krantversie " .. variant.code)
   return string.format(
-    "[Krantversie %s · %s · bron %d] %s",
-    variant.code,
+    "[%s · %s · bron %d] %s",
+    scope,
     status,
     source_buf,
     source_name .. " — " .. (variant.name or variant.code)
@@ -554,29 +559,44 @@ local function open_review_layout(ordered)
   vim.api.nvim_set_current_buf(valid[1])
 end
 
-function M.create_workspace(source_buf, expected_source, codes, names, variants, done, shared_groups)
+local function create_workspace_action(source_buf, expected_source, codes, names, action, fields, done)
   if not vim.api.nvim_buf_is_valid(source_buf) then
     if done then done(false) end
     return
   end
   local function attempt(retries_left)
+    if not vim.api.nvim_buf_is_valid(source_buf) then
+      if done then done(false) end
+      return
+    end
     local source_tick = vim.api.nvim_buf_get_changedtick(source_buf)
-    run_action(source_buf, "create", {
+    run_action(source_buf, action, vim.tbl_extend("force", fields, {
       markdown = buffer_text(source_buf),
       expected_source = expected_source,
       editions = codes,
       names = names_by_code(codes, names),
-      variants = variants,
-      shared_groups = shared_groups,
-    }, function(ok, result, err)
+    }), function(ok, result, err)
       if not ok then
         notify(err or "Krantversies konden niet worden opgeslagen.", vim.log.levels.ERROR)
+        if done then done(false) end
+        return
+      end
+      if not vim.api.nvim_buf_is_valid(source_buf) then
         if done then done(false) end
         return
       end
       if vim.api.nvim_buf_get_changedtick(source_buf) ~= source_tick
           and retries_left > 0 then
         attempt(retries_left - 1)
+        return
+      end
+      if result.state == "needs_general" then
+        if vim.api.nvim_buf_get_changedtick(source_buf) ~= source_tick then
+          notify("De bronbuffer veranderde tijdens de actie; start opnieuw.", vim.log.levels.WARN)
+          if done then done(false) end
+          return
+        end
+        if done then done(false, nil, result.task) end
         return
       end
       local applied, apply_err = set_source_markdown(
@@ -601,6 +621,21 @@ function M.create_workspace(source_buf, expected_source, codes, names, variants,
     end)
   end
   attempt(1)
+end
+
+function M.create_workspace(source_buf, expected_source, codes, names, variants, done, shared_groups)
+  create_workspace_action(source_buf, expected_source, codes, names, "create", {
+    variants = variants,
+    shared_groups = shared_groups,
+  }, done)
+end
+
+function M.create_rewrite_workspace(source_buf, expected_source, codes, names, tasks, results, general_content, done)
+  create_workspace_action(source_buf, expected_source, codes, names, "create-from-rewrites", {
+    tasks = tasks,
+    results = results,
+    general_content = general_content,
+  }, done)
 end
 
 function M.sync(review_buf, approve, done)
@@ -665,7 +700,7 @@ function M.sync(review_buf, approve, done)
           notify("Alle krantversies zijn goedgekeurd en verzendklaar.", vim.log.levels.INFO)
         else
           local variant = vim.b[review_buf].edition_variant
-          notify("Tekst voor " .. (variant.name or code) .. " is goedgekeurd.", vim.log.levels.INFO)
+          notify("Goedkeuring opgeslagen: " .. (variant.name or code) .. ".", vim.log.levels.INFO)
           local next_buf = next_pending_buffer(source_buf, result.workspace, code)
           if next_buf and vim.api.nvim_buf_is_valid(next_buf) then
             vim.api.nvim_set_current_buf(next_buf)

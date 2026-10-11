@@ -223,7 +223,15 @@ function M.reminders(series, items)
   if not items then return end
 
   local choices = {}
-  for _, item in ipairs(items) do table.insert(choices, item) end
+  -- Python bepaalt is_current uit de reminderweek (niet de deadline/publicatie).
+  -- Die reminder moet de eerste keuze zijn, ook voor fuzzy pickers die een
+  -- default-index niet ondersteunen. De bewaarde rotatie zelf blijft intact.
+  for _, item in ipairs(items) do
+    if item.is_current == true then table.insert(choices, item) end
+  end
+  for _, item in ipairs(items) do
+    if item.is_current ~= true then table.insert(choices, item) end
+  end
   table.insert(choices, {
     _back = true,
     label = '← Terug naar ' .. ((RUBRIEKEN[series] or {}).naam or 'rubriekmenu'),
@@ -234,6 +242,7 @@ function M.reminders(series, items)
 
   vim.ui.select(choices, {
     prompt = (RUBRIEKEN[series] or {}).naam or 'Reminder',
+    default = 1,
     format_item = function(item)
       if item._back then return item.label end
       local status = is_sent(item) and '✓' or '○'

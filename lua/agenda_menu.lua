@@ -590,7 +590,7 @@ function M.weekendbericht()
       end
       if opened > 0 then
         local message = choice.code == 'all'
-            and string.format('%d aparte weekendbuffers geopend; <leader>aw in één ervan publiceert de hele batch.', opened)
+            and string.format('%d weekendbuffers geopend; verwijder ongewenste met :bd. <leader>aw verzendt de resterende.', opened)
           or string.format('%d weekendbericht(en) geopend; controleer en bewerk ze vóór publicatie.', opened)
         workflow(message, vim.log.levels.INFO, { ttl = 8 })
       end
@@ -598,13 +598,48 @@ function M.weekendbericht()
   end)
 end
 
+local function weekend_source_is_present(source)
+  -- :bd kan een geldige maar ongeladen buffer achterlaten. Een alleen
+  -- verborgen buffer blijft geladen en hoort wél bij de selectie.
+  return vim.api.nvim_buf_is_valid(source.buf) and vim.api.nvim_buf_is_loaded(source.buf)
+end
+
+local function weekend_snapshot_is_current(batch, ticks)
+  for _, source in ipairs(batch.sources or {}) do
+    local tick = ticks[source.buf]
+    if weekend_source_is_present(source) then
+      if tick == nil or vim.api.nvim_buf_get_changedtick(source.buf) ~= tick then return false end
+    elseif tick ~= nil then
+      return false
+    end
+  end
+  return true
+end
+
+function M.mark_weekend_batch_send_started(controller, recovery_file)
+  local batch_id = vim.b[controller].weekend_batch_controller
+  local batch = type(batch_id) == 'string' and weekend_batches[batch_id] or nil
+  if not batch then
+    vim.notify('Weekendbatch ontbreekt; er wordt niets verzonden.', vim.log.levels.ERROR)
+    return false
+  end
+  if not batch.send_started and not weekend_snapshot_is_current(batch, batch.prepared_ticks or {}) then
+    vim.notify('De weekendselectie of tekst is gewijzigd. Druk opnieuw <leader>aw in een '
+      .. 'overgebleven weekendbuffer; er is nog niets verzonden.', vim.log.levels.WARN)
+    return false
+  end
+  batch.send_started = true
+  batch.recovery_file = recovery_file
+  return true
+end
+
 local function mark_weekend_batch_sent(batch)
   batch.sent = true
   batch.preparing = false
   local marker = '**Weekendbatch gepubliceerd op ' .. os.date('%d-%m-%Y %H:%M') .. '**'
-  for _, source in ipairs(batch.sources or {}) do
+  for _, source in ipairs(batch.prepared_sources or batch.sources or {}) do
     local buf = source.buf
-    if vim.api.nvim_buf_is_valid(buf) then
+    if weekend_source_is_present(source) then
       vim.bo[buf].modifiable = true
       vim.api.nvim_buf_set_lines(buf, 0, 0, false, { marker, '' })
       vim.b[buf].weekend_batch_sent = true
@@ -614,7 +649,7 @@ local function mark_weekend_batch_sent(batch)
     end
   end
   workflow(string.format(
-    'Weekendbatch gepubliceerd op %d website(s).', #(batch.sources or {})
+    'Weekendbatch gepubliceerd op %d website(s).', #(batch.prepared_sources or batch.sources or {})
   ), vim.log.levels.INFO, { ttl = 10 })
 end
 
@@ -630,8 +665,30 @@ function M.prepare_weekend_batch_send(buf, on_ready)
     workflow('Deze weekendbatch is al gepubliceerd.', vim.log.levels.INFO)
     return true
   end
-  if batch.controller and vim.api.nvim_buf_is_valid(batch.controller) then
-    on_ready(batch.controller)
+  if batch.controller and vim.api.nvim_buf_is_valid(batch.controller)
+      and vim.api.nvim_buf_is_loaded(batch.controller) then
+    if vim.b[batch.controller].publication_in_progress
+        or vim.b[batch.controller].publication_planning_pending ~= nil then
+      workflow('Deze weekendpublicatie wordt al voorbereid of verzonden.', vim.log.levels.INFO)
+      return true
+    end
+    if weekend_snapshot_is_current(batch, batch.prepared_ticks or {}) then
+      on_ready(batch.controller)
+      return true
+    end
+    if batch.send_started then
+      vim.notify('Deze weekendbatch heeft al een publicatiepoging gedaan. '
+        .. 'Hervat via de oorspronkelijke Weekendbatch-buffer met de opgeslagen IDs; '
+        .. 'de editieselectie kan nu niet meer veilig worden gewijzigd.', vim.log.levels.WARN)
+      return true
+    end
+    -- Een nog ongebruikte bundel is slechts een afgeleide tekstsnapshot.
+    vim.api.nvim_buf_delete(batch.controller, { force = true })
+    batch.controller = nil
+  elseif batch.send_started then
+    vim.notify('De weekendcontroller met publicatiestatus ontbreekt. Gebruik het herstelbestand'
+      .. (batch.recovery_file and (': ' .. batch.recovery_file) or '')
+      .. '; de batch wordt niet opnieuw aangemaakt, om doublures te voorkomen.', vim.log.levels.ERROR)
     return true
   end
   if batch.preparing then
@@ -641,19 +698,20 @@ function M.prepare_weekend_batch_send(buf, on_ready)
 
   local messages = {}
   local ticks = {}
+  local sources = {}
   for _, source in ipairs(batch.sources or {}) do
-    if not vim.api.nvim_buf_is_valid(source.buf) then
-      vim.notify(
-        'Een buffer uit de weekendbatch is gesloten; maak de batch opnieuw met <leader>kw.',
-        vim.log.levels.ERROR
-      )
-      return true
+    if weekend_source_is_present(source) then
+      ticks[source.buf] = vim.api.nvim_buf_get_changedtick(source.buf)
+      table.insert(sources, source)
+      table.insert(messages, {
+        edition = source.edition,
+        message = table.concat(vim.api.nvim_buf_get_lines(source.buf, 0, -1, false), '\n'),
+      })
     end
-    ticks[source.buf] = vim.api.nvim_buf_get_changedtick(source.buf)
-    table.insert(messages, {
-      edition = source.edition,
-      message = table.concat(vim.api.nvim_buf_get_lines(source.buf, 0, -1, false), '\n'),
-    })
+  end
+  if #messages == 0 then
+    workflow('Geen weekendbuffers over; er wordt niets verzonden.', vim.log.levels.INFO)
+    return true
   end
 
   batch.preparing = true
@@ -670,15 +728,12 @@ function M.prepare_weekend_batch_send(buf, on_ready)
         )
         return
       end
-      for source_buf, changedtick in pairs(ticks) do
-        if not vim.api.nvim_buf_is_valid(source_buf)
-            or vim.api.nvim_buf_get_changedtick(source_buf) ~= changedtick then
-          vim.notify(
-            'Een weekendbuffer is tijdens de voorbereiding gewijzigd; druk opnieuw <leader>aw.',
-            vim.log.levels.WARN
-          )
-          return
-        end
+      if not weekend_snapshot_is_current(batch, ticks) then
+        vim.notify(
+          'De weekendselectie of tekst is tijdens de voorbereiding gewijzigd; druk opnieuw <leader>aw.',
+          vim.log.levels.WARN
+        )
+        return
       end
       local ok, decoded = pcall(vim.json.decode, vim.trim(result.stdout or ''))
       if not ok or type(decoded) ~= 'table' or type(decoded.message) ~= 'string' then
@@ -700,6 +755,8 @@ function M.prepare_weekend_batch_send(buf, on_ready)
         vim.b[controller].weekend_display_date = batch.display_date
       end
       batch.controller = controller
+      batch.prepared_sources = sources
+      batch.prepared_ticks = ticks
       local ai_text = require 'ai_text'
       ai_text.set_publication_success_hook(controller, function()
         mark_weekend_batch_sent(batch)

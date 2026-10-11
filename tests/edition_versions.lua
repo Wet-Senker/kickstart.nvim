@@ -73,6 +73,15 @@ local function rendered_markdown()
 end
 
 review._runner = function(_, action, payload, done)
+  if action == "create-from-rewrites" then
+    payload.variants = {}
+    for _, task in ipairs(payload.tasks) do
+      for _, code in ipairs(task.editions) do
+        payload.variants[code] = payload.results[task.code].content
+      end
+    end
+    action = "create"
+  end
   if action == "create" then
     for index, code in ipairs(payload.editions) do
       state.variants[code] = payload.variants[code]

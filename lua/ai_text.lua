@@ -2098,7 +2098,8 @@ local function article_context_help(buf)
   table.insert(entry.sections, {
     heading = "Hoofdroutes",
     lines = {
-      "<leader>ar  Volledig herschrijven naar krantenstijl.",
+      "<leader>ar  Herschrijven: kies algemeen of gerichte krantversies, met advies.",
+      "<leader>aA  Handmatig één algemene tekst voor alle gekozen kranten.",
       "<leader>an / <leader>ao  Tekst behouden: neutraliseren of alleen taal controleren.",
       "<leader>av  Zelf geschreven artikel voorbereiden zonder rewrite.",
     },
@@ -2366,49 +2367,52 @@ local function apply_edition_versions(buf, codes, names, variants, source, done,
   return true
 end
 
-M._edition_mode_choice_async = function(codes, names, strategy, done)
-  local options = strategy and strategy.options or {
-    { label = "Algemene versie voor alle kranten" },
-    { label = "Splitsen: eigen versie per krant" },
-  }
-  -- De aanbeveling hoort in het label zelf. De `default` hieronder werkt alleen
-  -- in het eigen overlayvenster; loopt dit menu via een fuzzy-picker, dan wordt
-  -- die index genegeerd en staat de cursor op de eerste regel. Zo'n picker slaat
-  -- bovendien de prompt tot een enkele titelregel plat, waardoor de uitleg
-  -- erboven wegvalt. Het label overleeft dat wel.
-  local recommended = strategy and strategy.recommended_option_id
-  local labels, findings = {}, {}
-  for _, option in ipairs(options) do
-    table.insert(
-      labels,
-      option.label .. (option.id == recommended and " ← aanbevolen" or "")
-    )
-  end
-  table.insert(labels, "Annuleren")
-  local areas_by_edition = strategy and strategy.areas_by_edition
-    or strategy and strategy.places_by_edition
-    or nil
-  for index, code in ipairs(codes) do
-    local areas = areas_by_edition and areas_by_edition[code]
-    if areas and #areas > 0 then
-      table.insert(findings, (names and names[index] or code) .. ": " .. table.concat(areas, ", "))
-    end
-  end
-  local default = 1
+-- Python adviseert en motiveert; de redacteur kiest vóór de AI-aanroepen.
+-- Zonder alternatief of bij de handmatige algemeen-override is er geen menu.
+M._edition_mode_choice_async = function(_, _, strategy, done, force_general)
+  local selected = force_general and "general"
+      or (strategy and (strategy.recommended_option_id or strategy.automatic_option_id))
+      or "general"
+  local options = (strategy and strategy.options) or {}
+  local recommended_index = 1
   for index, option in ipairs(options) do
-    if option.id == (strategy and strategy.recommended_option_id) then
-      default = index
+    if option.id == selected then
+      recommended_index = index
       break
     end
   end
-  require('user_dialog').select(labels, {
-    prompt = "Dit artikel gaat naar meerdere kranten:\n\n"
-      .. edition_names(codes, names)
-      .. (#findings > 0 and ("\n\nOnderscheidende gebiedssignalen gevonden (geen bewijs van lokale relevantie):\n" .. table.concat(findings, "\n")) or "")
-      .. "\n\nWelke tekstversie wil je maken?",
-    default = default,
-  }, function(_, index)
-    done(index and index <= #options and index or 0)
+  if force_general or #options <= 1 or (strategy and strategy.requires_choice == false) then
+    done(recommended_index)
+    return
+  end
+  -- Het advies staat bovenaan. De oorspronkelijke
+  -- index blijft behouden voor de strategie-/taakselectie van de caller.
+  local items = {}
+  local function add(index)
+    local option = options[index]
+    local short_labels = { general = 'Eén algemene versie', targeted = 'Gerichte varianten' }
+    table.insert(items, {
+      index = index,
+      label = (short_labels[option.id] or option.label or option.id)
+        .. (index == recommended_index and ' (advies)' or ''),
+    })
+  end
+  add(recommended_index)
+  for index in ipairs(options) do
+    if index ~= recommended_index then add(index) end
+  end
+  local prompt = 'Welke krantversies?'
+  if strategy and type(strategy.recommendation_reason) == 'string' then
+    prompt = prompt .. '\n' .. strategy.recommendation_reason
+  end
+  require('user_dialog').select(items, {
+    prompt = prompt,
+    -- Telescope toont een prompt op één regel en kapt deze motivatie af.
+    -- Alleen dit menu gebruikt de bestaande ombrekende, annuleerbare overlay.
+    native = true,
+    format_item = function(item) return item.label end,
+  }, function(item)
+    done(item and item.index or 0)
   end)
 end
 
@@ -2421,6 +2425,10 @@ M._edition_versions_regenerate_confirm = function()
 end
 
 M._edition_variant_runner = function(buf, code, source, done, task)
+  -- JSON null wordt vim.NIL en is truthy in Lua. Alleen een echte marker
+  -- activeert de lokale afwijsoptie; algemene/provinciale taken hebben null.
+  local local_angle_marker = task and type(task.no_local_angle_marker) == 'string'
+      and task.no_local_angle_marker ~= '' and task.no_local_angle_marker or nil
   local command = { aitext, "krantversie", "--edition", code }
   if task and task.prompt == "krantversie_algemeen" then
     command = { aitext, task.prompt, "--editions", table.concat(task.editions, ",") }
@@ -2431,6 +2439,9 @@ M._edition_variant_runner = function(buf, code, source, done, task)
       vim.list_extend(command, { "--shared-area", table.concat(task.areas, ",") })
     end
   end
+  if local_angle_marker then
+    table.insert(command, "--optional-local-angle")
+  end
   append_seo_context(command, task and task.seo_context)
   ai_system(
     command,
@@ -2439,6 +2450,11 @@ M._edition_variant_runner = function(buf, code, source, done, task)
     vim.schedule(function()
       if result.code ~= 0 then
         done(false, nil, vim.trim(result.stderr or ""))
+        return
+      end
+      if local_angle_marker
+          and vim.trim(result.stdout or "") == local_angle_marker then
+        done(true, nil, nil, true)
         return
       end
       local variant = normalized_edition_variant(result.stdout)
@@ -2470,47 +2486,65 @@ local function generate_edition_versions(buf, source, origin, codes, names, task
   -- goedkeuring. Een aparte buffer per krant zou alleen zin hebben voor een
   -- afwijkende Facebook-, LinkedIn- of Kalendertekst, en juist die wijkt binnen
   -- zo'n groep niet af: het is immers hetzelfde verhaal voor hetzelfde gebied.
-  local variants, errors, shared_groups = {}, {}, {}
+  local results, errors = {}, {}
   local remaining = #tasks
-  for _, task in ipairs(tasks) do
-    if #task.editions > 1 then table.insert(shared_groups, task.editions) end
+  local function apply_results(general_content)
+    edition_review.create_rewrite_workspace(buf, source, codes, names, tasks, results,
+      general_content, function(applied, _, fallback_task)
+      if applied then
+        mark_ai_rewrite_completed(buf)
+      elseif fallback_task and general_content == nil then
+        -- De kern heeft de aanvullende taak bepaald; de client voert haar uit.
+        fallback_task.seo_context = seo_context
+        M._edition_variant_runner(buf, fallback_task.code, origin, function(ok, general, err)
+          if not ok or not general then
+            notify_workflow(
+              "Algemene krantversie na afgewezen lokale invalshoek mislukt: "
+                .. (err or "ongeldige AI-uitvoer") .. ". De bron blijft behouden.",
+              vim.log.levels.ERROR
+            )
+            return
+          end
+          apply_results(general)
+        end, fallback_task)
+      else
+        notify_workflow(
+          "Aparte krantversies konden niet veilig worden ingevoegd.",
+          vim.log.levels.ERROR
+        )
+      end
+    end)
+  end
+  local function finish_all()
+    if #errors > 0 then
+      notify_workflow(
+        "Aparte krantversies niet toegepast; mislukt voor "
+          .. table.concat(errors, "; ") .. ". De gezamenlijke versie blijft staan.",
+        vim.log.levels.ERROR
+      )
+      return
+    end
+    apply_results(nil)
   end
   for _, task in ipairs(tasks) do
     local code = task.code
-    local function finish_variant(ok, variant, err)
-      if ok then
-        for _, destination in ipairs(task.editions) do variants[destination] = variant end
+    local function finish_variant(ok, variant, err, declined)
+      if declined then
+        results[code] = { status = "declined" }
+      elseif ok then
+        results[code] = { status = "ready", content = variant }
       else
         table.insert(errors, code .. (err and (": " .. err) or ""))
       end
       remaining = remaining - 1
       if remaining ~= 0 then return end
-      if #errors > 0 then
-        notify_workflow(
-          "Aparte krantversies niet toegepast; mislukt voor "
-            .. table.concat(errors, "; ") .. ". De gezamenlijke versie blijft staan.",
-          vim.log.levels.ERROR
-        )
-        return
-      end
-      if not apply_edition_versions(buf, codes, names, variants, source, function(applied)
-        if applied then
-          mark_ai_rewrite_completed(buf)
-        else
-          notify_workflow(
-            "Aparte krantversies konden niet veilig worden ingevoegd.",
-            vim.log.levels.ERROR
-          )
-        end
-      end, shared_groups) then
-        notify_workflow("Aparte krantversies konden niet veilig worden ingevoegd.", vim.log.levels.ERROR)
-      end
+      finish_all()
     end
     local variant_task = vim.tbl_extend("force", {}, task)
     variant_task.seo_context = seo_context
-    M._edition_variant_runner(buf, code, origin, function(ok, variant, err)
+    M._edition_variant_runner(buf, code, origin, function(ok, variant, err, declined)
       if not ok then finish_variant(false, nil, err); return end
-      finish_variant(true, variant)
+      finish_variant(true, variant, nil, declined)
     end, variant_task)
   end
 end
@@ -2801,7 +2835,8 @@ local function post_full_article_rewrite(options)
 end
 M._post_full_article_rewrite = post_full_article_rewrite
 
-function M.rewrite_article_buffer()
+function M.rewrite_article_buffer(force_general)
+  force_general = force_general == true
   local buf = vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 
@@ -3018,11 +3053,9 @@ function M.rewrite_article_buffer()
       end)
     end
     if #codes >= 2 then
-      if strategy and strategy.requires_choice == false then
-        continue_after_mode_choice(1)
-        return
-      end
-      M._edition_mode_choice_async(codes, names, strategy, continue_after_mode_choice)
+      M._edition_mode_choice_async(
+        codes, names, strategy, continue_after_mode_choice, force_general
+      )
       return
     end
     continue_after_mode_choice(1)
@@ -3280,6 +3313,12 @@ vim.keymap.set("n", "<leader>ad", function() M.recheck_duplicates() end, {
 
 vim.keymap.set("n", "<leader>ar", M.rewrite_article_buffer, {
   desc = "Herschrijven: volledig naar krantenstijl, ook de body (ruwe tekst)",
+})
+
+vim.keymap.set("n", "<leader>aA", function()
+  M.rewrite_article_buffer(true)
+end, {
+  desc = "Herschrijven: één algemene tekst voor alle gekozen kranten",
 })
 
 vim.keymap.set("n", "<leader>ak", M.localize_article_buffer, {
@@ -5588,6 +5627,13 @@ function M.pubble_send(target_buf)
       if #allowed_late > 0 then
         table.insert(cmd, "--allow-late-newspaper-editions")
         table.insert(cmd, vim.fn.json_encode(allowed_late))
+      end
+      if type(vim.b[buf].weekend_batch_controller) == "string" then
+        if not require("agenda_menu").mark_weekend_batch_send_started(buf, temp_file) then
+          vim.b[buf].publication_in_progress = false
+          discard_unpublished_temp()
+          return
+        end
       end
       ai_system(cmd, { text = true }, function(result)
         handle_send_result(result, false, nil)
@@ -8153,7 +8199,8 @@ local help_categories = {
     label = "Acties",
     prompt = "Actie starten:",
     items = {
-      { label = "Herschrijven — volledig naar krantenstijl, ook de body (<leader>ar)", action = function() M.rewrite_article_buffer() end },
+      { label = "Herschrijven — algemeen of gericht, met advies (<leader>ar)", action = function() M.rewrite_article_buffer() end },
+      { label = "Herschrijven — één algemene tekst voor alle kranten (<leader>aA)", action = function() M.rewrite_article_buffer(true) end },
       { label = "Tekstcheck — alleen taalfouten, tekst blijft gelijk (<leader>ao)", action = function() M.tekstcheck() end },
       { label = "Opschonen + neutraliseren — bronruis/reclametaal eruit, kop/lead klaar (<leader>an)", action = function() M.journalistic_neutralize() end },
       { label = "Eigen artikel voorbereiden, geen rewrite (<leader>av)", action = function() M.prepare_article() end },

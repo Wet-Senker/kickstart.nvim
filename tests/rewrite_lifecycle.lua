@@ -49,36 +49,32 @@ assert(vim.wait(1000, function() return drained end, 20))
 local original_choice = ai._edition_mode_choice_async
 local dialog = require('user_dialog')
 local original_select = dialog.select
-for _, test_case in ipairs {
-  { index = 1, expected = 1 },
-  { index = 2, expected = 2 },
-  { index = 3, expected = 0 },
-  { expected = 0 },
-} do
-  dialog.select = function(items, opts, done)
-    assert(opts.default == 1, 'algemeen is niet de standaardkeuze')
-    assert(items[#items] == 'Annuleren', 'expliciete annuleerknop ontbreekt')
-    done(test_case.index and items[test_case.index] or nil, test_case.index)
-  end
-  local result
-  ai._edition_mode_choice_async({ 'B', 'SW' }, nil, nil, function(choice) result = choice end)
-  assert(result == test_case.expected)
+local strategy = {
+  recommended_option_id = 'targeted',
+  recommendation_reason = 'Gevonden: Zwolle → De Swollenaer.',
+  requires_choice = true,
+  options = { { id = 'general' }, { id = 'targeted' } },
+}
+local selected
+dialog.select = function(items, opts, done)
+  assert(items[1].index == 2 and opts.format_item(items[1]):find('(advies)', 1, true),
+    'advies stond niet bovenaan')
+  assert(opts.native == true and opts.format_item(items[1]) == 'Gerichte varianten (advies)',
+    'krantmenu gebruikt niet de compacte, ombrekende presentatie')
+  assert(opts.prompt:find('Zwolle → De Swollenaer', 1, true), 'motivatie ontbreekt')
+  done(items[1])
 end
-dialog.select = original_select
-
--- De productiekeuze mag niet op de callback wachten: juist vanuit de
--- asynchrone editieresolutie zou een synchrone wachtlus de TUI blokkeren.
-local pending_choice, deferred_result
-dialog.select = function(items, _, done)
-  pending_choice = function(index) done(items[index], index) end
-end
-ai._edition_mode_choice_async({ 'B', 'SW' }, nil, nil, function(choice)
-  deferred_result = choice
-end)
-assert(type(pending_choice) == 'function' and deferred_result == nil,
-  'editiekeuze wachtte synchroon op gebruikersinvoer')
-pending_choice(2)
-assert(deferred_result == 2, 'asynchrone editiekeuze ging niet verder na antwoord')
+ai._edition_mode_choice_async({ 'B', 'SW' }, nil, strategy, function(choice) selected = choice end)
+assert(selected == 2, 'advieskeuze verwijst niet naar oorspronkelijke strategie-index')
+dialog.select = function(items, _, done) done(items[2]) end
+ai._edition_mode_choice_async({ 'B', 'SW' }, nil, strategy, function(choice) selected = choice end)
+assert(selected == 1, 'algemene keuze werd niet doorgegeven')
+dialog.select = function(_, _, done) done(nil) end
+ai._edition_mode_choice_async({ 'B', 'SW' }, nil, strategy, function(choice) selected = choice end)
+assert(selected == 0, 'annuleren werd als strategie beantwoord')
+dialog.select = function() error('handmatige algemeen-override opende toch een menu') end
+ai._edition_mode_choice_async({ 'B', 'SW' }, nil, strategy, function(choice) selected = choice end, true)
+assert(selected == 1, 'handmatige algemeen-override werkte niet')
 dialog.select = original_select
 
 local original_variant_runner = ai._edition_variant_runner
@@ -96,7 +92,7 @@ local function make_buffer()
   return target
 end
 
-for _, mode in ipairs { 1, 2, 0 } do
+for _, mode in ipairs { 1, 2 } do
   local target = make_buffer()
   local commands, inputs, choices = {}, {}, 0
   local resolve_count, metadata_calls, variants = 0, 0, {}
@@ -147,13 +143,12 @@ for _, mode in ipairs { 1, 2, 0 } do
   vim.api.nvim_buf_delete(target, { force = true })
 end
 
--- Ook zonder onderscheidend plaats- of provinciesignaal komt bij meerdere
--- kranten altijd de moduskeuze (regel: altijd vragen bij ≥2 edities). Kiest de
--- redacteur "algemeen" (keuze 1), dan draait de algemene versie.
+-- Zonder onderscheidend plaats- of provinciesignaal kiest de automatische
+-- route één algemene tekst, zonder keuzemenu.
 local target = make_buffer()
 local automatic_command
-local mode_asked = false
-ai._edition_mode_choice_async = function(_, _, _, done) mode_asked = true; done(1) end
+ai._edition_mode_choice_async = original_choice
+dialog.select = function() error('algemene automatische route toonde een menu') end
 vim.system = function(command, _, callback)
   if command[1] == 'bash' then
     automatic_command = command[3]
@@ -161,7 +156,7 @@ vim.system = function(command, _, callback)
   else
     callback {
       code = 0,
-      stdout = '{"editions":["D","Z"],"names":["De Drontenaar","Zeewolde Actueel"],"rewrite_strategies":{"schema_version":2,"requires_choice":true,"recommended_option_id":"general","options":[{"id":"general","tasks":[]},{"id":"split","tasks":[]}]}}',
+      stdout = '{"editions":["D","Z"],"names":["De Drontenaar","Zeewolde Actueel"],"rewrite_strategies":{"schema_version":2,"automatic_option_id":"general","options":[{"id":"general","tasks":[]}]}}',
       stderr = '',
     }
   end
@@ -169,36 +164,73 @@ vim.system = function(command, _, callback)
 end
 ai.rewrite_article_buffer()
 assert(vim.wait(1000, function() return type(automatic_command) == 'string' end, 20))
-assert(mode_asked, 'de moduskeuze verscheen niet bij twee kranten')
 assert(automatic_command:find('krantversie_algemeen --editions', 1, true)
   and automatic_command:find('D,Z', 1, true), 'algemene D/Z-versie werd niet gekozen')
 vim.api.nvim_buf_delete(target, { force = true })
+dialog.select = original_select
 
--- Ook een wijziging terwijl het asynchrone keuzemenu openstaat maakt de
--- editieresolutie ongeldig; de late keuze mag dan geen rewrite meer starten.
+-- Het echte menu wacht vóór AI-calls; annuleren of een gewijzigde bron bewaart
+-- de volledige buffer, zonder dure herschrijf- of metadatacalls.
+for _, change_source in ipairs({ false, true }) do
+  target = make_buffer()
+  ai._edition_mode_choice_async = original_choice
+  local menu_done, menu_items
+  dialog.select = function(items, _, done) menu_items, menu_done = items, done end
+  local unexpected_calls = 0
+  vim.system = function(command, _, callback)
+    if vim.tbl_contains(command, '--resolve-editions') then
+      callback { code = 0, stdout = vim.json.encode({ editions = { 'B', 'SW' },
+        rewrite_strategies = { requires_choice = true, recommended_option_id = 'targeted',
+          options = { { id = 'general', tasks = {} }, { id = 'targeted', tasks = {} } } } }), stderr = '' }
+    else unexpected_calls = unexpected_calls + 1 end
+    return {}
+  end
+  ai.rewrite_article_buffer()
+  assert(vim.wait(1000, function() return menu_done ~= nil end, 20), 'modusmenu ontbreekt')
+  assert(unexpected_calls == 0, 'AI startte voordat het menu beantwoord was')
+  if change_source then
+    vim.api.nvim_buf_set_lines(target, -1, -1, false, { 'Nieuwe informatie.' })
+    menu_done(menu_items[1])
+  else menu_done(nil) end
+  assert(unexpected_calls == 0, 'annuleren of verouderde keuze startte toch AI')
+  local retained = table.concat(vim.api.nvim_buf_get_lines(target, 0, -1, false), '\n')
+  assert(retained:find('Originele body.', 1, true), 'bron veranderd na geweigerde keuze')
+  vim.api.nvim_buf_delete(target, { force = true })
+end
+dialog.select = original_select
+
+-- De handmatige override gebruikt ook bij een lokaal signaal één algemene
+-- versie en blijft bereikbaar via de aparte leader.
 target = make_buffer()
-local mode_done, started = nil, false
-ai._edition_mode_choice_async = function(_, _, _, done) mode_done = done end
+automatic_command = nil
+local override_mapping = vim.fn.maparg('<leader>aA', 'n', false, true)
+assert(type(override_mapping) == 'table' and override_mapping.desc:find('algemene tekst', 1, true),
+  'handmatige algemeen-override is niet vindbaar')
 vim.system = function(command, _, callback)
-  if command[1] == 'bash' then started = true
-  else callback { code = 0, stdout = '{"editions":["B","SW"]}', stderr = '' } end
+  if command[1] == 'bash' then
+    automatic_command = command[3]
+  else
+    callback {
+      code = 0,
+      stdout = '{"editions":["B","SW"],"names":["De Brug","De Swollenaer"],"rewrite_strategies":{"schema_version":2,"automatic_option_id":"targeted","options":[{"id":"general","tasks":[]},{"id":"targeted","tasks":[]}]}}',
+      stderr = '',
+    }
+  end
   return {}
 end
-ai.rewrite_article_buffer()
-assert(vim.wait(1000, function() return type(mode_done) == 'function' end, 20))
-vim.api.nvim_buf_set_lines(target, -1, -1, false, { 'Wijziging tijdens de keuze.' })
-mode_done(1)
-drained = false
-vim.schedule(function() drained = true end)
-assert(vim.wait(1000, function() return drained end, 20))
-assert(not started, 'late moduskeuze startte een rewrite voor een gewijzigde buffer')
+ai.rewrite_article_buffer(true)
+assert(vim.wait(1000, function() return type(automatic_command) == 'string' end, 20),
+  'handmatige algemeen-override startte niet')
+assert(automatic_command:find('krantversie_algemeen --editions', 1, true)
+  and automatic_command:find('B,SW', 1, true),
+  'handmatige override koos toch een gerichte variant')
 vim.api.nvim_buf_delete(target, { force = true })
 
 -- Een gewijzigde buffer tijdens de extra resolve mag geen verouderde keuze
 -- of AI-call starten, ook niet op de al gecontroleerde importtak.
 target = make_buffer()
 local resolve_callback
-started = false
+local started = false
 ai._edition_mode_choice_async = function() error('late moduskeuze') end
 vim.system = function(command, _, callback)
   if command[1] == 'bash' then started = true else resolve_callback = callback end

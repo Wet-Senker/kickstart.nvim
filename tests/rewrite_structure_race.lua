@@ -54,12 +54,18 @@ ai._edition_variant_runner = function(_, code, input, done)
   else done(true, output) end
 end
 review._runner = function(_, action, payload, done)
-  assert(action == 'create')
+  assert(action == 'create-from-rewrites')
   if payload.markdown:find('Nieuwere tekst van de redacteur.', 1, true) then
     done(false, nil, 'Bron gewijzigd; resultaat niet toegepast.')
     return
   end
   workspace_calls = workspace_calls + 1
+  payload.variants = {}
+  for _, task in ipairs(payload.tasks) do
+    for _, code in ipairs(task.editions) do
+      payload.variants[code] = payload.results[task.code].content
+    end
+  end
   assert(not payload.expected_source:find('> ', 1, true), 'gedeelde tussenversie kreeg opmaak')
   local variants, markdown = {}, payload.markdown .. '\n\n## Editieversies\n'
   for _, code in ipairs(payload.editions) do
