@@ -30,3 +30,10 @@ Mandatory working rules:
 
 Run the headless NeoVim suite for relevant changes and the Texttools Python
 suite when shared contracts or publication behavior are affected.
+
+When the user asks for `git pull`, also follow the canonical Texttools
+`AGENTS.md` section "User-requested git pull: check this Mac's Inbox setup".
+This applies even when only this NeoVim repository is updated: report any
+missing local Inbox installation or inactive watcher, but never change the
+designated ingest computer automatically. If the Texttools checkout cannot
+be inspected, report that limitation instead of claiming the setup is ready.
