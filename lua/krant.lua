@@ -590,15 +590,58 @@ end
 --- Kiek. De importwaarborg vergelijkt de tekst met wat er bij import binnenkwam
 --- en klaagt als die nauwelijks afwijkt. Bij templatekopij zegt dat niets: de
 --- tekst hóórt te zijn wat de auteur aanleverde.
-local function mark_template_applied(target_buf, name)
+local function mark_template_applied(target_buf, name, done)
   local buf = target_buf or vim.api.nvim_get_current_buf()
-  if vim.api.nvim_buf_is_valid(buf) then
-    vim.b[buf].krant_template = name
+  if buf == 0 then buf = vim.api.nvim_get_current_buf() end
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  vim.b[buf].krant_template = name
+  local tick = vim.api.nvim_buf_get_changedtick(buf)
+  local request = {}
+  vim.b[buf]._rubric_dateline_pending = true
+  -- Request identity is local UI state only; the Python action owns the rule.
+  M._dateline_requests = M._dateline_requests or {}
+  M._dateline_requests[buf] = request
+  local input = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+  local settled = false
+  local function settle(result)
+    if settled then return end
+    settled = true
+    if not vim.api.nvim_buf_is_valid(buf) then
+      if M._dateline_requests[buf] == request then M._dateline_requests[buf] = nil end
+      return
+    end
+    if M._dateline_requests[buf] ~= request then return end
+    M._dateline_requests[buf] = nil
+    vim.b[buf]._rubric_dateline_pending = nil
+    local ok, data = pcall(vim.json.decode, result.stdout or '')
+    if result.code ~= 0 or not ok or type(data) ~= 'table'
+        or data.version ~= 1 or type(data.markdown) ~= 'string'
+        or type(data.removed_count) ~= 'number' then
+      vim.notify('Datelinecontrole voor de rubriek mislukt; controleer de plaatsaanduiding.', vim.log.levels.ERROR)
+      if done then done(false) end
+      return
+    end
+    if vim.api.nvim_buf_get_changedtick(buf) ~= tick then
+      if data.removed_count > 0 then
+        vim.notify('Artikel gewijzigd tijdens datelinecontrole; verwijder de plaatsaanduiding handmatig.', vim.log.levels.WARN)
+      end
+      if done then done(false) end
+      return
+    end
+    if data.markdown ~= input then
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(data.markdown, '\n', { plain = true }))
+    end
+    if done then done(true) end
   end
+  local started = pcall(vim.system,
+    { texttools_commands.bin('article-dateline'), '--rubric-template', name },
+    { text = true, stdin = input }, vim.schedule_wrap(settle))
+  if not started then vim.schedule(function() settle({ code = 1 }) end) end
 end
 M._mark_template_applied = mark_template_applied
 
 function M.raadspraat_menu(target_buf, context, done)
+  local started = false
   target_buf = target_buf or vim.api.nvim_get_current_buf()
   local tick = vim.api.nvim_buf_get_changedtick(target_buf)
   local base = M.config.photo_root .. '/raadspraat'
@@ -673,7 +716,11 @@ function M.raadspraat_menu(target_buf, context, done)
       append_visible_article(new_lines, with_default_edition(existing_header, 'B'), article)
 
       vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, new_lines)
-      mark_template_applied(target_buf, 'Raadspraat')
+      started = true
+      local prepared = false
+      mark_template_applied(target_buf, 'Raadspraat', function(success)
+        if done then done(success and prepared) end
+      end)
 
       local week_prefix = publication_week()
 
@@ -700,7 +747,7 @@ function M.raadspraat_menu(target_buf, context, done)
         label = 'Raadspraat',
       }) then return end
 
-      if done then done() end
+      prepared = true
       notifications.workflow(
         'Raadspraat: ' .. naam .. ' (' .. party .. ')\n'
         .. '→ ' .. week_prefix .. '_gemeentenieuws/' .. export_base .. '.txt\n'
@@ -712,6 +759,7 @@ function M.raadspraat_menu(target_buf, context, done)
       )
     end)
   end)
+  return started
 end
 
 -- Copy an image into the folder of the article you're editing (the staging
@@ -776,6 +824,7 @@ local function parse_personen_md(path)
 end
 
 function M.ondernemen_menu(target_buf, context, done)
+  local started = false
   target_buf = target_buf or vim.api.nvim_get_current_buf()
   local tick = vim.api.nvim_buf_get_changedtick(target_buf)
   local base = M.config.photo_root .. '/ondernemen_in_kampen'
@@ -844,7 +893,11 @@ function M.ondernemen_menu(target_buf, context, done)
     local article = render_template(template, article_lines)
     append_visible_article(new_lines, with_default_edition(existing_header, 'B'), article)
     vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, new_lines)
-    mark_template_applied(target_buf, 'Ondernemen in Kampen')
+    started = true
+    local prepared = false
+    mark_template_applied(target_buf, 'Ondernemen in Kampen', function(success)
+      if done then done(success and prepared) end
+    end)
 
     -- Kopieer foto naar Pubble Inbox.
     if not copy_to_inbox(photo_src, inbox .. '/' .. photo_file) then return end
@@ -861,7 +914,7 @@ function M.ondernemen_menu(target_buf, context, done)
       label = 'Ondernemen in Kampen',
     }) then return end
 
-    if done then done() end
+    prepared = true
     notifications.workflow(
       'Ondernemen in Kampen: ' .. naam .. '\n'
       .. '→ Pubble Inbox/' .. photo_file .. '\n'
@@ -871,9 +924,10 @@ function M.ondernemen_menu(target_buf, context, done)
       { annote = 'Rubriek', ttl = 12 }
     )
   end)
+  return started
 end
 
-local function apply(t, vars, target_buf)
+local function apply(t, vars, target_buf, done)
   vars = vars or {}
   target_buf = target_buf or 0
 
@@ -942,7 +996,7 @@ local function apply(t, vars, target_buf)
   if #existing_fm > 0 then table.insert(final_lines, '') end
   append_visible_article(final_lines, control, result)
   vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, final_lines)
-  mark_template_applied(target_buf, t.name)
+  mark_template_applied(target_buf, t.name, done)
 
   -- Stel lezersnieuws export in; txt wordt geschreven bij <leader>aw.
   if not t.no_export then
@@ -961,10 +1015,11 @@ end
 
 -- Pas een template bij naam toe op een specifieke buffer, met optionele
 -- vooraf ingevulde vars. Geeft true terug als het template gevonden is.
-function M.apply_template_by_name(name, vars, buf)
+-- De optionele done(success) volgt na de asynchrone datelinecontrole.
+function M.apply_template_by_name(name, vars, buf, done)
   for _, t in ipairs(M.templates) do
     if t.name == name then
-      apply(t, vars, buf)
+      apply(t, vars, buf, done)
       return true
     end
   end
@@ -1025,7 +1080,7 @@ local function normalize_hondenhoek(content)
 end
 M._normalize_hondenhoek = normalize_hondenhoek
 
-function M.kamperkiek_flow(template, target_buf, candidate)
+function M.kamperkiek_flow(template, target_buf, candidate, done)
   target_buf = target_buf or vim.api.nvim_get_current_buf()
   local inbox = require('texttools_paths').inbox()
   local images = image_files(inbox)
@@ -1052,7 +1107,16 @@ function M.kamperkiek_flow(template, target_buf, candidate)
     article_lines = vim.split(candidate.normalized_body, '\n', { plain = true })
   end
   local normalized = normalize_kamper_kiek(article_lines)
-  apply(template, { body = table.concat(normalized, '\n') }, target_buf)
+  local prepared = false
+  apply(template, { body = table.concat(normalized, '\n') }, target_buf, function(success)
+    -- Socialteksten mogen de buffer pas wijzigen nadat de datelinecontrole
+    -- klaar is; ook een direct/cached resultaat kan anders de controle inhalen.
+    success = success and prepared
+    if success and type(M.on_kamper_kiek_applied) == 'function' then
+      M.on_kamper_kiek_applied(target_buf, table.concat(normalized, '\n'))
+    end
+    if done then done(success) end
+  end)
 
   -- Bereid één gemeentenieuwsexport voor; de tekst volgt pas na een
   -- succesvolle <leader>aw en komt daardoor altijd uit de actuele buffer.
@@ -1066,12 +1130,7 @@ function M.kamperkiek_flow(template, target_buf, candidate)
     label = 'Kamper Kiek op de Wiek',
   }) then return false, 'layout_export_failed' end
 
-  -- De bestaande ai_text-orkestratie kan voor deze ene rubriek de vaste
-  -- socialtekst aanvullen. Krant blijft zelf vrij van AI- en proceslogica.
-  if type(M.on_kamper_kiek_applied) == 'function' then
-    M.on_kamper_kiek_applied(target_buf, table.concat(normalized, '\n'))
-  end
-
+  prepared = true
   notifications.workflow(
     'Kamper Kiek op de Wiek\n'
     .. '→ ' .. week_prefix .. '_gemeentenieuws/2.kamperkiekFOTO.txt\n'
@@ -1087,24 +1146,28 @@ local stock_rubrieken
 
 function M.apply_detected_rubric(id, buf, candidate, done)
   candidate = candidate or {}
+  local function apply_named(name)
+    local ok = M.apply_template_by_name(name, { source_body = candidate.normalized_body }, buf, done)
+    return ok, ok and 'pending' or 'template_missing'
+  end
   if id == 'raadspraat' or id == 'ondernemen' then
-    local applied = false
-    local on_applied = function() applied = true; if done then done() end end
-    if id == 'raadspraat' then M.raadspraat_menu(buf, candidate, on_applied)
-    else M.ondernemen_menu(buf, candidate, on_applied) end
-    if applied then return true end
+    local started
+    if id == 'raadspraat' then started = M.raadspraat_menu(buf, candidate, done)
+    else started = M.ondernemen_menu(buf, candidate, done) end
+    if started then return true, 'pending' end
     return false, 'person_cancelled'
   end
   if id == 'natuurvereniging' then
-    return M.apply_template_by_name('Column Natuurvereniging', { source_body = candidate.normalized_body }, buf)
+    return apply_named('Column Natuurvereniging')
   end
   if id == 'leugenbankien' then
-    return M.apply_template_by_name('Leugenbankien', { source_body = candidate.normalized_body }, buf)
+    return apply_named('Leugenbankien')
   end
   if id == 'kamper_kiek' then
     for _, template in ipairs(M.templates) do
       if template.name == 'Kiek op de wiek (Sander de Rouwe)' then
-        return M.kamperkiek_flow(template, buf, candidate)
+        local ok, reason = M.kamperkiek_flow(template, buf, candidate, done)
+        return ok, ok and 'pending' or reason
       end
     end
     return false, 'template_missing'
@@ -1112,18 +1175,20 @@ function M.apply_detected_rubric(id, buf, candidate, done)
   if id == 'hondenhoek' then
     for _, config in ipairs(stock_rubrieken or {}) do
       if config.name == 'Hondenhoek' then
-        return M.stock_rubriek_flow(config, buf, candidate)
+        local ok, reason = M.stock_rubriek_flow(config, buf, candidate, done)
+        return ok, ok and 'pending' or reason
       end
     end
     return false, 'template_missing'
   end
   for _, config in ipairs(stock_rubrieken or {}) do
     if config.name == candidate.template_name then
-      return M.stock_rubriek_flow(config, buf, candidate)
+      local ok, reason = M.stock_rubriek_flow(config, buf, candidate, done)
+      return ok, ok and 'pending' or reason
     end
   end
   if candidate.template_name then
-    return M.apply_template_by_name(candidate.template_name, { source_body = candidate.normalized_body }, buf)
+    return apply_named(candidate.template_name)
   end
   return false, 'unknown_rubric'
 end
@@ -1184,7 +1249,7 @@ for _, r in ipairs(stock_rubrieken) do
   stock_rubriek_names[r.name] = true
 end
 
-function M.stock_rubriek_flow(config, target_buf, candidate)
+function M.stock_rubriek_flow(config, target_buf, candidate, done)
   target_buf = target_buf or vim.api.nvim_get_current_buf()
   local stock_src = M.config.stock_images .. '/' .. config.stock_image
   local inbox = require('texttools_paths').inbox()
@@ -1233,7 +1298,10 @@ function M.stock_rubriek_flow(config, target_buf, candidate)
     return false, 'photo_copy_failed'
   end
   vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, new_lines)
-  mark_template_applied(target_buf, (config and config.name) or 'rubriektemplate')
+  local prepared = false
+  mark_template_applied(target_buf, (config and config.name) or 'rubriektemplate', function(success)
+    if done then done(success and prepared) end
+  end)
 
   -- Bereid één lezersnieuwsexport voor; de actuele tekst volgt bij <leader>aw.
   local week_prefix = publication_week()
@@ -1247,6 +1315,7 @@ function M.stock_rubriek_flow(config, target_buf, candidate)
     label = config.name,
   }) then return false, 'layout_export_failed' end
 
+  prepared = true
   notifications.workflow(
     config.name .. '\n'
     .. '→ Pubble Inbox/' .. config.stock_image .. '\n'

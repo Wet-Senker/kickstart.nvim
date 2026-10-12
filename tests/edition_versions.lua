@@ -90,7 +90,8 @@ review._runner = function(_, action, payload, done)
     end
   elseif action == "update" then
     state.variants[payload.edition] = payload.content
-    state.statuses[payload.edition] = payload.approve and "approved" or "review"
+    state.statuses[payload.edition] = payload.approve and "approved"
+      or (payload.change_kind == "rewrite" and "review") or state.statuses[payload.edition]
   elseif action ~= "status" then
     done(false, nil, "onverwachte testactie")
     return
@@ -173,7 +174,18 @@ assert(review.send_block_reason(buf):find('niet opgeslagen', 1, true),
   'onopgeslagen krantversie blokkeerde de centrale verzending niet')
 local changed_summary = review._current_help_summary(buf)
 assert(changed_summary.ready == false, 'onopgeslagen edit bleef in hulp verzendklaar')
-assert(changed_summary.approved == 2, 'onopgeslagen edit bleef als goedgekeurd meetellen')
+assert(changed_summary.approved == 3, 'handmatige edit trok bestaande goedkeuring in')
+assert(review._review_help_entry(entries.B).status:find('Goedgekeurd;', 1, true), 'handmatige edit kreeg verkeerde hulp')
+review.sync(entries.B, false)
+assert(vim.b[entries.B].edition_variant.status == 'approved', 'opslaan trok goedkeuring in')
+review.mark_rewritten(entries.B)
+vim.api.nvim_buf_set_lines(entries.B, -1, -1, false, { 'Nieuwe AI-versie.' })
+assert(review._current_help_summary(buf).approved == 0, 'AI-rewrite bleef goedgekeurd in de hulp')
+assert(review.send_block_reason(buf):find('herschreven', 1, true), 'AI-rewrite kreeg geen reviewblokkade')
+review.sync(entries.B, false)
+assert(vim.b[entries.B].edition_variant.status == 'review', 'AI-rewrite behield goedkeuring')
+review.sync(entries.B, true)
+assert(vim.b[entries.B].edition_variant.status == 'approved', 'opnieuw goedkeuren faalde')
 
 vim.api.nvim_buf_set_lines(entries.SW, 0, -1, false, {
   "Nieuwe SW kop",

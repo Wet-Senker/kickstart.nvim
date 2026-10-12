@@ -93,10 +93,12 @@ local function current_help_summary(source_buf)
   if type(stored) ~= "table" then return nil end
   local summary = vim.deepcopy(stored)
   for _, review_buf in pairs(review_buffers[source_buf] or {}) do
-    if vim.api.nvim_buf_is_valid(review_buf) and vim.bo[review_buf].modified then
-      summary.ready = false
+    if vim.api.nvim_buf_is_valid(review_buf) then
+      local rewritten = vim.b[review_buf].edition_requires_review == true
+      if vim.bo[review_buf].modified or rewritten then summary.ready = false end
       local variant = vim.b[review_buf].edition_variant
-      if type(variant) == "table" and variant.status == "approved" then
+      if type(variant) == "table" and variant.status == "approved"
+          and rewritten then
         summary.approved = math.max(0, (tonumber(summary.approved) or 0) - 1)
         summary.review = (tonumber(summary.review) or 0) + 1
       end
@@ -114,7 +116,8 @@ local function review_help_entry(review_buf)
   local name = variant.name or vim.b[review_buf].edition_code or "onbekende krant"
   local social_scope = variant_edition_count(variant) > 1
       and "voor deze gedeelde groep" or "voor alleen deze krant"
-  local status = variant.status or "review"
+  local status = vim.b[review_buf].edition_requires_review == true
+      and "review" or (variant.status or "review")
   local modified = vim.bo[review_buf].modified
   local entry = {
     title = "Krantversie · " .. name,
@@ -142,12 +145,15 @@ local function review_help_entry(review_buf)
   end
 
   if modified then
-    entry.status = "Gewijzigd en nog niet goedgekeurd. " .. progress_label(summary)
+    local approved = status == "approved"
+    entry.status = (approved and "Goedgekeurd; wijzigingen nog opslaan. "
+      or "Gewijzigd en nog niet goedgekeurd. ") .. progress_label(summary)
     entry.sections = {
       {
         heading = "Nu doen",
         lines = {
-          "Controleer de tekst en druk <leader>aG om haar op te slaan én goed te keuren.",
+          approved and ":w  Sla de wijzigingen op; de bestaande goedkeuring blijft behouden."
+            or "Controleer de tekst en druk <leader>aG om haar op te slaan én goed te keuren.",
         },
       },
       {
@@ -180,14 +186,14 @@ local function review_help_entry(review_buf)
       {
         heading = "Andere hoofdopties",
         lines = {
-          "<leader>af/al  Vervang de socialtekst voor deze krant; keur daarna opnieuw goed.",
+          "<leader>af/al  Vervang de socialtekst voor deze krant; sla daarna op met :w.",
           "<leader>aV  Bekijk de bron en alle goedkeuringsstatussen.",
         },
       },
       {
         heading = "Let op",
         lines = {
-          "Een nieuwe wijziging aan deze tekst trekt de goedkeuring weer in.",
+          "Correcties en aanvullingen behouden het akkoord; een AI-herschrijving vraagt opnieuw review.",
         },
       },
     }
@@ -206,7 +212,7 @@ local function review_help_entry(review_buf)
       {
         heading = "Let op",
         lines = {
-          "Een nieuwe wijziging aan deze tekst trekt de goedkeuring weer in.",
+          "Correcties en aanvullingen behouden het akkoord; een AI-herschrijving vraagt opnieuw review.",
         },
       },
     }
@@ -277,6 +283,18 @@ local function source_help_entry(source_buf)
       {
         heading = "Let op",
         lines = { "Wijzigingen in deze bron maken de versies opnieuw verouderd." },
+      },
+    }
+  elseif summary.total > 0 and summary.approved == summary.total then
+    entry.status = "Alle krantversies zijn goedgekeurd; wijzigingen nog opslaan."
+    entry.sections = {
+      {
+        heading = "Nu doen",
+        lines = { "<leader>aV  Open de gewijzigde krantversies en sla ze op met :w." },
+      },
+      {
+        heading = "Let op",
+        lines = { "De bestaande goedkeuring blijft behouden; daarna kun je verzenden." },
       },
     }
   else
@@ -382,10 +400,12 @@ local function persist_source(source_buf)
   return true, nil
 end
 
-local function review_name(source_buf, variant, modified)
+local function review_name(source_buf, variant, modified, rewritten)
   local source_name = vim.api.nvim_buf_get_name(source_buf)
   source_name = source_name ~= "" and vim.fs.basename(source_name) or "onopgeslagen artikel"
-  local status = modified and "gewijzigd" or (STATUS_LABELS[variant.status] or variant.status)
+  local status = rewritten and variant.status ~= "stale" and "controleren"
+    or (STATUS_LABELS[variant.status] or variant.status)
+  if modified then status = status .. " · gewijzigd" end
   local scope = variant_edition_count(variant) > 1
       and ("Gedeelde krantversie " .. table.concat(variant.editions, "/"))
       or ("Krantversie " .. variant.code)
@@ -402,7 +422,8 @@ local function set_review_name(review_buf, variant)
   if not vim.api.nvim_buf_is_valid(review_buf) then return end
   local source = vim.b[review_buf].edition_source_buf
   if type(source) ~= "number" or not vim.api.nvim_buf_is_valid(source) then return end
-  local desired = review_name(source, variant, vim.bo[review_buf].modified)
+  local desired = review_name(source, variant, vim.bo[review_buf].modified,
+    vim.b[review_buf].edition_requires_review == true)
   if vim.api.nvim_buf_get_name(review_buf) == desired then return end
   pcall(vim.api.nvim_buf_set_name, review_buf, desired)
 end
@@ -457,11 +478,9 @@ local function configure_review_buffer(review_buf)
   })
   vim.keymap.set("n", "<leader>aw", function()
     local source = source_buffer(review_buf)
-    if vim.bo[review_buf].modified then
-      vim.notify(
-        "Deze krantversie heeft wijzigingen. Controleer haar en gebruik <leader>aG om op te slaan en goed te keuren.",
-        vim.log.levels.ERROR
-      )
+    local reason = source and M.send_block_reason(source)
+    if reason then
+      vim.notify(reason, vim.log.levels.ERROR)
       return
     end
     if config.send and source then config.send(source) end
@@ -664,6 +683,7 @@ function M.sync(review_buf, approve, done)
       edition = code,
       content = content,
       approve = approve == true,
+      change_kind = vim.b[review_buf].edition_requires_review == true and "rewrite" or "edit",
     }, function(ok, result, err)
       if not ok then
         notify(err or "Krantversie synchroniseren mislukt.", vim.log.levels.ERROR)
@@ -691,6 +711,7 @@ function M.sync(review_buf, approve, done)
         return
       end
       vim.bo[review_buf].modified = false
+      vim.b[review_buf].edition_requires_review = nil
       refresh_review_buffers(source_buf, result.workspace)
       local saved, save_err = persist_source(source_buf)
       if not saved then notify(save_err, vim.log.levels.WARN) end
@@ -707,8 +728,11 @@ function M.sync(review_buf, approve, done)
           end
         end
       else
+        local variant = vim.b[review_buf].edition_variant
         notify(
-          "Krantversie " .. code .. " is opgeslagen en moet nog worden goedgekeurd.",
+          "Krantversie " .. code .. " is opgeslagen; "
+            .. (variant.status == "approved" and "goedkeuring behouden."
+              or "moet nog worden goedgekeurd."),
           vim.log.levels.INFO
         )
       end
@@ -717,6 +741,16 @@ function M.sync(review_buf, approve, done)
     end)
   end
   attempt(1)
+end
+
+-- Adapter voor een succesvol toegepast herschrijfresultaat. Zolang de edit
+-- onopgeslagen is, blokkeert de bestaande bufferbewaking publicatie. Bij :w/aG
+-- beslist Python via change_kind over de duurzame goedkeuringsstate.
+function M.mark_rewritten(review_buf)
+  if not review_entry(review_buf) then return end
+  vim.b[review_buf].edition_requires_review = true
+  local variant = vim.b[review_buf].edition_variant
+  if type(variant) == "table" then set_review_name(review_buf, variant) end
 end
 
 function M.approve(target_buf)
@@ -737,8 +771,12 @@ local function show_selector(source_buf, workspace)
     { kind = "source", label = "BRON — gedeelde tekst, wordt niet gepubliceerd" },
   }
   for _, variant in ipairs(workspace.variants or {}) do
-    local marker = variant.status == "approved" and "✓"
-      or (variant.status == "stale" and "!" or "·")
+    local review_buf = entries[variant.code]
+    local status = review_buf and vim.api.nvim_buf_is_valid(review_buf)
+      and variant.status ~= "stale" and vim.b[review_buf].edition_requires_review == true
+      and "review" or variant.status
+    local marker = status == "approved" and "✓"
+      or (status == "stale" and "!" or "·")
     table.insert(items, {
       kind = "variant",
       code = variant.code,
@@ -747,7 +785,7 @@ local function show_selector(source_buf, workspace)
         marker,
         variant.code,
         variant.name or variant.code,
-        STATUS_LABELS[variant.status] or variant.status
+        STATUS_LABELS[status] or status
       ),
     })
   end
@@ -869,10 +907,13 @@ function M.send_block_reason(source_buf)
   for _, review_buf in pairs(review_buffers[source_buf] or {}) do
     if vim.api.nvim_buf_is_valid(review_buf) then
       if (tonumber(vim.b[review_buf].pending_jobs) or 0) > 0 then
-        return "Een krantversie wordt nog door AI bijgewerkt. Wacht op het resultaat, controleer het en keur het goed met <leader>aG."
+        return "Een krantversie wordt nog door AI bijgewerkt. Wacht op het resultaat en sla eventuele wijzigingen op."
+      end
+      if vim.b[review_buf].edition_requires_review == true then
+        return "Een krantversie is herschreven. Controleer haar en keur opnieuw goed met <leader>aG."
       end
       if vim.bo[review_buf].modified then
-        return "Een krantversie heeft nog niet opgeslagen of goedgekeurde wijzigingen. Controleer haar en gebruik <leader>aG."
+        return "Een krantversie heeft nog niet opgeslagen wijzigingen. Sla haar op met :w; bestaande goedkeuring blijft behouden."
       end
     end
   end

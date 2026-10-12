@@ -3,6 +3,7 @@ local M = {}
 local commands = require 'texttools_commands'
 local dialog = require 'user_dialog'
 local notify = require('texttools_notify').workflow
+local workflow_log = require 'workflow_log'
 local browser = require 'ordered_browser'
 local sessions = {}
 local render
@@ -39,26 +40,46 @@ local function run(s, args, input, done)
   s.busy = true
   local cmd = { commands.bin('python'), '-m', 'texttools.pubble_photo_cli' }
   vim.list_extend(cmd, args)
-  local ok, err = pcall(vim.system, cmd, { text = true, stdin = input }, function(result)
+  local action = args[1]
+  local trace = (action == 'ai-import' or action == 'search') and workflow_log.start(s.source,
+    action == 'search' and 'Foto · Zoeken' or 'Foto · AI-stock importeren', {
+    command = 'pubble-photo ' .. action,
+  }) or nil
+  local options = { text = true, stdin = input }
+  if trace then options = workflow_log.with_environment(options, trace) end
+  local function finish(outcome, detail)
+    if trace then workflow_log.finish(trace, outcome, detail); trace = nil end
+  end
+  local ok, err = pcall(vim.system, cmd, options, function(result)
     vim.schedule(function()
       s.busy = false
       s.process = nil
-      if s.closed or sessions[s.source] ~= s then return end
+      if s.closed or sessions[s.source] ~= s then
+        finish('cancelled', { reason = 'photo_session_closed' })
+        return
+      end
       if not current(s) then
+        finish('stale', { reason = 'buffer_changed' })
         notify('Artikel is intussen gewijzigd. Open de fotokeuze opnieuw; niets overschreven.', vim.log.levels.WARN)
         return
       end
       local decoded, data = pcall(vim.json.decode, result.stdout or '')
       if result.code ~= 0 or not decoded or type(data) ~= 'table' or (data.version ~= 1 and data.version ~= 2) then
+        finish('failed', { exit_code = result.code,
+          reason = action == 'search' and 'search_result_failed' or 'import_result_failed' })
         notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr)
           or 'Fotokeuze mislukt; artikel is niet gewijzigd.', vim.log.levels.ERROR)
         return
       end
       done(data)
+      finish('succeeded', { location_id = data.stock_location_id,
+        candidate_count = type(data.photos) == 'table' and #data.photos or nil,
+        keyword_count = type(data.keywords) == 'table' and #data.keywords or nil })
     end)
   end)
   if not ok then
     s.busy = false
+    finish('failed', { reason = 'process_start_failed' })
     notify('Fotokeuze kon niet starten: ' .. tostring(err), vim.log.levels.ERROR)
   else
     s.process = err
@@ -264,6 +285,11 @@ ai_import = function(s)
       close(s)
       vim.api.nvim_set_current_buf(source)
       local saved = pcall(vim.cmd, 'silent update')
+      workflow_log.diagnostic(source, 'Foto · AI-stock vastgelegd', {
+        status = saved and 'saved' or 'save_failed',
+        location_id = data.stock_location_id,
+        keyword_count = type(data.keywords) == 'table' and #data.keywords or 0,
+      })
       local tags = type(data.keywords) == 'table' and table.concat(data.keywords, ', ') or ''
       notify((saved and 'AI-stockfoto geïmporteerd' or 'AI-stockfoto geïmporteerd; opslaan mislukte')
         .. ' voor algemene beeldbank 24. Tags: ' .. tags .. '. Verzenden blijft handmatig.',

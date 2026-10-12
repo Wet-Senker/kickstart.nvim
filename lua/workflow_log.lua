@@ -133,6 +133,8 @@ local diagnostic_keys = {
   pdok_matches = true,
   unresolved_count = true,
   lookup_error_types = true,
+  location_id = true,
+  keyword_count = true,
 }
 
 function M.diagnostic(buf, action, detail)

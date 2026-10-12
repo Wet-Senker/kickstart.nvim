@@ -451,6 +451,9 @@ local function run_on_visual_selection(prompt_name, append)
   end
 
   vim.cmd(cmd)
+  if not append and prompt_name == "journalistiek_schrijven" and vim.v.shell_error == 0 then
+    require("edition_review").mark_rewritten(vim.api.nvim_get_current_buf())
+  end
 end
 
 -- Keys that are recognised as leading control lines (mirrors _CONTROL_KEY_PATTERN in Python).
@@ -665,6 +668,7 @@ local _TAIL_SECTION_TITLES = {
   ["Korte versie"] = true,
   ["Dagreminder"] = true,
   ["Kranttijdsversies"] = true,
+  ["Niet voor publicatie"] = true,
 }
 
 local function is_tail_section_heading(line)
@@ -890,7 +894,39 @@ local function drop_suggestions_block(sections)
   return result
 end
 
+-- De Python-import citeert bronregels met >, dus bronkopjes zijn geen
+-- werksecties. Houd deze beschermde UI-sectie achter alle gegenereerde blokken.
+local function separate_note_lines(sections)
+  local regular, notes, in_notes = {}, {}, false
+  for _, line in ipairs(sections) do
+    if line:match("^## Niet voor publicatie%s*$") then
+      in_notes = true
+    elseif line:match("^## %S") then
+      in_notes = false
+    end
+    table.insert(in_notes and notes or regular, line)
+  end
+  return regular, notes
+end
+
+local function without_notes_text(lines)
+  local regular = separate_note_lines(lines)
+  return table.concat(regular, "\n")
+end
+
+local function notes_last(sections)
+  local regular, notes = separate_note_lines(sections)
+  if #notes > 0 then
+    while #regular > 0 and (vim.trim(regular[#regular]) == ""
+      or vim.trim(regular[#regular]) == "---") do table.remove(regular) end
+    if #regular > 0 then table.insert(regular, "") end
+    for _, line in ipairs(notes) do table.insert(regular, line) end
+  end
+  return regular
+end
+
 local function reassemble_article(fm, ctrl, body, sections, has_boundary)
+  sections = notes_last(sections)
   local out = {}
   for _, l in ipairs(fm) do table.insert(out, l) end
   if #fm > 0 then table.insert(out, "") end
@@ -908,6 +944,13 @@ local function reassemble_article(fm, ctrl, body, sections, has_boundary)
     for _, l in ipairs(sections) do table.insert(out, l) end
   end
   return out
+end
+
+local function append_work_sections(lines, extra)
+  local fm, ctrl, body, sections, boundary = split_article_parts(lines)
+  table.insert(sections, "")
+  for _, line in ipairs(extra) do table.insert(sections, line) end
+  return reassemble_article(fm, ctrl, body, sections, boundary)
 end
 
 -- Losse globale fotometadata hoort bij de beschermde controleregels, nooit bij
@@ -2683,6 +2726,7 @@ local function post_full_article_rewrite(options)
   options = options or {}
   local buf = options.buf
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  edition_review.mark_rewritten(buf)
 
   local rewritten_str = options.document or table.concat(
     vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"
@@ -3329,6 +3373,54 @@ vim.keymap.set("v", "<leader>ai", M.visual_rewrite, {
   desc = "Selectie direct herschrijven naar krantenstijl",
 })
 
+-- Begrensde adapter voor de éénregelige scalars die Python/PyYAML afgeeft.
+-- Quotes verwijderen is niet genoeg: YAML single quotes escapet ' als ''.
+local function yaml_scalar(val)
+  if not val or val == "" or val == "null" or val == "~" then return nil end
+  if val:sub(1, 1) == "'" and val:sub(-1) == "'" then
+    return (val:sub(2, -2):gsub("''", "'"))
+  end
+  if val:sub(1, 1) == '"' and val:sub(-1) == '"' then
+    local ok, decoded = pcall(vim.json.decode, val)
+    if ok and type(decoded) == "string" then return decoded end
+    -- YAML heeft naast JSON enkele eigen escapes (PyYAML kan deze gebruiken).
+    local escapes = {
+      ["0"] = "\0", a = "\7", b = "\8", t = "\t", n = "\n", v = "\11",
+      f = "\12", r = "\r", e = "\27", [" "] = " ", ['"'] = '"',
+      ["/"] = "/", ["\\"] = "\\", N = "\194\133", _ = "\194\160",
+      L = "\226\128\168", P = "\226\128\169",
+    }
+    local parts, inner, index = {}, val:sub(2, -2), 1
+    while index <= #inner do
+      local char = inner:sub(index, index)
+      if char == "\\" then
+        local code = inner:sub(index + 1, index + 1)
+        local size = ({ x = 2, u = 4, U = 8 })[code]
+        local hex = size and inner:sub(index + 2, index + 1 + size)
+        if hex and #hex == size and hex:match("^%x+$") then
+          local point = tonumber(hex, 16)
+          if point <= 0x10ffff and not (point >= 0xd800 and point <= 0xdfff) then
+            table.insert(parts, vim.fn.nr2char(point))
+            index = index + size + 2
+          else
+            return val -- Geen corrupte waarde stil als geldige scalar behandelen.
+          end
+        elseif escapes[code] then
+          table.insert(parts, escapes[code])
+          index = index + 2
+        else
+          return val
+        end
+      else
+        table.insert(parts, char)
+        index = index + 1
+      end
+    end
+    return table.concat(parts)
+  end
+  return val -- Ongequote apostrofs zijn gewone tekst, geen YAML-escapes.
+end
+
 -- Read calendar fields from YAML frontmatter lines.
 local function extract_calendar_frontmatter(lines)
   local fields = {}
@@ -3360,14 +3452,13 @@ local function extract_calendar_frontmatter(lines)
               fields[key] = {}
               list_key = key
             elseif val ~= "" and val ~= "null" and val ~= "~" then
-              -- strip surrounding quotes that YAML may have added
-              fields[key] = val:gsub("^[\"']", ""):gsub("[\"']$", "")
+              fields[key] = yaml_scalar(val)
             end
           else
             local list_val = line:match("^  %- (.+)%s*$")
             if list_val and list_key and type(fields[list_key]) == "table" then
-              local clean = list_val:gsub("^[\"']", ""):gsub("[\"']$", "")
-              table.insert(fields[list_key], clean)
+              local clean = yaml_scalar(list_val)
+              if clean then table.insert(fields[list_key], clean) end
             end
           end
         end
@@ -3375,11 +3466,6 @@ local function extract_calendar_frontmatter(lines)
     end
   end
   return fields
-end
-
-local function yaml_scalar(val)
-  if not val or val == "" or val == "null" or val == "~" then return nil end
-  return val:gsub("^[\"']", ""):gsub("[\"']$", "")
 end
 
 -- Meervoudige kalenderdata gebruikt calendar.items. We lezen alleen de
@@ -3458,6 +3544,10 @@ local function build_calendar_section_lines(lines)
   if is_multiple and #items == 0 then return nil end
 
   local section = { "", "---", "", "## Kalender", "" }
+  if f.needs_manual_check == "true" and f.manual_check_reason then
+    table.insert(section, "<!-- Controle nodig: " .. f.manual_check_reason .. " -->")
+    table.insert(section, "")
+  end
   local function add(target, label, val)
     if val and val ~= "" then
       table.insert(target, label .. ": " .. val)
@@ -3591,7 +3681,7 @@ local function write_calendar_section(buf, meta_lines)
   end
 
   local base = strip_calendar_section(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
-  for _, line in ipairs(section) do table.insert(base, line) end
+  base = append_work_sections(base, section)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, base)
   vim.b[buf].calendar_section_seen = true
   -- Een eventuele handmatige "cal: x"/"calendar: x" controleregel is nu
@@ -3606,7 +3696,7 @@ local function write_calendar_section(buf, meta_lines)
   )
   notify_workflow(
     "Kalenderdata toegevoegd. Controleer en pas aan, "
-      .. (vim.b[buf].edition_code and "sla op met :w en keur opnieuw goed met <leader>aG. " or "dan <leader>aw. ")
+      .. (vim.b[buf].edition_code and "sla op met :w; keur met <leader>aG goed als dat nog niet gedaan is. " or "dan <leader>aw. ")
       .. "Niet gewenst? Verwijder het volledige blok vanaf ## Kalender.",
     vim.log.levels.INFO,
     { ttl = 10 }
@@ -3745,7 +3835,7 @@ function M.articlemeta_calendar_buffer()
     return
   end
 
-  local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+  local text = without_notes_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
 
   -- Bij meer dan drie losse datums is onzeker of dit één of meerdere
   -- agenda-items zijn. Het automatische detectiepad stelt dan een datum-bewuste
@@ -3922,7 +4012,7 @@ M._calendar_decision_before_send = calendar_decision_before_send
 function M.prepare_article(buf)
   buf = buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
-  if (vim.b[buf].pending_jobs or 0) > 0 then
+  if vim.b[buf]._rubric_dateline_pending or (vim.b[buf].pending_jobs or 0) > 0 then
     notify_workflow("Er lopen nog achtergrondtaken; even wachten.", vim.log.levels.INFO)
     return
   end
@@ -3980,7 +4070,9 @@ local function _calendar_autodetect(buf, lines, text, evaluation, after_prompt)
 
   lines = lines or vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   if #lines == 0 then return end
-  text = text or table.concat(lines, "\n")
+  local visible_text = without_notes_text(lines)
+  if visible_text ~= (text or table.concat(lines, "\n")) then evaluation = nil end
+  text = visible_text
 
   -- Een reeds voorbereide papieren agendapagina is per definitie geen
   -- website-agenda-item. Dit beschermt ook opnieuw geopende concepten.
@@ -4079,8 +4171,13 @@ local function apply_recognized_rubric(buf, candidate, done)
     finish(ok)
     return ok
   end
-  local function applied()
+  local function applied(success)
     if not vim.api.nvim_buf_is_valid(buf) then return end
+    if success == false then
+      vim.b[buf].rubric_recognition_pending = candidate.id .. ":dateline"
+      finish(false)
+      return
+    end
     vim.b[buf].recognized_rubric = candidate.id
     vim.b[buf].recognized_rubric_score = candidate.confidence
     vim.b[buf].rubric_recognition_pending = nil
@@ -4088,7 +4185,7 @@ local function apply_recognized_rubric(buf, candidate, done)
   end
   local ok, reason = require("krant").apply_detected_rubric(candidate.id, buf, candidate, applied)
   if reason == "pending" then
-    vim.b[buf].rubric_recognition_pending = candidate.id .. ":person"
+    vim.b[buf].rubric_recognition_pending = candidate.id .. ":template"
     return true
   end
   if ok then
@@ -4347,7 +4444,7 @@ local function article_autodetect(buf)
   if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].article_recognition_done then return end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   if editorial_body_text(lines) == "" then return end
-  local text = table.concat(lines, "\n")
+  local text = without_notes_text(lines)
   -- Een (voorbereide) papieren agendapagina is print-only en hoort niet in de
   -- artikel-, editie-, online-agenda- of doublurecontrole. De agendapaginaflow
   -- (<leader>ka) zet `agenda_page_flow` zelf; een opnieuw geopend concept herken
@@ -4398,7 +4495,7 @@ local function article_autodetect(buf)
     rubric_autodetect(buf, text, evaluation, function()
       if not vim.api.nvim_buf_is_valid(buf) then return end
       lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-      text = table.concat(lines, "\n")
+      text = without_notes_text(lines)
       local formatted_evaluation = article_recognition.evaluate(text)
       local selected = formatted_evaluation.by_id[vim.b[buf].recognized_rubric or ""]
 
@@ -4408,7 +4505,7 @@ local function article_autodetect(buf)
         if not approved then return end
         if selected and selected.suppress_calendar then return end
         lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-        text = table.concat(lines, "\n")
+        text = without_notes_text(lines)
         _calendar_autodetect(buf, lines, text, article_recognition.evaluate(text))
         offer_sport_rubriek(buf, text)
       end)
@@ -4901,6 +4998,10 @@ end
 function M.pubble_send(target_buf)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  if vim.b[buf]._rubric_dateline_pending then
+    notify_workflow("Rubriektemplate wordt nog gecontroleerd; probeer zo opnieuw.", vim.log.levels.INFO)
+    return
+  end
   if vim.b[buf].late_newspaper_review_pending then
     notify_workflow("Beantwoord eerst de openstaande krantkeuze.", vim.log.levels.INFO)
     return
@@ -5116,9 +5217,8 @@ function M.pubble_send(target_buf)
       if line:match("^## Facebook") then has_fb_section = true; break end
     end
     if not has_fb_section then
-      for _, l in ipairs(vim.split("\n\n---\n\n## Facebook\n\n" .. cached_fb, "\n", { plain = true })) do
-        table.insert(pubble_lines, l)
-      end
+      pubble_lines = append_work_sections(pubble_lines,
+        vim.split("## Facebook\n\n" .. cached_fb, "\n", { plain = true }))
     end
   end
 
@@ -6778,18 +6878,14 @@ event_prepare = function(buf, file, display_dates, edition_codes, done)
             while #file_lines > 0 and vim.trim(file_lines[#file_lines]) == "" do
               table.remove(file_lines)
             end
-            table.insert(file_lines, "")
-            for _, line in ipairs(vim.split(generated, "\n", { plain = true })) do
-              table.insert(file_lines, line)
-            end
+            file_lines = append_work_sections(file_lines,
+              vim.split(generated, "\n", { plain = true }))
             vim.fn.writefile(file_lines, file)
 
             if vim.api.nvim_buf_is_valid(buf) then
-              local append = { "" }
-              for _, line in ipairs(vim.split(generated, "\n", { plain = true })) do
-                table.insert(append, line)
-              end
-              vim.api.nvim_buf_set_lines(buf, -1, -1, false, append)
+              local current = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+              vim.api.nvim_buf_set_lines(buf, 0, -1, false,
+                append_work_sections(current, vim.split(generated, "\n", { plain = true })))
             end
             done(true, nil, true)
           end)
@@ -7237,7 +7333,8 @@ local function generate_social_section(opts, target_buf)
               .. "-bericht toegevoegd"
               .. (where and (" voor " .. where) or "")
               .. ". Pas aan indien nodig, dan "
-              .. (where and "<leader>aG." or "<leader>aw."),
+              .. (where and ((variant.status == "approved" and vim.b[buf].edition_requires_review ~= true)
+                and ":w; bestaande goedkeuring blijft behouden." or "<leader>aG.") or "<leader>aw."),
             vim.log.levels.INFO,
             { ttl = 10 }
           )
@@ -7334,7 +7431,7 @@ local function start_social_section(opts)
   end
   notify_workflow(
     opts.title .. "-tekst wordt voor " .. #targets .. " versies gemaakt; "
-      .. "controleer ze in de krantbuffers en keur goed met <leader>aG.",
+      .. "controleer ze in de krantbuffers en sla op met :w. Bestaande goedkeuring blijft behouden.",
     vim.log.levels.INFO,
     { ttl = 12 }
   )
@@ -7972,12 +8069,18 @@ function M.ai_prompt_rewrite()
   local fm, ctrl, body, sections, has_boundary = split_article_parts(article_lines)
   local original_content = table.concat(article_lines, "\n")
   local is_112_template = _parse_112_template(body)
+  local requested_tick = vim.api.nvim_buf_get_changedtick(buf)
 
   ai_system(
     { aichat, prompt, "--mode", "rewrite" },
     { text = true, stdin = table.concat(body, "\n") },
     function(result)
       vim.schedule(function()
+        if not vim.api.nvim_buf_is_valid(buf) then return end
+        if vim.api.nvim_buf_get_changedtick(buf) ~= requested_tick then
+          notify_workflow("Herschrijving niet toegepast: de tekst is intussen gewijzigd.", vim.log.levels.WARN)
+          return
+        end
         if result.code ~= 0 then
           local err = vim.trim(result.stderr or result.stdout or "")
           vim.notify("aichat error: " .. (err ~= "" and err or "unknown"), vim.log.levels.ERROR)

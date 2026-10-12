@@ -136,6 +136,9 @@ function M.ensure(buf, article_path, resolved, callback)
       end
 
       if result.status == 'citywide' then
+        if type(result.selection_note) == 'string' and result.selection_note ~= '' then
+          vim.notify(result.selection_note, vim.log.levels.INFO)
+        end
         apply(result.suggested or 'Heel Zwolle', false)
         return
       end
@@ -168,7 +171,9 @@ function M.ensure(buf, article_path, resolved, callback)
         return
       end
       local prompt = 'Welke wijk hoort bij dit Swollenaer-bericht?'
-      if result.status == 'suggested' then
+      if type(result.selection_note) == 'string' and result.selection_note ~= '' then
+        prompt = result.selection_note .. '\nWelke wijk hoort bij dit Swollenaer-bericht?'
+      elseif result.status == 'suggested' then
         prompt = 'Wijk gevonden: ' .. result.suggested .. '. Klopt dit voor het webartikel?'
       end
       if type(result.evidence) == 'table' and result.evidence[1] then

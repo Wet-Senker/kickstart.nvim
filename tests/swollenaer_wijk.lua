@@ -27,6 +27,11 @@ lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 assert(lines[8] == 'wijk: Heel Zwolle', 'bestaande wijkregel niet vervangen')
 
 local old_system = vim.system
+local old_notify = vim.notify
+local notifications = {}
+vim.notify = function(message, level)
+  table.insert(notifications, { message = message, level = level })
+end
 local workflow_log = require('workflow_log')
 local old_diagnostic = workflow_log.diagnostic
 local diagnostics = {}
@@ -60,6 +65,7 @@ pending({
   code = 0,
   stdout = vim.json.encode({
     status = 'citywide', suggested = 'Heel Zwolle', request_mode = 'automatic',
+    selection_note = 'Geen specifieke wijk gevonden; Heel Zwolle ingesteld.',
     diagnostics = {
       reason = 'no_location_signal', literal_area_count = 0, street_count = 0,
       cache_hits = 0, pdok_requests = 0, pdok_matches = 0, unresolved_count = 0,
@@ -71,6 +77,8 @@ assert(vim.wait(1000, function() return result ~= nil end), 'stadsbrede controle
 assert(result == 'restart', 'stadsbrede standaard herstart de verzendroute niet')
 lines = vim.api.nvim_buf_get_lines(city_buf, 0, -1, false)
 assert(lines[3] == 'wijk: Heel Zwolle', 'stadsbrede standaard werd niet zichtbaar vastgelegd')
+assert(notifications[#notifications].message == 'Geen specifieke wijk gevonden; Heel Zwolle ingesteld.',
+  'toelichting bij automatische stadsbrede keuze ontbreekt')
 assert(diagnostics[#diagnostics].detail.chosen == 'Heel Zwolle', 'stadsbrede keuze ontbreekt in diagnose')
 vim.api.nvim_buf_delete(city_buf, { force = true })
 
@@ -92,6 +100,7 @@ pending({
   code = 0,
   stdout = vim.json.encode({
     status = 'suggested', suggested = 'Holtenbroek', request_mode = 'automatic',
+    selection_note = 'Holtenbroek gevonden op basis van straat Händellaan.',
     evidence = { 'Wijknaam in artikel: Holtenbroek' }, streets = {},
     choices = { { name = 'Holtenbroek' }, { name = 'Heel Zwolle' }, { name = 'Berkum' } },
     diagnostics = {
@@ -103,6 +112,8 @@ pending({
 })
 assert(vim.wait(1000, function() return select_done ~= nil end), 'wijkbevestiging verscheen niet')
 assert(selected_opts.required == true, 'automatische wijkvraag mag niet met Escape verdwijnen')
+assert(selected_opts.prompt:find('Holtenbroek gevonden op basis van straat Händellaan.', 1, true) == 1,
+  'herkomst van het wijkvoorstel staat niet bovenaan het menu')
 assert(selected_options[1] == 'Holtenbroek' and selected_options[2] == 'Heel Zwolle',
   'voorstel en stadskeuze staan niet bovenaan')
 select_done('Holtenbroek')
@@ -115,5 +126,6 @@ vim.api.nvim_buf_delete(suggested_buf, { force = true })
 
 workflow_log.diagnostic = old_diagnostic
 vim.system = old_system
+vim.notify = old_notify
 
 print('swollenaer wijk: OK')

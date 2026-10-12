@@ -3,6 +3,10 @@ local dialog = require 'user_dialog'
 local browser = require 'ordered_browser'
 
 local requests, opened = {}, {}
+local diagnostics = {}
+require('workflow_log').diagnostic = function(_, action, detail)
+  diagnostics[#diagnostics + 1] = { action = action, detail = detail }
+end
 vim.notify = function() end
 vim.system = function(cmd, opts, callback)
   requests[#requests + 1] = { cmd = cmd, opts = opts, callback = callback }
@@ -59,6 +63,11 @@ assert(vim.api.nvim_get_current_buf() == source)
 local result = table.concat(vim.api.nvim_buf_get_lines(source, 0, -1, false), '\n')
 assert(result:find('library_location_id: 24', 1, true))
 assert(result:find('AI%-gegenereerd beeld'))
+assert(vim.fn.join(vim.fn.readfile(path), '\n'):find('library_location_id: 24', 1, true),
+  'stockmetadata staat niet duurzaam in het werkartikel')
+assert(diagnostics[#diagnostics].detail.status == 'saved')
+assert(diagnostics[#diagnostics].detail.location_id == 24)
+assert(diagnostics[#diagnostics].detail.keyword_count == 3)
 
 vim.fn.delete(path)
 print('pubble AI stock: OK')

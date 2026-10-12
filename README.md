@@ -68,10 +68,13 @@ De browserkeuze gebruikt een tijdelijke lokale verbinding, maximaal vijftien
 minuten. Kiezen, opnieuw zoeken, `q` en afsluiten van NeoVim stoppen de verbinding.
 Een gewijzigde artikelbuffer weigert een late keuze. Er wordt alleen een
 bestaand beeld-ID overgenomen, nooit geüpload of automatisch gepubliceerd.
-Een AI-stockimport kopieert eerst alleen het gecontroleerde lokale beeld naast
-het artikel. Pas de latere gewone verzending uploadt dit bestand met de
+Een AI-stockimport bewaart het gecontroleerde beeld in de gedeelde werkruimte
+en een duurzame verwijzing met tags in het artikel. De keuze blijft behouden
+als de verzendkopie in een andere map staat. Pas de gewone verzending uploadt dit bestand met de
 ingevoerde archieftags naar de algemene Pubble-stocklibrary (locatie 24) en
-koppelt het nieuwe beeld-ID aan de publicatiedoelen.
+koppelt het nieuwe beeld-ID aan de publicatiedoelen. Een ontbrekende of gewijzigde
+kopie geeft een fout; losse Inbox-foto's worden bij deze keuze niet extra
+meegenomen. `:TexttoolsLog` toont importuitkomst, beeldbanklocatie en tag-aantal.
 Werk beide repositories bij; bij een fout blijft Enter in de lijst beschikbaar.
 `/`, `n`, `N`, `gg` en `G` blijven gewone Vim-navigatie in de resultatenlijst.
 112-bronartikelen worden niet meer automatisch uitgesloten; beoordeel de
@@ -301,9 +304,11 @@ gedeelde bron en wordt niet gepubliceerd. Een lokaal bronfeit mag de kop,
 intro en artikelopbouw bepalen; zonder lokale haak gebruikt de versie een
 eerlijke regionale invalshoek zonder plaatselijke cijfers te verzinnen.
 
-Sla een versie op met `:w`; zij blijft dan `controleren`. Keur exact die tekst
-goed met `<leader>aG`. `<leader>aV` toont de bron en alle statussen. Een edit na
-goedkeuring trekt alleen die goedkeuring in. Een edit in de gedeelde bron maakt
+Sla een versie op met `:w`; bestaande goedkeuring blijft behouden. Een nog niet
+goedgekeurde versie blijft `controleren`; keur haar goed met `<leader>aG`.
+`<leader>aV` toont de bron en alle statussen. Correcties en toegevoegde socials
+behouden het akkoord; alleen een toegepaste AI-herschrijving vraagt opnieuw
+review van die variant. Een edit in de gedeelde bron maakt
 alle varianten `verouderd` en vereist nieuwe generatie.
 
 `<leader>aw` controleert dat iedere gekozen krant exact één geldige versie
@@ -618,10 +623,11 @@ De handmatige tekstversiekeuze van `<leader>ar` blijft asynchroon: de editor
 wacht niet in een geneste invoerlus en Escape annuleert de rewrite veilig.
 
 Goedgekeurde krantversies blijven bereikbaar via `<leader>aV` of `:Krantversies`.
-Wijzigen en opslaan maakt opnieuw goedkeuren met `<leader>aG` nodig.
+Handmatig wijzigen of socialtekst toevoegen vereist alleen :w; goedkeuring blijft
+behouden. Na een nieuwe AI-herschrijving is opnieuw `<leader>aG` nodig.
 
 Maak met `<leader>ac` een agenda-item vanuit de gewenste krantversie. Controleer
-het kalenderblok, sla op met `:w` en keur de versie opnieuw goed met `<leader>aG`.
+het kalenderblok en sla op met `:w`; keur met `<leader>aG` goed als dat nog niet gedaan is.
 Het item gaat alleen naar de site(s) van die versie. `<leader>aw` blijft de
 gezamenlijke verzending vanuit het bronartikel starten. Een kalenderblok bij
 de gedeelde bron blijft een gezamenlijke agenda; een eigen kalenderblok bij een

@@ -78,7 +78,15 @@ local done = false
 vim.api.nvim_buf_set_lines(entries.SW, -1, -1, false, { 'Redactionele wijziging.' })
 review.sync(entries.SW, false, function(ok) assert(ok); done = true end)
 wait(function() return done end)
-assert(not vim.b[buf].edition_workspace_ready, 'edit bleef stil goedgekeurd')
+assert(vim.b[buf].edition_workspace_ready, 'handmatige edit trok het groepsakkoord in')
+review.mark_rewritten(entries.SW)
+vim.api.nvim_buf_set_lines(entries.SW, -1, -1, false, { 'Nieuwe AI-herschrijving.' })
+done = false
+review.sync(entries.SW, false, function(ok) assert(ok); done = true end)
+wait(function() return done end)
+assert(not vim.b[buf].edition_workspace_ready, 'AI-rewrite behield het groepsakkoord')
+assert(vim.b[entries.B].edition_variant.status == 'approved'
+  and vim.b[entries.D].edition_variant.status == 'approved', 'groepsrewrite trok andere kranten in')
 assert(text(buf):find('shared-editions: SW,ST,Z,K', 1, true),
   'de gedeelde groep is niet in de werkruimte vastgelegd')
 review.close(buf, true)
