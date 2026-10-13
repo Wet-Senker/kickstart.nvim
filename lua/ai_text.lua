@@ -351,7 +351,6 @@ local redactie_adres = texttools_commands.bin("redactie-adres")
 local article_dateline = texttools_commands.bin("article-dateline")
 local rubriek_check = texttools_commands.bin("rubriek-check")
 local article_headline = texttools_commands.bin("article-headline")
-local teams_config_cli = texttools_commands.bin("teams-config")
 local aichat = texttools_commands.bin("aichat")
 local articlemeta = texttools_commands.bin("articlemeta")
 local pubble_send = texttools_commands.bin("pubble-send")
@@ -4998,6 +4997,10 @@ end
 function M.pubble_send(target_buf)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  if vim.b[buf].publication_date_review_pending then
+    notify_workflow('Beantwoord eerst de openstaande tekst-/datumcontrole.', vim.log.levels.INFO)
+    return
+  end
   if vim.b[buf]._rubric_dateline_pending then
     notify_workflow("Rubriektemplate wordt nog gecontroleerd; probeer zo opnieuw.", vim.log.levels.INFO)
     return
@@ -5441,9 +5444,33 @@ function M.pubble_send(target_buf)
   _do_pubble_send = function(
     display_dates,
     event_preparation_complete,
-    suppress_event_followups
+    suppress_event_followups,
+    dates_checked
   )
+    if not dates_checked and (not resolved_publication or resolved_publication.text_date_check_required == true) then
+      require('publication_dates').review(buf, temp_file, resolved_editions, display_dates or {}, function(action)
+        if action == 'ready' then
+          _do_pubble_send(display_dates, event_preparation_complete, suppress_event_followups, true)
+          return
+        end
+        if action == 'edit' then
+          vim.b[buf].publication_review_state = {
+            display_dates = display_dates, editions = resolved_editions,
+            skip_newspaper_editions = vim.b[buf].skip_newspaper_editions,
+            late_newspaper_decision = vim.b[buf].late_newspaper_decision,
+          }
+          notify_workflow('Pas de genoemde passage aan, sla een krantvariant op met :w en druk daarna opnieuw <leader>aw op de bron. De gekozen planning blijft bewaard.', vim.log.levels.INFO)
+        elseif action == 'dates' then
+          vim.b[buf].publication_review_state = nil
+          vim.b[buf].event_review_state = nil
+        end
+        discard_unpublished_temp()
+        if action == 'dates' then vim.schedule(function() M.pubble_send(buf) end) end
+      end)
+      return
+    end
     vim.b[buf].publication_in_progress = true
+    local send_input_tick = vim.api.nvim_buf_get_changedtick(buf)
     local cmd = {
       pubble_send,
       temp_file,
@@ -5464,6 +5491,23 @@ function M.pubble_send(target_buf)
           result.stdout,
           result.stderr
         )
+        if publication_status and publication_status.mode == 'needs_date_review' then
+          vim.b[buf].publication_in_progress = false
+          if vim.api.nvim_buf_get_changedtick(buf) == send_input_tick
+              and vim.fn.filereadable(temp_file) == 1 then
+            -- Toon eventuele nieuw gegenereerde socialtekst ter controle,
+            -- maar overschrijf nooit een bewerking tijdens de voorbereiding.
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(temp_file))
+          end
+          vim.b[buf].publication_review_state = {
+            display_dates = display_dates, editions = resolved_editions,
+            skip_newspaper_editions = vim.b[buf].skip_newspaper_editions,
+            late_newspaper_decision = vim.b[buf].late_newspaper_decision,
+          }
+          discard_unpublished_temp()
+          vim.notify('Tekst of publicatiedatum vereist opnieuw controle; er is niets verzonden. Start opnieuw met <leader>aw.', vim.log.levels.WARN)
+          return
+        end
         -- De verzending kan melden dat de krant een andere tijdsvorm nodig heeft
         -- (een datum die in de latere krant anders leest). De kranttijd-voorcheck
         -- draaide op de ruwe tekst en zag dat nog niet; de verzending merkte het
@@ -6264,16 +6308,11 @@ function M.pubble_send(target_buf)
         end
 
         -- Startdag: vandaag + week_offset * 7 dagen, afgerond naar middernacht.
-        local base = os.time() + week_offset * 7 * 86400
-        local bt = os.date("*t", base)
-        bt.hour = 0; bt.min = 0; bt.sec = 0
-        base = os.time(bt)
+        local days = require('date_picker').days(week_offset)
+        local base = days[1].stamp
 
-        local day_names = { "zo", "ma", "di", "wo", "do", "vr", "za" }
-        for i = 0, 6 do
-          local day_t = base + i * 86400
-          local d = os.date("%Y-%m-%d", day_t)
-          local dow = day_names[tonumber(os.date("%w", day_t)) + 1]
+        for _, day in ipairs(days) do
+          local d, dow = day.date, day.weekday
           local c = counts[d] or 0
           local label = d .. "  " .. dow .. "  (" .. c .. ")"
           local val
@@ -6939,250 +6978,13 @@ end
 M._event_prepare = event_prepare
 
 -- ---------------------------------------------------------------------------
--- :TeamsRedactie — beheer van de Teams-meldingen naar eindredacteuren.
--- De bron van waarheid staat in de gedeelde cloudmap en wordt uitsluitend via
--- teams-config gelezen/gemuteerd. Dit menu is puur de UI erop: waarneming uit
--- de gedeelde lijst kiezen, een nieuwe vervanger bewaren, terugzetten naar
--- de vaste eindredacteur, meldingen per editie uitzetten, of alles aan/uit.
--- ---------------------------------------------------------------------------
-
-local function teams_config_command(args)
-  local command = { teams_config_cli }
-  vim.list_extend(command, args)
-  local output = vim.fn.system(command)
-  if vim.v.shell_error ~= 0 then
-    vim.notify("Teams-config bijwerken mislukt: " .. vim.trim(output), vim.log.levels.ERROR)
-    return nil
-  end
-  local ok, config = pcall(vim.json.decode, output)
-  if not ok or type(config) ~= "table" or type(config.editions) ~= "table" then
-    vim.notify("Teams-config gaf geen geldige JSON terug.", vim.log.levels.ERROR)
-    return nil
-  end
-  return config
-end
-
-local function teams_read_config()
-  return teams_config_command({ "show" })
-end
-
-local function teams_email(value)
-  if value == nil or value == vim.NIL then return nil end
-  local email = vim.trim(tostring(value))
-  if email == "" then return nil end
-  return email
-end
-
-local function teams_same_email(left, right)
-  left = teams_email(left)
-  right = teams_email(right)
-  if left == nil or right == nil then return left == right end
-  return left:lower() == right:lower()
-end
-
-local function teams_valid_email(email)
-  return email:match("^[^%s@]+@[^%s@]+%.[^%s@]+$") ~= nil
-end
-
--- Bouw de keuzelijst uit lokaal opgeslagen vervangers plus de vaste
--- eindredacteuren van alle edities. Een bestaand configbestand zonder
--- `recipients` werkt daardoor direct, zonder migratiestap.
-local function teams_known_recipients(config)
-  local recipients = {}
-  local by_email = {}
-
-  local function add(name, email)
-    email = teams_email(email)
-    if not email then return end
-    name = vim.trim(tostring(name or ""))
-    if name == "" then name = email end
-    local key = email:lower()
-    local existing = by_email[key]
-    if existing then
-      if existing.name == existing.email and name ~= email then
-        existing.name = name
-      end
-      return
-    end
-    local person = { name = name, email = email }
-    by_email[key] = person
-    table.insert(recipients, person)
-  end
-
-  if type(config.recipients) == "table" then
-    for _, person in ipairs(config.recipients) do
-      if type(person) == "table" then add(person.name, person.email) end
-    end
-  end
-
-  for _, code in ipairs({ "B", "SW", "ST", "Z", "D", "K" }) do
-    local edition = config.editions[code]
-    if edition then
-      add(edition.name, edition.default_email)
-      -- Laat ook een oude, handmatig ingestelde waarnemer zien, zelfs als die
-      -- nog niet in de nieuwe recipients-lijst is opgeslagen.
-      add(nil, edition.email)
-    end
-  end
-
-  table.sort(recipients, function(left, right)
-    local left_key = (left.name .. "\0" .. left.email):lower()
-    local right_key = (right.name .. "\0" .. right.email):lower()
-    return left_key < right_key
-  end)
-  return recipients
-end
-
-local function teams_recipient_label(config, email)
-  for _, person in ipairs(teams_known_recipients(config)) do
-    if teams_same_email(person.email, email) then
-      if person.name == person.email then return person.email end
-      return string.format("%s <%s>", person.name, person.email)
-    end
-  end
-  return teams_email(email) or "geen melding"
-end
-
+-- :TeamsRedactie gebruikt dezelfde gedeelde Python-acties als andere clients.
 function M.teams_redactie()
-  local config = teams_read_config()
-  if not config then return end
-
-  local items = {}
-  local aan = config.enabled ~= false
-  table.insert(items, {
-    kind = "toggle",
-    label = aan and "Meldingen: AAN — kies om alles uit te zetten"
-                 or "Meldingen: UIT — kies om alles aan te zetten",
-  })
-  for _, code in ipairs({ "B", "SW", "ST", "Z", "D", "K" }) do
-    local e = config.editions[code]
-    if e then
-      local status
-      if e.email == vim.NIL or e.email == nil then
-        status = (e.default_email == vim.NIL or e.default_email == nil)
-          and "geen melding (standaard)" or "UITGEZET"
-      elseif not teams_same_email(e.email, e.default_email) then
-        status = "WAARNEMING: " .. teams_recipient_label(config, e.email)
-      else
-        status = teams_recipient_label(config, e.email)
-      end
-      table.insert(items, {
-        kind = "edition", code = code,
-        label = string.format("%-3s %-18s → %s", code, e.krant or code, status),
-      })
-    end
-  end
-
-  vim.ui.select(items, {
-    prompt = "Teams-meldingen eindredactie:",
-    format_item = function(item) return item.label end,
-  }, function(choice)
-    if not choice then return end
-
-    if choice.kind == "toggle" then
-      config = teams_config_command({ "set-enabled", aan and "off" or "on" })
-      if not config then return end
-      notify_workflow(
-        "Teams-meldingen " .. (config.enabled and "AAN" or "UIT"),
-        vim.log.levels.INFO
-      )
-      return
-    end
-
-    local e = config.editions[choice.code]
-    local recipient_items = {}
-    local default_label = teams_email(e.default_email)
-      and teams_recipient_label(config, e.default_email) or "geen melding"
-    table.insert(recipient_items, {
-      kind = "default",
-      label = "Standaardontvanger — " .. default_label,
-    })
-    for _, person in ipairs(teams_known_recipients(config)) do
-      if not teams_same_email(person.email, e.default_email) then
-        table.insert(recipient_items, {
-          kind = "recipient",
-          email = person.email,
-          label = person.name == person.email
-            and person.email or string.format("%s <%s>", person.name, person.email),
-        })
-      end
-    end
-    table.insert(recipient_items, {
-      kind = "off",
-      label = "Geen melding voor deze editie",
-    })
-    table.insert(recipient_items, {
-      kind = "new",
-      label = "Nieuwe vervanger toevoegen…",
-    })
-    table.insert(recipient_items, {
-      kind = "back",
-      label = "← Terug naar krantenoverzicht",
-    })
-
-    local function save_email(email)
-      local args = { "set-recipient", choice.code }
-      if email then
-        vim.list_extend(args, { "--email", email })
-      else
-        table.insert(args, "--off")
-      end
-      config = teams_config_command(args)
-      if not config then return end
-      e = config.editions[choice.code]
-      local nieuw = (e.email == vim.NIL) and "geen melding" or tostring(e.email or "geen melding")
-      notify_workflow(
-        string.format("%s → %s", e.krant or choice.code, nieuw),
-        vim.log.levels.INFO
-      )
-    end
-
-    vim.ui.select(recipient_items, {
-      prompt = "Teams-ontvanger voor " .. (e.krant or choice.code) .. ":",
-      format_item = function(item) return item.label end,
-    }, function(recipient_choice)
-      if not recipient_choice then return end
-      if recipient_choice.kind == "back" then
-        vim.schedule(M.teams_redactie)
-      elseif recipient_choice.kind == "default" then
-        save_email(teams_email(e.default_email))
-      elseif recipient_choice.kind == "off" then
-        save_email(nil)
-      elseif recipient_choice.kind == "recipient" then
-        save_email(recipient_choice.email)
-      elseif recipient_choice.kind == "new" then
-        vim.ui.input({ prompt = "Naam van de nieuwe vervanger: " }, function(name)
-          if name == nil then return end
-          name = vim.trim(name)
-          if name == "" then
-            vim.notify("Naam is verplicht; vervanger niet opgeslagen", vim.log.levels.ERROR)
-            return
-          end
-          vim.ui.input({ prompt = "E-mailadres van " .. name .. ": " }, function(email)
-            if email == nil then return end
-            email = vim.trim(email)
-            if not teams_valid_email(email) then
-              vim.notify("Geen geldig e-mailadres; vervanger niet opgeslagen", vim.log.levels.ERROR)
-              return
-            end
-            config = teams_config_command({
-              "add-recipient", choice.code, "--name", name, "--email", email,
-            })
-            if not config then return end
-            e = config.editions[choice.code]
-            notify_workflow(
-              string.format("%s → %s", e.krant or choice.code, tostring(e.email)),
-              vim.log.levels.INFO
-            )
-          end)
-        end)
-      end
-    end)
-  end)
+  require("teams_redactie").open()
 end
 
 vim.api.nvim_create_user_command("TeamsRedactie", M.teams_redactie, {
-  desc = "Teams-meldingen: ontvanger kiezen, vervanger opslaan of aan/uit",
+  desc = "Teams-meldingen en tijdelijke/onbepaalde waarneming beheren",
   force = true,
 })
 

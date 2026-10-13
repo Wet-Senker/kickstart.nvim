@@ -257,6 +257,16 @@ Teams-selectors zijn hoofdletterongevoelig en mogen worden gecombineerd als
 Teams; de boodschap komt na de plaatsingszin en vóór de kop. Zonder passende
 regel blijft het bestaande Teams-bericht ongewijzigd.
 
+Bij een vervanger in `:TeamsRedactie` kies je een hersteldatum (voorstel:
+over één week) of `Voor onbepaalde tijd`. De datumkiezer gebruikt dezelfde
+weeklijst als de online artikelplanning. Op of na de gekozen datum vraagt een
+overlay of de **vorige ontvanger** teruggezet mag worden. Er gebeurt niets
+zonder akkoord; bij behouden komt de vraag de volgende dag opnieuw.
+Onbepaalde waarneming geeft een korte opstartmelding, eenmaal per dag per Mac.
+De controle loopt ook na middernacht als Neovim open blijft. Persoonsgegevens
+en de hersteldatum staan gedeeld in iCloud; de dagelijkse meldingsmarkering is
+lokaal. Herstart Neovim om de opstartcontrole na een update te activeren.
+
 Als `<leader>ar` een letterlijke fotocredit of een bijschrift uit de brontekst
 haalt, verplaatst de nabewerking zowel `Foto:` als `Bijschrift:` automatisch
 naar dit beschermde blok boven `=== ARTIKEL ===`; ze blijven nooit in de

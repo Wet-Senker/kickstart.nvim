@@ -1213,6 +1213,7 @@ vim.keymap.set('n', '<leader>m',
 vim.keymap.set('n', '<leader>kt', function() require('krant').menu() end, { desc = '[K]rant [T]emplate kiezen' })
 
 require("ai_text")
+require("teams_redactie").setup()
 
 -- Start a named server socket so external tools (pastevim) can open files
 -- in this instance instead of spawning a new Neovim window.
