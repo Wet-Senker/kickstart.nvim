@@ -206,7 +206,7 @@ local function open_preview(item)
 end
 
 local function fetch_rotation(series)
-  local output = run(series, { 'list', '--json' })
+  local output = run(series, { 'list', '--around-current', '--json' })
   if not output then return nil end
   local ok, items = pcall(vim.json.decode, output)
   if not ok or type(items) ~= 'table' then
@@ -224,13 +224,11 @@ function M.reminders(series, items)
 
   local choices = {}
   -- Python bepaalt is_current uit de reminderweek (niet de deadline/publicatie).
-  -- Die reminder moet de eerste keuze zijn, ook voor fuzzy pickers die een
-  -- default-index niet ondersteunen. De bewaarde rotatie zelf blijft intact.
-  for _, item in ipairs(items) do
-    if item.is_current == true then table.insert(choices, item) end
-  end
-  for _, item in ipairs(items) do
-    if item.is_current ~= true then table.insert(choices, item) end
+  -- Behoud de chronologische lijst; alleen de cursor wijst deze week aan.
+  local current_index = 1
+  for index, item in ipairs(items) do
+    table.insert(choices, item)
+    if item.is_current == true then current_index = index end
   end
   table.insert(choices, {
     _back = true,
@@ -242,7 +240,8 @@ function M.reminders(series, items)
 
   vim.ui.select(choices, {
     prompt = (RUBRIEKEN[series] or {}).naam or 'Reminder',
-    default = 1,
+    default = current_index,
+    native = true, -- Fuzzy pickers ondersteunen geen betrouwbare beginindex.
     format_item = function(item)
       if item._back then return item.label end
       local status = is_sent(item) and '✓' or '○'

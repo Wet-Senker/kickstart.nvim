@@ -12,7 +12,13 @@ vim.system = function(cmd, opts, callback)
   requests[#requests + 1] = { cmd = cmd, opts = opts, callback = callback }
   return {}
 end
-dialog.input = function(opts, done) done(opts.default) end
+local tag_prompts = {}
+dialog.input = function(opts, done)
+  if (opts.description or ''):find('Vul alleen de tags', 1, true) then
+    tag_prompts[#tag_prompts + 1] = opts
+    done('plant, aarde, natuur')
+  else done(opts.default) end
+end
 browser.open_urls = function(urls)
   opened[#opened + 1] = urls[1]
   return true
@@ -50,14 +56,19 @@ assert(vim.fn.getreg('"') == 'VEILIGE STOCKPROMPT')
 assert(opened[#opened] == 'https://chatgpt.com/')
 
 key('i')
+assert(requests[#requests].cmd[4] == 'ai-inbox')
+reply({ files = { { name = 'plant.png', relative_path = 'plant.png', sha256 = 'hash' },
+  { name = 'plant2.png', relative_path = 'plant2.png', sha256 = 'hash2' } }, image_count = 2 })
 assert(requests[#requests].cmd[4] == 'ai-import')
 local payload = vim.json.decode(requests[#requests].opts.stdin)
 assert(vim.fn.resolve(vim.fn.fnamemodify(payload.article_path, ':p'))
   == vim.fn.resolve(vim.fn.fnamemodify(path, ':p')), payload.article_path .. ' ~= ' .. path)
-assert(payload.form_text:find('Archieftags:', 1, true))
+assert(payload.tags == 'plant, aarde, natuur' and #payload.files == 2)
+assert(not tag_prompts[1].default:find('Bestand:', 1, true), 'geen padformulier meer')
+assert(tag_prompts[1].description:find('plant2.png', 1, true))
 reply({
   markdown = '---\nmedia:\n  stock_image:\n    filename: ai-stock.png\n    library_location_id: 24\n---\n\nb: Illustratief beeld\nc: AI-gegenereerd beeld (OpenAI)\n\n=== ARTIKEL ===\n\nKop\n\nTekst.\n',
-  keywords = { 'plant', 'aarde', 'natuur' }, stock_location_id = 24,
+  keywords = { 'plant', 'aarde', 'natuur' }, stock_location_id = 24, image_count = 2, batch_id = 'batch',
 })
 assert(vim.api.nvim_get_current_buf() == source)
 local result = table.concat(vim.api.nvim_buf_get_lines(source, 0, -1, false), '\n')
@@ -68,6 +79,8 @@ assert(vim.fn.join(vim.fn.readfile(path), '\n'):find('library_location_id: 24', 
 assert(diagnostics[#diagnostics].detail.status == 'saved')
 assert(diagnostics[#diagnostics].detail.location_id == 24)
 assert(diagnostics[#diagnostics].detail.keyword_count == 3)
+assert(requests[#requests].cmd[4] == 'ai-import-finalize', 'originelen alleen na opgeslagen import wegzetten')
+reply({ moved_count = 2 })
 
 vim.fn.delete(path)
 print('pubble AI stock: OK')

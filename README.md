@@ -272,6 +272,15 @@ haalt, verplaatst de nabewerking zowel `Foto:` als `Bijschrift:` automatisch
 naar dit beschermde blok boven `=== ARTIKEL ===`; ze blijven nooit in de
 artikelbody staan.
 
+AI-stockfoto: zet de ChatGPT-download(s) in Pubble Inbox en kies `i` in de
+fotokiezer (of de browserimportknop). Je vult alleen tags in (minimaal één,
+zonder vast maximumaantal; dubbele tags worden verwijderd);
+bestanden worden ter controle getoond, uniek hernoemd en allemaal met dezelfde
+tags voorbereid voor algemene beeldbank 24. Een fout houdt de tags vast en
+toont een blijvend venster. Pas na opgeslagen import worden Inbox-originelen
+herstelbaar weggezet. `<leader>aw` publiceert later: agenda één hoofdfoto,
+web/krant/schaduw alle foto's. Geen nieuwe AI-aanroep voor de import.
+
 ---
 
 ## Automatische detectie bij import

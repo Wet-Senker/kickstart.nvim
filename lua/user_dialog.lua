@@ -54,13 +54,38 @@ local function next_dialog()
     visual_lines = visual_lines + math.max(1, math.ceil(vim.fn.strdisplaywidth(line) / width))
   end
   local height = math.max(1, math.min(visual_lines, vim.o.lines - 6))
+  local description_buf, description_win
+  local row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1)
+  if vim_edit and type(opts.description) == 'string' and opts.description ~= '' then
+    local context = vim.split(opts.description, '\n', { plain = true })
+    local context_rows = 0
+    for _, line in ipairs(context) do context_rows = context_rows + math.max(1, math.ceil(vim.fn.strdisplaywidth(line) / width)) end
+    local context_height = math.max(1, math.min(context_rows, vim.o.lines - height - 8))
+    local context_row = math.max(0, math.floor((vim.o.lines - height - context_height - 3) / 2))
+    row = context_row + context_height + 2
+    description_buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(description_buf, 0, -1, false, context)
+    vim.bo[description_buf].modifiable = false
+    vim.bo[description_buf].buftype = 'nofile'
+    vim.bo[description_buf].swapfile = false
+    description_win = vim.api.nvim_open_win(description_buf, false, {
+      relative = 'editor', width = width, height = context_height,
+      row = context_row, col = math.max(0, math.floor((vim.o.columns - width) / 2)),
+      style = 'minimal', border = 'rounded', title = ' Ter controle ', focusable = true,
+    })
+    vim.wo[description_win].wrap = true
+  end
+  local function close_description()
+    if description_win and vim.api.nvim_win_is_valid(description_win) then vim.api.nvim_win_close(description_win, true) end
+    if description_buf and vim.api.nvim_buf_is_valid(description_buf) then vim.api.nvim_buf_delete(description_buf, { force = true }) end
+  end
   local win = vim.api.nvim_open_win(buf, true, {
     relative = 'editor', width = width, height = height,
-    row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
+    row = row,
     col = math.max(0, math.floor((vim.o.columns - width) / 2)),
     style = 'minimal', border = 'rounded',
-    title = vim_edit and (' ' .. (opts.prompt or 'Invoer') .. ' ') or ' Keuze ',
-    footer = vim_edit and ' Esc: Normal | Enter: zoeken | Ctrl-C: annuleren ' or nil,
+    title = vim_edit and (' ' .. (opts.prompt or 'Invoer'):gsub('%c', ' ') .. ' ') or ' Keuze ',
+    footer = vim_edit and (opts.footer or ' Esc: Normal | Enter: zoeken | Ctrl-C: annuleren ') or nil,
   })
   vim.wo[win].wrap = true
   vim.wo[win].cursorline = true
@@ -78,6 +103,7 @@ local function next_dialog()
     finished = true
     local restore_focus = vim.api.nvim_get_current_win() == win
     if opts.input then vim.cmd('stopinsert') end
+    close_description()
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
     if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
     if restore_focus and vim.api.nvim_win_is_valid(return_win) then vim.api.nvim_set_current_win(return_win) end
@@ -91,6 +117,7 @@ local function next_dialog()
       request.opts.default = input_value()
     else request.opts.default = selected end
     finished = true
+    close_description()
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
     if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
     active = false

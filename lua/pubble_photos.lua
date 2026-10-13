@@ -35,7 +35,7 @@ local function current(s)
     and vim.b[s.source].publication_in_progress ~= true
 end
 
-local function run(s, args, input, done)
+local function run(s, args, input, done, on_error)
   if s.busy then return end
   s.busy = true
   local cmd = { commands.bin('python'), '-m', 'texttools.pubble_photo_cli' }
@@ -46,9 +46,14 @@ local function run(s, args, input, done)
     command = 'pubble-photo ' .. action,
   }) or nil
   local options = { text = true, stdin = input }
+  if action == 'ai-inbox' or action == 'ai-import' or action == 'ai-import-finalize' then options.timeout = 60000 end
   if trace then options = workflow_log.with_environment(options, trace) end
   local function finish(outcome, detail)
     if trace then workflow_log.finish(trace, outcome, detail); trace = nil end
+  end
+  local function failed(message)
+    notify(message, vim.log.levels.ERROR, { ttl = 15 })
+    if on_error then on_error(message) end
   end
   local ok, err = pcall(vim.system, cmd, options, function(result)
     vim.schedule(function()
@@ -67,8 +72,9 @@ local function run(s, args, input, done)
       if result.code ~= 0 or not decoded or type(data) ~= 'table' or (data.version ~= 1 and data.version ~= 2) then
         finish('failed', { exit_code = result.code,
           reason = action == 'search' and 'search_result_failed' or 'import_result_failed' })
-        notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr)
-          or 'Fotokeuze mislukt; artikel is niet gewijzigd.', vim.log.levels.ERROR)
+        failed(result.code == 124 and "Inbox-import duurde te lang. Controleer of iCloud de foto's volledig heeft gedownload en probeer opnieuw."
+          or vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr)
+          or 'Fotokeuze mislukt; artikel is niet gewijzigd.')
         return
       end
       done(data)
@@ -80,7 +86,7 @@ local function run(s, args, input, done)
   if not ok then
     s.busy = false
     finish('failed', { reason = 'process_start_failed' })
-    notify('Fotokeuze kon niet starten: ' .. tostring(err), vim.log.levels.ERROR)
+    failed('Fotokeuze kon niet starten: ' .. tostring(err))
   else
     s.process = err
   end
@@ -244,7 +250,7 @@ ai_prompt = function(s)
       local copied = copy_to_clipboard(prompt)
       if browser.open_urls({ data.chatgpt_url }) then
         notify(copied
-          and 'Beeldprompt gekopieerd. Plak hem in ChatGPT; importeer de download daarna met i.'
+          and 'Beeldprompt gekopieerd. Plak hem in ChatGPT; zet de download in Pubble Inbox en importeer met i.'
           or 'ChatGPT is geopend, maar het systeemklembord werkte niet. De prompt staat wel in het gewone Vim-register.',
           copied and vim.log.levels.INFO or vim.log.levels.WARN, { ttl = 12 })
       else
@@ -261,41 +267,61 @@ ai_import = function(s)
     notify('Sla het artikel eerst op voordat je een AI-stockfoto importeert.', vim.log.levels.WARN)
     return
   end
-  local form = table.concat({
-    'Bestand: ' .. vim.fn.expand('~/Downloads/'),
-    'Archieftags: ',
-    'Bijschrift: Illustratief beeld',
-    'Credit: AI-gegenereerd beeld (OpenAI)',
-  }, '\n')
-  dialog.input({
-    prompt = 'AI-stockfoto importeren · vul bestand en ChatGPT-archieftags in',
-    default = form,
-    vim_edit = true,
-  }, function(value)
-    if not value or vim.trim(value) == '' or not current(s) then return end
-    run(s, { 'ai-import' }, vim.json.encode({
-      markdown = text(s.source),
-      article_path = article_path,
-      form_text = value,
-    }), function(data)
-      if type(data.markdown) ~= 'string' or not current(s) then return end
-      vim.api.nvim_buf_set_lines(s.source, 0, -1, false,
-        vim.split(data.markdown:gsub('\n$', ''), '\n', { plain = true }))
-      local source = s.source
-      close(s)
-      vim.api.nvim_set_current_buf(source)
-      local saved = pcall(vim.cmd, 'silent update')
-      workflow_log.diagnostic(source, 'Foto · AI-stock vastgelegd', {
-        status = saved and 'saved' or 'save_failed',
-        location_id = data.stock_location_id,
-        keyword_count = type(data.keywords) == 'table' and #data.keywords or 0,
-      })
-      local tags = type(data.keywords) == 'table' and table.concat(data.keywords, ', ') or ''
-      notify((saved and 'AI-stockfoto geïmporteerd' or 'AI-stockfoto geïmporteerd; opslaan mislukte')
-        .. ' voor algemene beeldbank 24. Tags: ' .. tags .. '. Verzenden blijft handmatig.',
-        saved and vim.log.levels.INFO or vim.log.levels.WARN, { ttl = 15 })
+  local function import_error(message)
+    if not current(s) then return end
+    dialog.select({ 'Opnieuw proberen', 'Terug naar fotokeuze' }, {
+      prompt = 'AI-stockimport niet gelukt:\n' .. message .. '\nJe ingevoerde tags blijven bewaard.', native = true,
+    }, function(choice) if choice == 'Opnieuw proberen' then ai_import(s) end end)
+  end
+  run(s, { 'ai-inbox' }, vim.json.encode({ markdown = text(s.source), article_path = article_path }), function(snapshot)
+    if type(snapshot.files) ~= 'table' or #snapshot.files == 0 then import_error("Inbox gaf geen bruikbare foto's terug."); return end
+    local names = {}
+    for index, file in ipairs(snapshot.files) do names[#names + 1] = index .. '. ' .. one_line(file.name) end
+    local prompt = 'AI-stockimport · ' .. #snapshot.files .. ' Inbox-foto(' .. (#snapshot.files == 1 and '' or "'s") .. ')\n'
+      .. table.concat(names, '\n') .. "\nAlle foto's krijgen dezelfde tags, illustratief bijschrift en AI-credit.\n"
+      .. 'Vul alleen de tags in (of plak de ARCHIEFTAGS-regel). Enter: importeren.'
+    if type(snapshot.duplicate_count) == 'number' and snapshot.duplicate_count > 0 then
+      prompt = prompt .. '\n' .. snapshot.duplicate_count .. ' identieke kopie(ën) worden één keer geïmporteerd en herstelbaar weggezet.'
+    end
+    dialog.input({ prompt = 'AI-stockfoto · alleen archieftags', description = prompt,
+      footer = ' Esc: Normal | Enter: importeren | Ctrl-C: annuleren ',
+      default = s.stock_tags or '', vim_edit = true }, function(value)
+      if value == nil or not current(s) then return end
+      s.stock_tags = value
+      run(s, { 'ai-import' }, vim.json.encode({ markdown = text(s.source), article_path = article_path,
+        files = snapshot.files, tags = value }), function(data)
+        if type(data.markdown) ~= 'string' or not current(s) then return end
+        vim.api.nvim_buf_set_lines(s.source, 0, -1, false,
+          vim.split(data.markdown:gsub('\n$', ''), '\n', { plain = true }))
+        local source = s.source
+        close(s)
+        vim.api.nvim_set_current_buf(source)
+        local saved = pcall(vim.cmd, 'silent update')
+        workflow_log.diagnostic(source, 'Foto · AI-stock vastgelegd', {
+          status = saved and 'saved' or 'save_failed', location_id = data.stock_location_id,
+          image_count = data.image_count, keyword_count = type(data.keywords) == 'table' and #data.keywords or 0,
+        })
+        if not saved then
+          dialog.select({ 'Begrepen' }, { native = true, prompt = "Foto's staan in de buffer, maar opslaan mislukte.\nSla het artikel op met :w vóór <leader>aw. Inbox-originelen blijven staan." }, function() end)
+          return
+        end
+        notify(tostring(data.image_count or #snapshot.files) .. ' AI-stockfoto(' .. (#snapshot.files == 1 and '' or "'s")
+          .. ") geïmporteerd voor algemene beeldbank 24. Dezelfde tags voor alle foto's. Verzenden blijft handmatig.", vim.log.levels.INFO, { ttl = 15 })
+        if type(data.batch_id) == 'string' then
+          -- Pas na duurzaam opslaan de originelen herstelbaar wegzetten. Geen
+          -- bufferwrite in deze callback; nieuwe redactiebewerkingen blijven veilig.
+          local cmd = { commands.bin('python'), '-m', 'texttools.pubble_photo_cli', 'ai-import-finalize' }
+          local ok = pcall(vim.system, cmd, { text = true, stdin = vim.json.encode({ article_path = article_path, batch_id = data.batch_id }) }, vim.schedule_wrap(function(result)
+            if result.code ~= 0 then
+              dialog.select({ 'Begrepen' }, { native = true, prompt = 'Stockkopieën zijn geïmporteerd, maar Inbox-originelen konden niet volledig worden weggezet.\n'
+                .. vim.trim(result.stderr or '') .. "\nDe foto's blijven herstelbaar; controleer de Inbox vóór een volgend artikel." }, function() end)
+            end
+          end))
+          if not ok then notify('Import gelukt, maar Inbox-originelen zijn nog niet weggezet.', vim.log.levels.WARN, { ttl = 15 }) end
+        end
+      end, import_error)
     end)
-  end)
+  end, import_error)
 end
 
 local search
