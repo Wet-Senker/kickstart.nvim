@@ -112,7 +112,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | Leader | Actie |
 |---|---|
 | `<leader>z` | Rustige Zen-weergave met een bredere tekstkolom, zonder regelnummers, tekens in de marge of zichtbare witruimte. Markdown loopt alleen visueel om bij woordgrenzen; het bestand krijgt geen extra regeleinden. |
-| `<leader>ar` | Herschrijven naar krantenartikel (AI). Een reeds bevestigde 112-rubriek of geaccepteerde agenda krijgt in dezelfde call natuurlijke zoekintentie voor kop en lead; andere artikelen niet. Bij meerdere bestemmingen verschijnt alleen een vraag als een gevonden plaats of prominente provincie de gekozen gebieden werkelijk onderscheidt. De standaardkeuze maakt gerichte lokale of provinciale versies en één algemene voor de overige kranten; zonder onderscheidend signaal ontstaat stil één algemene versie. Bestemmingen blijven gelijk. Iedere unieke tekst komt direct uit het origineel, inclusief tussenkopjes. Een streamer maak je alleen bewust handmatig met `<leader>at`. Ook als meerdere kranten dezelfde algemene tekst krijgen, opent voor iedere krant een eigen reviewbuffer, zodat socialteksten apart kunnen worden gemaakt en goedgekeurd. Geen tussenrewrite of opmaak van de gedeelde bron. |
+| `<leader>ar` | Journalistiek herschrijven en krantgericht maken met AI. De bestaande prompt behoudt een al goede body en redigeert een ruwe bron; geen extra redactie-keuze. Bij meerdere bestemmingen volgt bij onderscheidende gebiedssignalen Gerichte varianten / Eén algemene versie met advies. Iedere unieke tekst komt direct uit het origineel; kranten met dezelfde tekst delen een reviewbuffer. Geen tussenrewrite of automatische streamer. Bevestigde 112-/agendacontext geeft natuurlijke zoekintentie in dezelfde call. Bestemmingen, bron en redactionele staart blijven beschermd. |
 | `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. Tijdens een doublurecontrole wordt deze actie eenmaal uitgesteld en alleen na doorgaan hervat. Een herkend maar onvolledig item toont `<!-- Ontbreekt: … -->` inclusief invoerformaat, bijvoorbeeld `Tijd: HH:MM`. |
 | `<leader>kA` | Plaats vanuit een gewone artikelbuffer uitsluitend het gecontroleerde `## Kalender`-item. Krant, websiteartikel, social en Teams worden niet verstuurd. De actie controleert eerst op doublures en schrijft ontvangen agenda-ID's direct terug, zodat opnieuw drukken geen dubbel item maakt. In een voorstel uit een bestaand websiteartikel blijft dezelfde leader dat item aan het bronartikel koppelen. |
 | *onderdeel van `<leader>ar`* | **Plaatsencontrole.** Wijzen plaatsen in de tekst naar kranten die nog niet gekozen zijn, dan volgt eenmalig de vraag of die mee moeten. Die vraag komt alleen wanneer de controle bij import niet heeft plaatsgevonden — een zelf getypte of geplakte buffer komt niet langs de importroute — of wanneer de tekst sindsdien naar andere kranten is gaan wijzen. Een provincie is context en levert geen voorstel op. |
@@ -316,12 +316,23 @@ geen expliciete `e:` bestaat. Na Ja wordt de regel in de buffer gezet, zodat de
 vraag niet terugkomt.
 
 Heeft de definitieve `e:` meer dan één gekozen krant, dan vraagt `<leader>ar`
-of iedere krant een eigen versie moet krijgen. **Nee** behoudt één gezamenlijke
-tekst. **Ja** start één veilige AI-call per editie. Iedere editie krijgt een
-volledige, gelijkwaardige versie en een eigen buffer. De gewone body blijft de
-gedeelde bron en wordt niet gepubliceerd. Een lokaal bronfeit mag de kop,
-intro en artikelopbouw bepalen; zonder lokale haak gebruikt de versie een
-eerlijke regionale invalshoek zonder plaatselijke cijfers te verzinnen.
+bij onderscheidende gebiedssignalen of je **Gerichte varianten** of **Eén
+algemene versie** wilt, met een kort advies. Zonder onderscheid volgt één
+algemene versie. Eén AI-call per unieke tekst; kranten met dezelfde tekst
+delen een reviewbuffer. De gewone body blijft bij meerdere teksten de gedeelde
+bron en wordt niet gepubliceerd. Een echte lokale bijdrage kan de lokale
+kop/intro dragen; een terloopse plaats krijgt geen geforceerde invalshoek.
+
+Geen extra keuze over redactie: `<leader>an` blijft minimaal publicatieklaar
+maken, `<leader>ar` journalistiek herschrijven en krantgericht maken. De
+bestaande schrijfprompt beoordeelt de bron in dezelfde call. Bij een al goede
+body kopieert Python de bronalinea's; kop/intro en eventueel ordening kunnen
+voor de krant veranderen. Ruwe/promotionele/anderstalige tekst kan wel volledig
+worden geredigeerd. Een andere lokale opening alleen is geen reden voor een
+body-rewrite. Controleer de nieuwe tekst inhoudelijk. Foto's/bylines en gewone
+huisstijlopmaak blijven. Een ongeldig intern plan behoudt de bron zonder tweede
+schrijfcall. `<leader>aA` maakt één algemene tekst zonder editie-menu.
+Geen extra classifier of auditcall; werkelijke wachttijd is nog te meten.
 
 Sla een versie op met `:w`; bestaande goedkeuring blijft behouden. Een nog niet
 goedgekeurde versie blijft `controleren`; keur haar goed met `<leader>aG`.

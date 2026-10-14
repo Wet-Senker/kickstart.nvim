@@ -11,9 +11,21 @@ end
 local ai = require 'ai_text'
 local original_system = vim.system
 local rewrite_callback
+local function is_rewrite(command)
+  return command[2] == 'journalistiek_schrijven' or command[2] == 'krantversie'
+    or command[2] == 'krantversie_algemeen'
+end
+local function command_text(command)
+  local result = command[2]
+  for i = 3, #command do
+    result = result .. ' ' .. (command[i]:sub(1, 2) == '--' and command[i] or vim.fn.shellescape(command[i]))
+  end
+  assert(vim.tbl_contains(command, 'auto'), 'rewrite miste intern automatisch plan')
+  return result
+end
 
 vim.system = function(command, _, callback)
-  if command[1] == 'bash' then
+  if is_rewrite(command) then
     rewrite_callback = callback
     return {}
   end
@@ -108,8 +120,8 @@ for _, mode in ipairs { 1, 2 } do
     done(mode)
   end
   vim.system = function(command, opts, callback)
-    if command[1] == 'bash' then
-      table.insert(commands, command[3])
+    if is_rewrite(command) then
+      table.insert(commands, command_text(command))
       table.insert(inputs, opts.stdin)
       result_callback = callback
     elseif vim.tbl_contains(command, '--resolve-editions') then
@@ -150,8 +162,8 @@ local automatic_command
 ai._edition_mode_choice_async = original_choice
 dialog.select = function() error('algemene automatische route toonde een menu') end
 vim.system = function(command, _, callback)
-  if command[1] == 'bash' then
-    automatic_command = command[3]
+  if is_rewrite(command) then
+    automatic_command = command_text(command)
     callback { code = 1, stdout = '', stderr = 'bewuste teststop' }
   else
     callback {
@@ -207,8 +219,8 @@ local override_mapping = vim.fn.maparg('<leader>aA', 'n', false, true)
 assert(type(override_mapping) == 'table' and override_mapping.desc:find('algemene tekst', 1, true),
   'handmatige algemeen-override is niet vindbaar')
 vim.system = function(command, _, callback)
-  if command[1] == 'bash' then
-    automatic_command = command[3]
+  if is_rewrite(command) then
+    automatic_command = command_text(command)
   else
     callback {
       code = 0,
@@ -233,7 +245,7 @@ local resolve_callback
 local started = false
 ai._edition_mode_choice_async = function() error('late moduskeuze') end
 vim.system = function(command, _, callback)
-  if command[1] == 'bash' then started = true else resolve_callback = callback end
+  if is_rewrite(command) then started = true else resolve_callback = callback end
   return {}
 end
 ai.rewrite_article_buffer()
@@ -251,8 +263,8 @@ rewrite_callback = nil
 local single_command
 vim.api.nvim_buf_set_lines(target, 0, 1, false, { 'e: B' })
 vim.system = function(command, _, callback)
-  if command[1] == 'bash' then
-    single_command = command[3]
+  if is_rewrite(command) then
+    single_command = command_text(command)
     rewrite_callback = callback
   else
     callback {
@@ -285,8 +297,8 @@ vim.api.nvim_buf_set_lines(target, 0, -1, false, {
 ai._mark_duplicate_check_done(target)
 local default_command
 vim.system = function(command, _, callback)
-  if command[1] == 'bash' then
-    default_command = command[3]
+  if is_rewrite(command) then
+    default_command = command_text(command)
     callback { code = 1, stdout = '', stderr = 'bewuste teststop' }
   else
     callback {

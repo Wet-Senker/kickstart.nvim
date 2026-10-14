@@ -43,6 +43,7 @@ local function run(codes, tasks, responses)
   captured = nil
   ai._edition_variant_runner = function(_, code, origin, done, task)
     assert(origin == source, 'variant kreeg niet de onbewerkte bron')
+    assert(task.edit_mode == 'auto', 'lokale/algemene/fallback-taak verloor het interne artikelplan')
     table.insert(calls, { code = code, prompt = task.prompt })
     local response = responses[task.prompt .. ':' .. code]
     assert(response, 'onverwachte AI-taak: ' .. task.prompt .. ':' .. code)
@@ -55,7 +56,7 @@ local function run(codes, tasks, responses)
       done(true, response)
     end
   end
-  ai._generate_edition_versions(buf, source, source, codes, nil, tasks, nil)
+  ai._generate_edition_versions(buf, source, source, codes, nil, tasks, nil, 'auto')
   return calls
 end
 

@@ -346,7 +346,6 @@ end, { desc = "Actieve AI-taak in huidige buffer annuleren" })
 local texttools_commands = require("texttools_commands")
 local layout_export = require("layout_export")
 local aitext = texttools_commands.bin("aitext")
-local kampen_fix = texttools_commands.bin("kampen-fix")
 local redactie_adres = texttools_commands.bin("redactie-adres")
 local article_dateline = texttools_commands.bin("article-dateline")
 local rubriek_check = texttools_commands.bin("rubriek-check")
@@ -2485,6 +2484,9 @@ M._edition_variant_runner = function(buf, code, source, done, task)
     table.insert(command, "--optional-local-angle")
   end
   append_seo_context(command, task and task.seo_context)
+  if task and (task.edit_mode == 'preserve' or task.edit_mode == 'auto') then
+    vim.list_extend(command, { '--edit-mode', task.edit_mode })
+  end
   ai_system(
     command,
     { text = true, stdin = source },
@@ -2517,7 +2519,7 @@ end
 -- `origin` is het oorspronkelijke bericht dat de AI per krant herschrijft. Ze
 -- zijn bewust gescheiden: elke krantversie wordt uit het origineel gedestilleerd,
 -- zodat een editie-onbewuste voor-herschrijving geen lokaal vitale info wist.
-local function generate_edition_versions(buf, source, origin, codes, names, tasks, seo_context)
+local function generate_edition_versions(buf, source, origin, codes, names, tasks, seo_context, edit_mode)
   if type(codes) ~= "table" or #codes < 2 then return end
 
   if not tasks then
@@ -2538,6 +2540,7 @@ local function generate_edition_versions(buf, source, origin, codes, names, task
       elseif fallback_task and general_content == nil then
         -- De kern heeft de aanvullende taak bepaald; de client voert haar uit.
         fallback_task.seo_context = seo_context
+        fallback_task.edit_mode = edit_mode
         M._edition_variant_runner(buf, fallback_task.code, origin, function(ok, general, err)
           if not ok or not general then
             notify_workflow(
@@ -2584,6 +2587,7 @@ local function generate_edition_versions(buf, source, origin, codes, names, task
     end
     local variant_task = vim.tbl_extend("force", {}, task)
     variant_task.seo_context = seo_context
+    variant_task.edit_mode = edit_mode
     M._edition_variant_runner(buf, code, origin, function(ok, variant, err, declined)
       if not ok then finish_variant(false, nil, err); return end
       finish_variant(true, variant, nil, declined)
@@ -2853,7 +2857,8 @@ local function post_full_article_rewrite(options)
             codes,
             names,
             options.edition_tasks,
-            options.seo_context
+            options.seo_context,
+            options.edit_mode
           )
         end
         start_calendar_after_duplicate()
@@ -2918,14 +2923,10 @@ function M.rewrite_article_buffer(force_general)
     input = table.concat(body_lines, "\n")
   end
 
-  -- Rewrite gevolgd door de gerichte Kampen-correctie (kampen-fix). Die is
-  -- deterministisch gepoort op "Kampense", dus zonder dat woord komt de tekst
-  -- instant onveranderd terug. pipefail zorgt dat een fout in de rewrite niet
-  -- door de tweede stap gemaskeerd wordt.
-  local rewrite_cmd = { "bash", "-c",
-    "set -o pipefail; " .. vim.fn.shellescape(aitext)
-      .. " journalistiek_schrijven" .. shell_seo_context(seo_context)
-      .. " | " .. vim.fn.shellescape(kampen_fix) }
+  -- De bestaande schrijfopdracht kiest in dezelfde AI-call behoud of redactie.
+  -- Geen nieuw gebruikersmenu of aparte kwaliteitsclassificatie.
+  local rewrite_prompt, rewrite_args = 'journalistiek_schrijven', {}
+  local edit_mode = 'auto'
   local edition_mode = "single"
   local edition_tasks
   local function source_body_unchanged()
@@ -3013,7 +3014,11 @@ function M.rewrite_article_buffer(force_general)
 
       local rewritten_str = table.concat(new_lines, "\n")
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_lines)
-      if edition_mode ~= "splitsen" then mark_ai_rewrite_completed(buf) end
+      if edition_mode ~= "splitsen" then
+        mark_ai_rewrite_completed(buf)
+      else
+        vim.b[buf].send_ai_rewrite_completed = false
+      end
       M._post_full_article_rewrite({
         buf = buf,
         document = rewritten_str,
@@ -3024,6 +3029,7 @@ function M.rewrite_article_buffer(force_general)
         edition_tasks = edition_tasks,
         variant_origin = input,
         seo_context = seo_context,
+        edit_mode = edit_mode,
         is_112_template = is_112_template ~= nil,
       })
     end)
@@ -3033,6 +3039,12 @@ function M.rewrite_article_buffer(force_general)
     -- alle definitieve teksten komen rechtstreeks uit het origineel.
     receive_rewrite({ code = 0, stdout = input, stderr = "" })
   else
+    -- Geen aansluitende Kampen-AI die een gekopieerde body alsnog redigeert;
+    -- de gedeelde huisstijl zit in de schrijfprompt en kopcorrectie in Python.
+    local rewrite_cmd = { aitext, rewrite_prompt }
+    vim.list_extend(rewrite_cmd, rewrite_args)
+    append_seo_context(rewrite_cmd, seo_context)
+    vim.list_extend(rewrite_cmd, { '--edit-mode', edit_mode })
     ai_system(rewrite_cmd, { text = true, stdin = input }, receive_rewrite, "AI · Herschrijven", buf)
   end
   end
@@ -3060,15 +3072,10 @@ function M.rewrite_article_buffer(force_general)
           return
         elseif choice == 1 then
           edition_mode = "algemeen"
-          rewrite_cmd = { "bash", "-c",
-            "set -o pipefail; " .. vim.fn.shellescape(aitext)
-              .. " krantversie_algemeen --editions "
-              .. vim.fn.shellescape(table.concat(codes, ","))
-              .. shell_seo_context(seo_context)
-              .. " | " .. vim.fn.shellescape(kampen_fix) }
+          rewrite_prompt = 'krantversie_algemeen'
+          rewrite_args = { '--editions', table.concat(codes, ',') }
         else
           edition_mode = "splitsen"
-          vim.b[buf].send_ai_rewrite_completed = false
           edition_tasks = strategy and strategy.options[choice] and strategy.options[choice].tasks
         end
       elseif #codes == 1 and (
@@ -3081,11 +3088,8 @@ function M.rewrite_article_buffer(force_general)
         -- verspreidingsgebiedkennis als een gesplitste krantversie. De stille
         -- De-Brug-default zonder inhoudelijk signaal blijft bewust de algemene
         -- journalistieke rewrite gebruiken.
-        rewrite_cmd = { "bash", "-c",
-          "set -o pipefail; " .. vim.fn.shellescape(aitext)
-            .. " krantversie --edition " .. vim.fn.shellescape(codes[1])
-            .. shell_seo_context(seo_context)
-            .. " | " .. vim.fn.shellescape(kampen_fix) }
+        rewrite_prompt = 'krantversie'
+        rewrite_args = { '--edition', codes[1] }
       end
       if duplicate_check_is_current(buf) or #codes == 0 then
         run_rewrite()

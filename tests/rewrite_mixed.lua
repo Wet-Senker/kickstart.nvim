@@ -27,6 +27,8 @@ end
 vim.system = function(command, opts, callback)
   if command[1] == 'bash' then error('overbodige tussenherschrijving') end
   if command[2] == 'krantversie' or command[2] == 'krantversie_algemeen' then
+    assert(vim.tbl_contains(command, '--edit-mode') and vim.tbl_contains(command, 'auto'),
+      'een unieke kranttaak verloor het interne artikelplan')
     assert(opts.stdin == source, 'definitieve tekst kreeg niet het origineel')
     local code = command[4]:match('^([^,]+)')
     requested[code] = command
