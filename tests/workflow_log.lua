@@ -39,5 +39,22 @@ local decision = vim.json.decode(vim.fn.readfile(workflow_log.log_path())[5])
 assert(decision.event == 'decision' and decision.choice == 'website', 'krantkeuze ontbreekt in log')
 assert(vim.deep_equal(decision.editions, { 'K', 'D' }), 'editiecodes ontbreken in log')
 
+-- De echte vim.system-callback is een fast event. Bestandsfuncties zoals
+-- vim.fn.mkdir zijn daar verboden: de afronding moet op de mainthread landen.
+local fast_token = workflow_log.start(buf, 'Snelle callback')
+local timer = vim.uv.new_timer()
+timer:start(0, 0, function()
+  assert(vim.in_fast_event(), 'test draaide niet in een fast event')
+  workflow_log.finish(fast_token, 'failed', { exit_code = 1, error = 'ProcessExit' })
+  timer:close()
+end)
+assert(vim.wait(1000, function()
+  return #vim.fn.readfile(workflow_log.log_path()) == 7
+end), 'fast-event-afronding ging verloren')
+local fast_finished = vim.json.decode(vim.fn.readfile(workflow_log.log_path())[7])
+assert(fast_finished.action_id == fast_token.action_id, 'verkeerde actie afgerond')
+assert(fast_finished.outcome == 'failed' and fast_finished.detail.exit_code == 1,
+  'foutuitkomst ontbreekt')
+
 vim.fn.delete(directory, 'rf')
 print('workflow log: OK')

@@ -5,6 +5,7 @@ local texttools_paths = require("texttools_paths")
 local pubble_duplicates = require("pubble_duplicates")
 local context_help = require("context_help")
 local workflow_log = require("workflow_log")
+local publication_recovery = require("publication_recovery")
 workflow_log.setup()
 
 -- Nieuwe pv-imports leven in de gedeelde werkmap. Desktop blijft als
@@ -241,7 +242,7 @@ local function workflow_system(cmd, opts, callback, action, buf)
     workflow_log.finish(trace, ok and (result.code == 0 and 'succeeded' or 'failed') or 'failed', {
       exit_code = result.code,
       signal = result.signal,
-      error = ok and nil or 'LuaCallbackError',
+      error = not ok and 'LuaCallbackError' or (result.code ~= 0 and 'ProcessExit' or nil),
     })
     if not ok then
       vim.schedule(function()
@@ -302,6 +303,7 @@ local function ai_system(cmd, opts, callback, title, job_buf, on_cancel)
         workflow_log.finish(trace, result.code == 0 and 'succeeded' or 'failed', {
           exit_code = result.code,
           signal = result.signal,
+          error = result.code ~= 0 and 'ProcessExit' or nil,
         })
       end
     end
@@ -1957,6 +1959,24 @@ local function article_context_help(buf)
           heading = "Let op",
           lines = { "<leader>aq stopt geen Pubble-writes of andere externe vervolgstappen." },
         },
+      },
+    }
+  end
+
+  if type(vim.b[buf].failed_send_conflict) == 'table' then
+    return {
+      title = 'Nieuwere wijzigingen en herstelstatus vergelijken',
+      status = 'Je werkbuffer is behouden; de Pubble-ID’s staan in een apart herstelbestand.',
+      sections = {
+        { heading = 'Nu doen', lines = {
+          '<leader>aw  Open het herstelbestand naast je huidige werk; er wordt nog niets verzonden.',
+          'Neem gewenste nieuwere tekst, agenda of fotokeuze over in het herstelbestand.',
+          'Behoud de Pubble-ID’s bovenaan en hervat met <leader>aw vanuit het herstelbestand.',
+        } },
+        { heading = 'Let op', lines = {
+          'Annuleren houdt beide versies intact. Begin niet opnieuw met een verse import.',
+          'Het programma voegt verschillende versies niet automatisch samen.',
+        } },
       },
     }
   end
@@ -5063,6 +5083,7 @@ end
 function M.pubble_send(target_buf)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  if publication_recovery.review_conflict(buf) then return end
   if vim.b[buf].publication_date_review_pending then
     notify_workflow('Beantwoord eerst de openstaande tekst-/datumcontrole.', vim.log.levels.INFO)
     return
@@ -5171,6 +5192,9 @@ function M.pubble_send(target_buf)
   vim.b[buf].skip_calendar_once = nil
 
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  -- Bewaak vanaf de revisie waaruit het tijdelijke verzendbestand ontstaat,
+  -- zodat ook wijzigingen tijdens de voorbereidende menu's behouden blijven.
+  local staged_input_tick = vim.api.nvim_buf_get_changedtick(buf)
   if vim.trim(table.concat(lines, "\n")) == "" then
     vim.notify("Huidig buffer is leeg", vim.log.levels.ERROR)
     return
@@ -5242,7 +5266,9 @@ function M.pubble_send(target_buf)
   local function discard_unpublished_temp()
     -- Een herstelbestand kan al Pubble-ID's bevatten en mag ook bij annuleren
     -- of een lokale validatiefout nooit worden weggegooid.
-    if not resume_file then vim.fn.delete(temp_file) end
+    if not resume_file and vim.b[buf].failed_send_file ~= temp_file then
+      vim.fn.delete(temp_file)
+    end
   end
   local function file_has_event_sections()
     if vim.fn.filereadable(temp_file) ~= 1 then return false end
@@ -5536,7 +5562,7 @@ function M.pubble_send(target_buf)
       return
     end
     vim.b[buf].publication_in_progress = true
-    local send_input_tick = vim.api.nvim_buf_get_changedtick(buf)
+    local send_input_tick = staged_input_tick
     local cmd = {
       pubble_send,
       temp_file,
@@ -5553,18 +5579,15 @@ function M.pubble_send(target_buf)
     end
     local function handle_send_result(result, event_checked, event_report)
       vim.schedule(function()
+        if not vim.api.nvim_buf_is_valid(buf) then return end
         local publication_status = publication_status_from_output(
           result.stdout,
           result.stderr
         )
         if publication_status and publication_status.mode == 'needs_newspaper_deadline' then
           vim.b[buf].publication_in_progress = false
-          if vim.api.nvim_buf_get_changedtick(buf) ~= send_input_tick then
-            vim.notify('Artikel gewijzigd tijdens de deadlinecontrole; start de verzending opnieuw.', vim.log.levels.WARN)
-            return
-          end
           if vim.fn.filereadable(temp_file) == 1 then
-            vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(temp_file))
+            if not publication_recovery.restore(buf, temp_file, send_input_tick, false) then return end
           end
           local planning = { display_dates = display_dates, editions = resolved_editions }
           discard_unpublished_temp()
@@ -5579,11 +5602,10 @@ function M.pubble_send(target_buf)
         end
         if publication_status and publication_status.mode == 'needs_date_review' then
           vim.b[buf].publication_in_progress = false
-          if vim.api.nvim_buf_get_changedtick(buf) == send_input_tick
-              and vim.fn.filereadable(temp_file) == 1 then
+          if vim.fn.filereadable(temp_file) == 1 then
             -- Toon eventuele nieuw gegenereerde socialtekst ter controle,
             -- maar overschrijf nooit een bewerking tijdens de voorbereiding.
-            vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(temp_file))
+            if not publication_recovery.restore(buf, temp_file, send_input_tick, false) then return end
           end
           vim.b[buf].publication_review_state = {
             display_dates = display_dates, editions = resolved_editions,
@@ -5608,7 +5630,7 @@ function M.pubble_send(target_buf)
             -- Al één keer verrijkt en tóch weer hier: niet blijven herstarten.
             vim.b[buf].print_timing_reentry = nil
             if vim.fn.filereadable(temp_file) == 1 then
-              vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(temp_file))
+              if not publication_recovery.restore(buf, temp_file, send_input_tick, false) then return end
             end
             vim.notify(
               "Voor de krant is een andere tijdsvorm nodig. Maak de "
@@ -5634,7 +5656,7 @@ function M.pubble_send(target_buf)
             late_newspaper_decision = vim.b[buf].late_newspaper_decision,
           }
           if vim.fn.filereadable(temp_file) == 1 then
-            vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(temp_file))
+            if not publication_recovery.restore(buf, temp_file, send_input_tick, false) then return end
           end
           discard_unpublished_temp()
           vim.schedule(function() M.pubble_send(buf) end)
@@ -5645,9 +5667,7 @@ function M.pubble_send(target_buf)
         -- bestand bij de volgende <leader>aw; verwijderen zou duplicaten riskeren.
         if result.code ~= 0 then
           if vim.fn.filereadable(temp_file) == 1 then
-            local recovered = vim.fn.readfile(temp_file)
-            vim.api.nvim_buf_set_lines(buf, 0, -1, false, recovered)
-            vim.b[buf].failed_send_file = temp_file
+            publication_recovery.restore(buf, temp_file, send_input_tick, true)
           end
         end
 
@@ -5671,7 +5691,7 @@ function M.pubble_send(target_buf)
                   vim.b[buf].publication_in_progress = false
                   vim.b[buf].failed_send_file = temp_file
                   if vim.fn.filereadable(temp_file) == 1 then
-                    vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(temp_file))
+                    publication_recovery.restore(buf, temp_file, send_input_tick, true)
                   end
                   local err = vim.trim(event_result.stderr or event_result.stdout or "")
                   vim.notify(
@@ -5692,8 +5712,10 @@ function M.pubble_send(target_buf)
 
         if result.code == 0 then
           -- Strip eventueel achtergebleven control lines uit de originele buffer.
+          local unchanged = vim.api.nvim_buf_get_changedtick(buf) == send_input_tick
           strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
           strip_leading_control_line(buf, "^[Ff]acebook%s*:%s*x%s*$")
+          if unchanged then send_input_tick = vim.api.nvim_buf_get_changedtick(buf) end
 
           local output = vim.trim(result.stdout or "")
           local article_url = output:match("Pubble article: (https://[^\n]+)")
@@ -5741,6 +5763,7 @@ function M.pubble_send(target_buf)
             if export_error then
               vim.b[buf].publication_in_progress = false
               vim.b[buf].failed_send_file = temp_file
+              publication_recovery.restore(buf, temp_file, send_input_tick, true)
               vim.notify(
                 "Artikel is gepubliceerd, maar de vormgevingsexport mislukte: "
                   .. export_error
@@ -5762,7 +5785,7 @@ function M.pubble_send(target_buf)
               vim.b[buf].publication_in_progress = false
               vim.b[buf].failed_send_file = temp_file
               if vim.fn.filereadable(temp_file) == 1 then
-                vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(temp_file))
+                publication_recovery.restore(buf, temp_file, send_input_tick, true)
               end
               local archive_err = vim.trim(archive_result.stderr or archive_result.stdout or "")
               vim.notify(
@@ -5811,6 +5834,8 @@ function M.pubble_send(target_buf)
               archive_path = archive_data.path,
             })
 
+            publication_recovery.complete(buf)
+
             vim.b[buf].publication_in_progress = false
           end)
 
@@ -5834,7 +5859,9 @@ function M.pubble_send(target_buf)
             vim.notify(
               prefix
                 .. table.concat(failed_labels, " + ")
-                .. " mislukt. <leader>aw hervat met de opgeslagen IDs.",
+                .. (vim.b[buf].failed_send_conflict
+                  and " mislukt. Je nieuwere werk is behouden; <leader>aw opent eerst het aparte herstelbestand."
+                  or " mislukt. <leader>aw hervat met de opgeslagen IDs."),
               vim.log.levels.ERROR
             )
           else

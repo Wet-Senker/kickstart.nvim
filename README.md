@@ -196,6 +196,13 @@ Na de gecontroleerde Pubble-opslag verschijnt de directe krantartikellink in
 de melding en bovenin de agendapagina. Een bestaand artikel-ID zonder die link
 wordt door `<leader>aw` veilig hersteld in plaats van opnieuw aangemaakt.
 
+Bij een verzendfout wordt een oudere herstelversie nooit over nieuwere
+tekst-/agenda-/fotowijzigingen gezet. In zo'n conflict opent `<leader>aw` eerst
+het ID-bevattende herstelbestand in een apart venster, zonder verzending.
+Neem gewenste wijzigingen daarin over, behoud de Pubble-ID's en hervat vanuit
+dat herstelbestand. Je oorspronkelijke werkbuffer blijft intact. `<leader>kh`
+legt deze situatie uit; `:TexttoolsLog` toont de herstelreden en foutcategorie.
+
 ---
 
 ## Controlecodes

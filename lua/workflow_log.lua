@@ -28,6 +28,13 @@ local function identifier(prefix, buf)
 end
 
 local function append(entry)
+  -- vim.system/uv-callbacks zijn fast events. vim.fn.expand/mkdir mogen daar
+  -- niet draaien; anders slikte pcall iedere action_finished stil in.
+  if vim.in_fast_event() then
+    local pending = vim.deepcopy(entry)
+    vim.schedule(function() append(pending) end)
+    return true
+  end
   local ok = pcall(function()
     local path = log_path()
     vim.fn.mkdir(vim.fn.fnamemodify(path, ':h'), 'p')
