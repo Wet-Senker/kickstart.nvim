@@ -359,6 +359,12 @@ krant. De website houdt de oorspronkelijke tekst. Controleer de tijdsvorm en
 druk opnieuw `<leader>aw`; feiten, absolute data, tijden, getallen en citaten
 mogen niet veranderen.
 
+"Herschrijven voor krant" geldt tevens als toestemming voor de
+aankondigingsdeadline van dezelfde gebeurtenis: na de controle van die
+krantvariant volgt geen tweede "Toch ook naar de krant". De kern bewaakt bron,
+datums en editie; een andere deadline of handmatige uiterste week blijft een
+aparte keuze. Geldige bestaande krantvarianten werken ook na opnieuw openen.
+
 **112-detectie** — scoort tekst op signaalwoorden (politie, brandweer, ambulance, incident, etc.). De combinatie van minimaal één hulpdienst en één concreet incident krijgt één extra punt. Bij score ≥ 6 verschijnt een bevestigingsvraag. Bij "Ja": 112-template toegepast, `rubriek: 112` en `prio: 2` bovenaan gezet. Bij "Nee" blijft die keuze voor de huidige buffer staan en mag detectie na `<leader>ar` het template niet alsnog toepassen. De kop gebruikt via `pubble-places` de eerste bekende plaats uit de centrale verspreidingsgebiedentabel; zonder treffer wordt het `112:`.
 
 **Krantprioriteit vóór verzending** — `<leader>aw` toont in het
@@ -417,6 +423,17 @@ te late krant(en)`, `Toch ook naar de krant` of `Annuleren`. Bij toch
 doorzetten wordt het weeknummer in de krantwerktitel van die te late editie
 vervangen door `z`, zodat de bewuste uitzondering direct zichtbaar is. De
 werkelijke deadline blijft voor controles apart bewaard.
+
+Bij een datumgebonden aankondiging heet de krantkeuze direct **Herschrijven
+voor krant [h]**. Daarmee start dezelfde kranttijdvoorbereiding en volgt geen
+tweede bevestiging voor dezelfde gebeurtenis. Voor gewone houdbaarheidsgrenzen
+blijft de keuze **Toch ook naar de krant [t]**. `t` werkt ook nog bij de
+herschrijfkeuze; `w` kiest alleen website en Escape annuleert.
+
+Komt de deadline pas na metadatageneratie in beeld, dan biedt `<leader>aw`
+dezelfde keuze alsnog aan. De gekozen webdatum, reeds gemaakte kranttijdtekst
+en eerdere beslissingen voor andere kranten blijven bewaard. Na je keuze hervat
+de verzending zonder opnieuw te herschrijven.
 
 De krantdeadlinekeuze verschijnt asynchroon boven de tekst, met de reden voor
 de grens. Kies met `j`/`k` en Enter, 1–3 of `w`/`t`/`a`; Escape annuleert.

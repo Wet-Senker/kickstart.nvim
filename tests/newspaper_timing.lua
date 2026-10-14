@@ -180,6 +180,21 @@ assert(vim.deep_equal(overlay_lines, vim.api.nvim_buf_get_lines(overlay, 0, -1, 
   'navigatietoetsen herhaalden keuzeregels')
 vim.fn.maparg('t', 'n', false, true).callback()
 assert(selected == 2, 't-sneltoets verloor krantkeuze')
+
+-- Bij datumgebonden berichten benoemt de eerste vraag direct wat de keuze
+-- doet: herschrijven voor de latere krant, met dezelfde bestaande actie.
+local dated_review = vim.deepcopy(deadline_review)
+dated_review.publication_timing = 'date_bound'
+selected = nil
+ai._late_newspaper_confirm(dated_review, function(value) selected = value end)
+assert(vim.wait(500, function()
+  return vim.api.nvim_win_get_config(vim.api.nvim_get_current_win()).relative == 'editor'
+end, 5), 'datumgebonden deadline-overlay ontbreekt')
+local dated_lines = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n')
+assert(dated_lines:find('Herschrijven voor krant', 1, true), 'de keuze benoemt de herschrijving niet')
+assert(not dated_lines:find('Toch ook naar de krant', 1, true), 'oude onduidelijke keuze bleef staan')
+vim.fn.maparg('h', 'n', false, true).callback()
+assert(selected == 2, 'h-sneltoets startte niet dezelfde krantkeuze')
 vim.fn.confirm = native_confirm
 
 print 'newspaper timing: OK'

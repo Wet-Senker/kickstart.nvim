@@ -4836,13 +4836,17 @@ end
 
 M._late_newspaper_message = late_newspaper_message
 M._late_newspaper_confirm = function(review, done)
+  local rewrite = review.publication_timing == 'date_bound'
+  local newspaper_choice = rewrite and 'Herschrijven voor krant [h]' or 'Toch ook naar de krant [t]'
+  local shortcuts = { w = 1, W = 1, t = 2, T = 2, a = 3, A = 3 }
+  if rewrite then shortcuts.h = 2; shortcuts.H = 2 end
   require('user_dialog').select({
     "Alleen website voor deze krant(en) [w]",
-    "Toch ook naar de krant [t]",
+    newspaper_choice,
     "Annuleren [a]",
   }, {
     prompt = late_newspaper_message(review), native = true,
-    shortcuts = { w = 1, W = 1, t = 2, T = 2, a = 3, A = 3 },
+    shortcuts = shortcuts,
   }, function(_, index) done(index) end)
 end
 
@@ -4858,6 +4862,9 @@ local function review_late_newspapers(buf, review, done)
   -- voorgelegd. Houd de melding ook beperkt tot de overgebleven printedities.
   local skipped = {}
   for _, code in ipairs(effective_skipped_newspapers(buf)) do skipped[code] = true end
+  -- De Python-kern herkent een bestaande, geldige kranttijdkeuze voor precies
+  -- deze aankondigingsdeadline. Die expliciete keuze hoeft niet opnieuw.
+  for _, code in ipairs(review.timing_deadline_approved_editions or {}) do skipped[code] = true end
   local pending = {}
   for _, code in ipairs(late) do
     if not skipped[code] then table.insert(pending, code) end
@@ -4922,6 +4929,46 @@ local function review_late_newspapers(buf, review, done)
 end
 
 M._review_late_newspapers = review_late_newspapers
+
+-- Een deadline die pas door de metadata bekend wordt, hoort dezelfde keuze
+-- te krijgen als bij de eerste voorbereiding. Bewaar de gekozen webdatums en
+-- reeds gemaakte tijdsversies; alleen de nog ontbrekende krantkeuze komt erbij.
+function M._resume_newspaper_deadline_review(buf, status, planning, done)
+  local review = type(status) == 'table' and status.newspaper_deadline_review or nil
+  if type(review) ~= 'table' or type(review.late_editions) ~= 'table'
+      or #review.late_editions == 0 then
+    done(false, 'De krantdeadlinecontrole gaf geen geldig beslisplan terug.')
+    return
+  end
+  local previously_allowed = late_newspaper_codes(buf, 'force')
+  review_late_newspapers(buf, review, function(ready)
+    if ready and vim.api.nvim_buf_is_valid(buf) then
+      local state = vim.deepcopy(planning)
+      state.skip_newspaper_editions = effective_skipped_newspapers(buf)
+      -- Een later ontdekte deadline mag eerdere toestemming voor een andere
+      -- krant niet vervangen. Web-only blijft via de zichtbare uitsluitingen
+      -- en skiplijst apart vastgelegd.
+      if #previously_allowed > 0 then
+        local allowed = merged_edition_codes(previously_allowed, late_newspaper_codes(buf, 'force'))
+        local skipped = {}
+        for _, code in ipairs(state.skip_newspaper_editions) do skipped[code] = true end
+        local remaining = {}
+        for _, code in ipairs(allowed) do
+          if not skipped[code] then table.insert(remaining, code) end
+        end
+        if #remaining > 0 then
+          local current = vim.b[buf].late_newspaper_decision or {}
+          vim.b[buf].late_newspaper_decision = {
+            mode = 'force', editions = remaining, signature = current.signature,
+          }
+        end
+      end
+      state.late_newspaper_decision = vim.b[buf].late_newspaper_decision
+      vim.b[buf].publication_review_state = state
+    end
+    done(ready)
+  end)
+end
 
 local function path_is_in_directory(path, directory, recursive)
   local candidate = normalized_path(path)
@@ -5510,6 +5557,26 @@ function M.pubble_send(target_buf)
           result.stdout,
           result.stderr
         )
+        if publication_status and publication_status.mode == 'needs_newspaper_deadline' then
+          vim.b[buf].publication_in_progress = false
+          if vim.api.nvim_buf_get_changedtick(buf) ~= send_input_tick then
+            vim.notify('Artikel gewijzigd tijdens de deadlinecontrole; start de verzending opnieuw.', vim.log.levels.WARN)
+            return
+          end
+          if vim.fn.filereadable(temp_file) == 1 then
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(temp_file))
+          end
+          local planning = { display_dates = display_dates, editions = resolved_editions }
+          discard_unpublished_temp()
+          M._resume_newspaper_deadline_review(buf, publication_status, planning, function(ready, err)
+            if ready then
+              vim.schedule(function() M.pubble_send(buf) end)
+            else
+              notify_workflow(err or 'Verzending geannuleerd bij de krantdeadlinecontrole.', vim.log.levels.WARN)
+            end
+          end)
+          return
+        end
         if publication_status and publication_status.mode == 'needs_date_review' then
           vim.b[buf].publication_in_progress = false
           if vim.api.nvim_buf_get_changedtick(buf) == send_input_tick
