@@ -7,6 +7,7 @@
 
 local M = {}
 local texttools_commands = require('texttools_commands')
+local editions = require('editions')
 local layout_export = require('layout_export')
 local notifications = require('texttools_notify')
 local ARTICLE_BOUNDARY = '=== ARTIKEL ==='
@@ -392,6 +393,106 @@ local function append_visible_article(out, header, article)
   table.insert(out, ARTICLE_BOUNDARY)
   table.insert(out, '')
   for _, line in ipairs(article) do table.insert(out, line) end
+end
+
+local function has_media_credit(frontmatter)
+  local in_media = false
+  for _, line in ipairs(frontmatter or {}) do
+    if line:match('^media:%s*$') then
+      in_media = true
+    elseif in_media and line:match('^%S') then
+      break
+    elseif in_media then
+      local value = line:match('^%s+credit:%s*(.-)%s*$')
+      if value then
+        value = value:gsub('^"(.*)"$', '%1'):gsub("^'(.*)'$", '%1')
+        local normalized = value:lower()
+        return value ~= '' and normalized ~= 'null' and normalized ~= '~'
+      end
+    end
+  end
+  return false
+end
+
+local function has_global_credit_control(header)
+  for _, line in ipairs(header or {}) do
+    local key = (vim.trim(line):match('^([%a][%a%d_]*)%s*:') or ''):lower()
+    if key == 'c' or key == 'c1'
+        or key == 'foto' or key == 'foto1'
+        or key == 'fotograaf' or key == 'fotograaf1'
+        or key == 'credit' or key == 'credit1' then
+      return true
+    end
+  end
+  return false
+end
+
+local function has_112_control(header)
+  for _, line in ipairs(header or {}) do
+    local key, value = vim.trim(line):match('^([%a][%a%d_]*)%s*:%s*(.-)%s*$')
+    key = key and key:lower() or ''
+    if (key == 'rubriek' or key == 'r') and value and value:lower() == '112' then
+      return true
+    end
+  end
+  return false
+end
+
+local function explicit_edition_codes(header)
+  local result = {}
+  for _, line in ipairs(header or {}) do
+    local key, value = vim.trim(line):match('^([%a][%a%d_]*)%s*:%s*(.-)%s*$')
+    key = key and key:lower() or ''
+    if key == 'e' or key == 'editie' then
+      for token in (value .. ','):gmatch('(.-),') do
+        local cleaned = vim.trim(token)
+        if cleaned:lower() == 'suggestie' then break end
+        local code = cleaned:upper()
+        if editions.by_code(code) then table.insert(result, code) end
+      end
+      break
+    end
+  end
+  return result
+end
+
+--- Toon configureerbare fotografen als twee bewuste c:-keuzes.
+---
+--- De dubbele regels zijn expres tijdelijk ongeldig: de centrale artikelparser
+--- weigert verzending totdat de redacteur met `dd` precies één keuze overlaat.
+--- Een bestaande zichtbare of opgeslagen credit wordt nooit overschreven.
+function M.ensure_112_photo_credit_candidates(target_buf, edition_codes)
+  local buf = target_buf or vim.api.nvim_get_current_buf()
+  if buf == 0 then buf = vim.api.nvim_get_current_buf() end
+  if not vim.api.nvim_buf_is_valid(buf) then return false end
+
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  if not vim.tbl_contains(lines, ARTICLE_BOUNDARY) then return false end
+  local frontmatter = visible_frontmatter(lines)
+  local header, article = split_visible_article(lines)
+  if not has_112_control(header)
+      or has_global_credit_control(header)
+      or has_media_credit(frontmatter) then
+    return false
+  end
+
+  local codes = type(edition_codes) == 'table'
+      and edition_codes or explicit_edition_codes(header)
+  local suggestions = editions.photo_credit_suggestions(codes, '112')
+  if #suggestions == 0 then return false end
+
+  local updated_header = {}
+  for _, name in ipairs(suggestions) do
+    table.insert(updated_header, 'c: ' .. name)
+  end
+  for _, line in ipairs(header) do table.insert(updated_header, line) end
+
+  local updated = {}
+  for _, line in ipairs(frontmatter) do table.insert(updated, line) end
+  if #frontmatter > 0 then table.insert(updated, '') end
+  append_visible_article(updated, updated_header, article)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, updated)
+  return true
 end
 
 -- Bepaal de 112-kop via dezelfde centrale plaatsentabel die pubble-send voor
@@ -930,6 +1031,7 @@ end
 local function apply(t, vars, target_buf, done)
   vars = vars or {}
   target_buf = target_buf or 0
+  if target_buf == 0 then target_buf = vim.api.nvim_get_current_buf() end
 
   local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
   local existing_fm = visible_frontmatter(buf_lines)
@@ -996,7 +1098,16 @@ local function apply(t, vars, target_buf, done)
   if #existing_fm > 0 then table.insert(final_lines, '') end
   append_visible_article(final_lines, control, result)
   vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, final_lines)
-  mark_template_applied(target_buf, t.name, done)
+  mark_template_applied(target_buf, t.name, function(success)
+    -- Bij de automatische import loopt editie- en doublureherkenning nog. In
+    -- dat geval plaatst ai_text de keuzes pas ná die stappen. Handmatig
+    -- toepassen op een reeds bestemd artikel kan ze hier veilig tonen.
+    if success ~= false and is_112
+        and vim.b[target_buf].pubble_duplicate_gate_pending ~= true then
+      M.ensure_112_photo_credit_candidates(target_buf)
+    end
+    if done then done(success) end
+  end)
 
   -- Stel lezersnieuws export in; txt wordt geschreven bij <leader>aw.
   if not t.no_export then

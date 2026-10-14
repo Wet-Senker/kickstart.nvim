@@ -2280,8 +2280,8 @@ local function reconcile_editions_after_rewrite(buf, content, original_content, 
 end
 
 local function edition_autodetect(buf, content, done)
-  local function complete(ok)
-    if done then done(ok ~= false) end
+  local function complete(ok, edition_codes)
+    if done then done(ok ~= false, ok ~= false and edition_codes or nil) end
   end
   if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].edition_recognition_done then
     complete(false)
@@ -2317,7 +2317,9 @@ local function edition_autodetect(buf, content, done)
       if resolved.has_explicit_editions == true or buffer_has_edition_control(buf) then
         adapt_editorial_address(buf, resolved.editions[1])
         apply_edition_suggestions(buf, resolved.editions, resolved)
-        check_import_duplicates(buf, resolved.editions, complete)
+        check_import_duplicates(buf, resolved.editions, function(ok)
+          complete(ok, resolved.editions)
+        end)
         return
       end
       local detection = high_confidence_detection(resolved)
@@ -2329,7 +2331,11 @@ local function edition_autodetect(buf, content, done)
         if #suggestion_lines > 0 then
           replace_edition_control_lines(buf, suggestion_lines)
         end
-        check_import_duplicates(buf, resolved.editions, complete)
+        check_import_duplicates(buf, resolved.editions, function(ok)
+          -- Suggesties zijn nog geen gekozen bestemming en mogen daarom geen
+          -- editiegebonden fotocreditkeuze activeren.
+          complete(ok, nil)
+        end)
         return
       end
       set_edition_codes(buf, detection.editions)
@@ -2343,7 +2349,9 @@ local function edition_autodetect(buf, content, done)
           .. (detection.source or "deterministische detectie")
           .. ")."
       )
-      check_import_duplicates(buf, detection.editions, complete)
+      check_import_duplicates(buf, detection.editions, function(ok)
+        complete(ok, detection.editions)
+      end)
     end)
   end
   resolve_current(content, true)
@@ -4502,10 +4510,17 @@ local function article_autodetect(buf)
       local formatted_evaluation = article_recognition.evaluate(text)
       local selected = formatted_evaluation.by_id[vim.b[buf].recognized_rubric or ""]
 
-      edition_autodetect(buf, text, function(approved)
+      edition_autodetect(buf, text, function(approved, edition_codes)
         if not vim.api.nvim_buf_is_valid(buf) then return end
         settle_duplicate_calendar_gate(buf, approved == true)
         if not approved then return end
+        -- De rubriektemplate ruimt een eventuele oude dateline asynchroon op.
+        -- Wijzig de buffer niet zolang die stap nog loopt: eindigt hij eerst,
+        -- dan voegt deze route de keuzes toe; eindigt de editiecheck eerst,
+        -- dan doet de callback in krant.lua dat na de datelinecontrole.
+        if not vim.b[buf]._rubric_dateline_pending then
+          require('krant').ensure_112_photo_credit_candidates(buf, edition_codes)
+        end
         if selected and selected.suppress_calendar then return end
         lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
         text = without_notes_text(lines)
@@ -6039,6 +6054,18 @@ function M.pubble_send(target_buf)
         return
       end
       resolved_publication = resolved
+      -- Vang ook een later handmatig of fuzzy ingevulde e:-keuze op. De
+      -- centrale resolver levert hier canonieke codes; voeg de configureerbare
+      -- 112-creditkeuzes zichtbaar toe en laat de redacteur eerst één regel
+      -- verwijderen. Er is op dit punt nog geen enkele externe write gedaan.
+      if require('krant').ensure_112_photo_credit_candidates(buf, resolved.editions) then
+        discard_unpublished_temp()
+        notify_workflow(
+          "Kies de fotograaf: verwijder met dd één van de twee c:-regels en druk daarna opnieuw <leader>aw.",
+          vim.log.levels.INFO
+        )
+        return
+      end
       -- De Swollenaer heeft één expliciete wijkkeuze per webartikel. De Python-
       -- actie zoekt lokaal/PDOK en het zichtbare wijk:-veld wordt vóór iedere
       -- Pubble-write vastgelegd. Ook webconcepten zonder foto volgen dit pad.

@@ -4,8 +4,10 @@ package.loaded['editions'] = nil
 local editions = require('editions')
 
 editions._set({
-  { code = 'B', name = 'De Brug', label = 'De Brug (B)' },
-  { code = 'SW', name = 'De Swollenaer', label = 'De Swollenaer (SW)' },
+  { code = 'B', name = 'De Brug', label = 'De Brug (B)',
+    photo_credit_suggestions = { ['112'] = { 'Mitchell Boswijk', 'Marco Westendorp' } } },
+  { code = 'SW', name = 'De Swollenaer', label = 'De Swollenaer (SW)',
+    photo_credit_suggestions = { ['112'] = { 'Marco Westendorp', 'Andere fotograaf' } } },
 })
 
 local list = editions.list()
@@ -14,6 +16,11 @@ assert(list[1].code == 'B' and list[1].label == 'De Brug (B)', 'eerste editie kl
 
 assert(editions.name('SW') == 'De Swollenaer', 'naam-lookup faalt')
 assert(editions.label('SW') == 'De Swollenaer (SW)', 'label-lookup faalt')
+local credits = editions.photo_credit_suggestions({ 'B', 'SW' }, '112')
+assert(vim.deep_equal(credits, { 'Mitchell Boswijk', 'Marco Westendorp', 'Andere fotograaf' }),
+  'fotocredits zijn niet geordend/uniek samengevoegd')
+assert(#editions.photo_credit_suggestions({ 'B' }, 'sport') == 0,
+  'fotocredits lekken naar een andere rubriek')
 
 -- Onbekende code valt terug op de code zelf (nooit crashen op nieuwe edities).
 assert(editions.name('XX') == 'XX', 'onbekende code moet terugvallen op de code')
