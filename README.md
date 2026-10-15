@@ -25,11 +25,15 @@ met een witregel tussen opeenvolgende resultaten.
 `p` toont alle voorbeelden in een browsertab, met knoppen om van bron te wisselen,
 meer resultaten te laden en **Gebruik deze foto** te kiezen. In NeoVim wisselt
 `b` van bron, Enter kiest een foto, `s` wijzigt zoekwoorden, `]p` laadt meer,
-`a` maakt een controleerbare AI-stockprompt en `i` importeert de gedownloade foto;
+`a` maakt een controleerbare AI-stockprompt; bij terugkeer met een nieuwe
+Inbox-download opent het tagscherm automatisch. `i` heropent het na wegklikken;
 `q` annuleert. Op macOS openen tabs op de achtergrond. De foto's worden niet
 gedownload; alleen de browser kan cachen. Het oude archiefbijschrift wordt niet
 overgenomen: `b:` is optioneel. Controleer na kiezen altijd de verplichte `c:` in
 het artikel en verzend met een volgende `<leader>aw`. De bronfoto blijft gelijk.
+Vanuit een krantversiebuffer gebruikt de fotokeuze altijd het hoofddocument:
+de foto geldt voor alle edities en vervuilt nooit de kranttekst met YAML of
+een extra artikelgrens. Dit geldt ook voor de AI-stockroute.
 Werkt met de bijgewerkte Texttools-core (`pubble_photo_cli`).
 Gecombineerde onderwerp-/plaatstermen hebben in de rangschikking voorrang als ze
 in het bronartikel voorkomen; daarna tellen fototrefwoorden, bijschrift en kop.
@@ -279,8 +283,13 @@ haalt, verplaatst de nabewerking zowel `Foto:` als `Bijschrift:` automatisch
 naar dit beschermde blok boven `=== ARTIKEL ===`; ze blijven nooit in de
 artikelbody staan.
 
-AI-stockfoto: zet de ChatGPT-download(s) in Pubble Inbox en kies `i` in de
-fotokiezer (of de browserimportknop). Je vult alleen tags in (minimaal één,
+AI-stockfoto: zet de ChatGPT-download(s) in Pubble Inbox en keer terug naar
+Neovim. Binnen de nog actieve AI-fotoroute opent het tagscherm automatisch voor
+nieuw binnengekomen beelden, niet voor reeds aanwezige foto's. Geen download?
+Dan geen leeg scherm; er wordt pas bij de volgende terugkeer opnieuw gekeken.
+Na wegklikken blijft het dicht: `i` in de fotokiezer (of de browserimportknop)
+opent het opnieuw. Zonder AI-route blijft `i` een handmatige importactie.
+Je vult alleen tags in (minimaal één,
 zonder vast maximumaantal; dubbele tags worden verwijderd);
 bestanden worden ter controle getoond, uniek hernoemd en allemaal met dezelfde
 tags voorbereid voor algemene beeldbank 24. Een fout houdt de tags vast en

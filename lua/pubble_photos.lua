@@ -35,18 +35,33 @@ local function current(s)
     and vim.b[s.source].publication_in_progress ~= true
 end
 
+local function stop_ai_resume(s)
+  s.ai_waiting = false
+  if s.ai_resume_autocmd then
+    pcall(vim.api.nvim_del_autocmd, s.ai_resume_autocmd)
+    s.ai_resume_autocmd = nil
+  end
+end
+
+local function photo_context(s)
+  local buf = vim.api.nvim_get_current_buf()
+  return buf == s.source or buf == s.buffer
+end
+
 local function run(s, args, input, done, on_error)
   if s.busy then return end
   s.busy = true
   local cmd = { commands.bin('python'), '-m', 'texttools.pubble_photo_cli' }
   vim.list_extend(cmd, args)
   local action = args[1]
-  local trace = (action == 'ai-import' or action == 'search') and workflow_log.start(s.source,
-    action == 'search' and 'Foto · Zoeken' or 'Foto · AI-stock importeren', {
+  local labels = { search = 'Foto · Zoeken', ['ai-prompt'] = 'Foto · AI-prompt',
+    ['ai-inbox-baseline'] = 'Foto · AI-Inbox beginsituatie', ['ai-inbox'] = 'Foto · AI-Inbox controleren',
+    ['ai-import'] = 'Foto · AI-stock importeren' }
+  local trace = labels[action] and workflow_log.start(s.source, labels[action], {
     command = 'pubble-photo ' .. action,
   }) or nil
   local options = { text = true, stdin = input }
-  if action == 'ai-inbox' or action == 'ai-import' or action == 'ai-import-finalize' then options.timeout = 60000 end
+  if action == 'ai-inbox' or action == 'ai-inbox-baseline' or action == 'ai-import' or action == 'ai-import-finalize' then options.timeout = 60000 end
   if trace then options = workflow_log.with_environment(options, trace) end
   local function finish(outcome, detail)
     if trace then workflow_log.finish(trace, outcome, detail); trace = nil end
@@ -64,6 +79,7 @@ local function run(s, args, input, done, on_error)
         return
       end
       if not current(s) then
+        stop_ai_resume(s)
         finish('stale', { reason = 'buffer_changed' })
         notify('Artikel is intussen gewijzigd. Open de fotokeuze opnieuw; niets overschreven.', vim.log.levels.WARN)
         return
@@ -102,6 +118,7 @@ end
 
 local function dispose(s)
   s.closed = true
+  stop_ai_resume(s)
   stop_browser(s)
   if sessions[s.source] == s then sessions[s.source] = nil end
   if s.input_win and vim.api.nvim_win_is_valid(s.input_win) then
@@ -238,7 +255,7 @@ local function open_browser_choice(s)
 end
 
 ai_prompt = function(s)
-  if s.busy or not current(s) then return end
+  if s.busy or s.stock_form_open or not current(s) then return end
   run(s, { 'ai-prompt' }, text(s.source), function(data)
     if type(data.prompt) ~= 'string' or type(data.chatgpt_url) ~= 'string' then return end
     dialog.input({
@@ -247,34 +264,71 @@ ai_prompt = function(s)
       vim_edit = true,
     }, function(prompt)
       if not prompt or vim.trim(prompt) == '' or not current(s) then return end
-      local copied = copy_to_clipboard(prompt)
-      if browser.open_urls({ data.chatgpt_url }) then
-        notify(copied
-          and 'Beeldprompt gekopieerd. Plak hem in ChatGPT; zet de download in Pubble Inbox en importeer met i.'
-          or 'ChatGPT is geopend, maar het systeemklembord werkte niet. De prompt staat wel in het gewone Vim-register.',
-          copied and vim.log.levels.INFO or vim.log.levels.WARN, { ttl = 12 })
-      else
-        notify('Prompt staat op het klembord, maar ChatGPT kon niet worden geopend.', vim.log.levels.WARN)
-      end
+      -- Record existing files before the browser opens. Python owns file
+      -- selection/identity, including moves by the local Inbox watcher.
+      stop_ai_resume(s)
+      run(s, { 'ai-inbox-baseline' }, vim.json.encode({ markdown = text(s.source),
+        article_path = vim.api.nvim_buf_get_name(s.source) }), function(baseline)
+        if type(baseline.baseline) ~= 'table' then
+          notify('AI-Inbox kon niet worden voorbereid. Open de fotokeuze opnieuw.', vim.log.levels.ERROR)
+          return
+        end
+        s.ai_baseline = baseline.baseline
+        s.ai_waiting = true
+        s.ai_resume_autocmd = vim.api.nvim_create_autocmd({ 'FocusGained', 'BufEnter' }, {
+          desc = 'AI-fototags aanbieden bij terugkeer naar het artikel',
+          callback = function()
+            vim.schedule(function()
+              if s.ai_waiting and not s.busy and not s.stock_form_open and photo_context(s) then
+                ai_import(s, true)
+              end
+            end)
+          end,
+        })
+        local copied = copy_to_clipboard(prompt)
+        if browser.open_urls({ data.chatgpt_url }) then
+          notify(copied
+            and 'Beeldprompt gekopieerd. Zet de AI-download in Pubble Inbox; bij terugkeer opent het tagscherm. Weggeklikt? Druk i in de fotokeuze.'
+            or 'ChatGPT is geopend, maar het systeemklembord werkte niet. De prompt staat wel in het gewone Vim-register.',
+            copied and vim.log.levels.INFO or vim.log.levels.WARN, { ttl = 15 })
+        else
+          stop_ai_resume(s)
+          notify('Prompt staat op het klembord, maar ChatGPT kon niet worden geopend. Importeer later met i.', vim.log.levels.WARN)
+        end
+      end)
     end)
   end)
 end
 
-ai_import = function(s)
-  if s.busy or not current(s) then return end
+ai_import = function(s, automatic)
+  if s.busy or s.stock_form_open then return end
+  if not current(s) then
+    stop_ai_resume(s)
+    notify('Artikel is intussen gewijzigd. Open de fotokeuze opnieuw; niets overschreven.', vim.log.levels.WARN)
+    return
+  end
+  if not automatic then stop_ai_resume(s) end
   local article_path = vim.api.nvim_buf_get_name(s.source)
   if article_path == '' then
     notify('Sla het artikel eerst op voordat je een AI-stockfoto importeert.', vim.log.levels.WARN)
     return
   end
   local function import_error(message)
+    stop_ai_resume(s)
     if not current(s) then return end
     dialog.select({ 'Opnieuw proberen', 'Terug naar fotokeuze' }, {
       prompt = 'AI-stockimport niet gelukt:\n' .. message .. '\nJe ingevoerde tags blijven bewaard.', native = true,
     }, function(choice) if choice == 'Opnieuw proberen' then ai_import(s) end end)
   end
-  run(s, { 'ai-inbox' }, vim.json.encode({ markdown = text(s.source), article_path = article_path }), function(snapshot)
-    if type(snapshot.files) ~= 'table' or #snapshot.files == 0 then import_error("Inbox gaf geen bruikbare foto's terug."); return end
+  run(s, { 'ai-inbox' }, vim.json.encode({ markdown = text(s.source), article_path = article_path,
+    new_since = s.ai_baseline, allow_empty = automatic == true }), function(snapshot)
+    if automatic and not photo_context(s) then return end
+    if type(snapshot.files) ~= 'table' then import_error("Inbox gaf geen bruikbare fotolijst terug."); return end
+    if #snapshot.files == 0 then
+      if not automatic then import_error("Inbox gaf geen bruikbare foto's terug.") end
+      return -- Keep waiting for the next focus return; no polling or empty popup.
+    end
+    stop_ai_resume(s)
     local names = {}
     for index, file in ipairs(snapshot.files) do names[#names + 1] = index .. '. ' .. one_line(file.name) end
     local prompt = 'AI-stockimport · ' .. #snapshot.files .. ' Inbox-foto(' .. (#snapshot.files == 1 and '' or "'s") .. ')\n'
@@ -283,9 +337,11 @@ ai_import = function(s)
     if type(snapshot.duplicate_count) == 'number' and snapshot.duplicate_count > 0 then
       prompt = prompt .. '\n' .. snapshot.duplicate_count .. ' identieke kopie(ën) worden één keer geïmporteerd en herstelbaar weggezet.'
     end
+    s.stock_form_open = true
     dialog.input({ prompt = 'AI-stockfoto · alleen archieftags', description = prompt,
       footer = ' Esc: Normal | Enter: importeren | Ctrl-C: annuleren ',
       default = s.stock_tags or '', vim_edit = true }, function(value)
+      s.stock_form_open = false
       if value == nil or not current(s) then return end
       s.stock_tags = value
       run(s, { 'ai-import' }, vim.json.encode({ markdown = text(s.source), article_path = article_path,
@@ -378,7 +434,7 @@ render = function(s, data)
     map('p', function() open_browser_choice(s) end, 'Alle voorbeelden in browser bekijken en kiezen')
     map('s', function() ask_query(s) end, 'Andere zoekwoorden')
     map('a', function() ai_prompt(s) end, 'Nieuwe AI-stockfoto maken via ChatGPT')
-    map('i', function() ai_import(s) end, 'Gegenereerde AI-stockfoto importeren')
+    map('i', function() ai_import(s) end, 'AI-fototags (opnieuw) openen en importeren')
     map('b', function()
       if s.busy or not current(s) or not s.data or not s.data.fields then return end
       local next_source = ({
@@ -400,7 +456,7 @@ render = function(s, data)
   local has_more = type(s.next_offset) == 'number'
   local source = data.source == 'images' and 'Beeldbank' or data.source == 'both' and 'Beide' or "Artikelfoto's"
   local route = type(data.query_count) == 'number' and (' · ' .. data.query_count .. ' zoekcombinaties') or ''
-  local controls = 'p: foto-overzicht | b: bron | s: zoeken | a: AI-stock | i: import | Enter: kies | q: terug'
+  local controls = 'p: foto-overzicht | b: bron | s: zoeken | a: AI-stock | i: tags/import | Enter: kies | q: terug'
   if has_more then controls = controls .. ' | ]p: meer laden' end
   local lines = { 'Pubble-foto’s · ' .. source .. ' · ' .. #s.photos .. ' gevonden' .. route,
     controls,
@@ -454,6 +510,18 @@ function M.open(buf)
   if not vim.api.nvim_buf_is_valid(buf) then return end
   buf = vim.b[buf].pubble_photo_source or buf
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  -- A review buffer owns only edition text, never article-level media/YAML.
+  -- Resolve the same durable source used by the edition review client before
+  -- starting any search, ordinary selection or AI-stock import.
+  local edition_source = vim.b[buf].edition_source_buf
+  if edition_source ~= nil then
+    if type(edition_source) ~= 'number' or not vim.api.nvim_buf_is_valid(edition_source) then
+      notify('Het hoofddocument van deze krantversie is niet meer open. Open dat document voor de fotokeuze.', vim.log.levels.WARN)
+      return
+    end
+    buf = edition_source
+    notify('De fotokeuze geldt voor het hoofddocument en alle krantversies.', vim.log.levels.INFO)
+  end
   if not vim.bo[buf].modifiable or vim.bo[buf].readonly then
     notify('Open een bewerkbaar artikel om een foto te kiezen.', vim.log.levels.WARN)
     return

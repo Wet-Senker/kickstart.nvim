@@ -40,7 +40,15 @@ local path = vim.fn.tempname() .. '.md'
 vim.fn.writefile({ '=== ARTIKEL ===', '', 'Kop', '', 'Tekst.' }, path)
 vim.cmd('edit ' .. vim.fn.fnameescape(path))
 local source = vim.api.nvim_get_current_buf()
-photos.open(source)
+local review = vim.api.nvim_create_buf(true, false)
+vim.bo[review].buftype = 'acwrite'
+vim.bo[review].bufhidden = 'hide'
+vim.b[review].edition_source_buf = source
+vim.b[review].edition_code = 'SW'
+vim.api.nvim_buf_set_lines(review, 0, -1, false, { 'Krantkop', '', 'Goedgekeurde kranttekst.' })
+vim.api.nvim_set_current_buf(review)
+photos.open(review)
+assert(requests[#requests].opts.stdin:find('=== ARTIKEL ===', 1, true), 'AI-stock moet hoofddocument gebruiken')
 reply({ editor_text = 'Bron: Beide\nOnderwerp: plant\nPlaats: Kampen' })
 reply({
   photos = {}, candidates = {}, source = 'both', next_offset = vim.NIL,
@@ -52,6 +60,8 @@ key('a')
 assert(requests[#requests].cmd[4] == 'ai-prompt')
 assert(requests[#requests].opts.stdin:find('Kop', 1, true))
 reply({ prompt = 'VEILIGE STOCKPROMPT', chatgpt_url = 'https://chatgpt.com/' })
+assert(requests[#requests].cmd[4] == 'ai-inbox-baseline')
+reply({ baseline = {} })
 assert(vim.fn.getreg('"') == 'VEILIGE STOCKPROMPT')
 assert(opened[#opened] == 'https://chatgpt.com/')
 
@@ -71,6 +81,7 @@ reply({
   keywords = { 'plant', 'aarde', 'natuur' }, stock_location_id = 24, image_count = 2, batch_id = 'batch',
 })
 assert(vim.api.nvim_get_current_buf() == source)
+assert(vim.api.nvim_buf_get_lines(review, 0, 1, false)[1] == 'Krantkop', 'AI-stock vervuilt krantversie')
 local result = table.concat(vim.api.nvim_buf_get_lines(source, 0, -1, false), '\n')
 assert(result:find('library_location_id: 24', 1, true))
 assert(result:find('AI%-gegenereerd beeld'))
