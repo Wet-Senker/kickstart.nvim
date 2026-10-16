@@ -76,15 +76,22 @@ assert(vim.fn.resolve(vim.fn.fnamemodify(payload.article_path, ':p'))
 assert(payload.tags == 'plant, aarde, natuur' and #payload.files == 2)
 assert(not tag_prompts[1].default:find('Bestand:', 1, true), 'geen padformulier meer')
 assert(tag_prompts[1].description:find('plant2.png', 1, true))
-reply({
+local imported = {
   markdown = '---\nmedia:\n  stock_image:\n    filename: ai-stock.png\n    library_location_id: 24\n---\n\nb: Illustratief beeld\nc: AI-gegenereerd beeld (OpenAI)\n\n=== ARTIKEL ===\n\nKop\n\nTekst.\n',
   keywords = { 'plant', 'aarde', 'natuur' }, stock_location_id = 24, image_count = 2, batch_id = 'batch',
-})
+}
+local extra = { '', '## Facebook', '', 'Nieuwere socialtekst.' }
+vim.api.nvim_buf_set_lines(source, -1, -1, false, extra)
+reply(imported)
+assert(requests[#requests].cmd[4] == 'merge', 'AI-stock moet veilig met nieuwste tekst worden samengevoegd')
+assert(vim.json.decode(requests[#requests].opts.stdin).markdown:find('Nieuwere socialtekst.', 1, true))
+reply({ markdown = imported.markdown .. table.concat(extra, '\n') .. '\n' })
 assert(vim.api.nvim_get_current_buf() == source)
 assert(vim.api.nvim_buf_get_lines(review, 0, 1, false)[1] == 'Krantkop', 'AI-stock vervuilt krantversie')
 local result = table.concat(vim.api.nvim_buf_get_lines(source, 0, -1, false), '\n')
 assert(result:find('library_location_id: 24', 1, true))
 assert(result:find('AI%-gegenereerd beeld'))
+assert(result:find('Nieuwere socialtekst.', 1, true))
 assert(vim.fn.join(vim.fn.readfile(path), '\n'):find('library_location_id: 24', 1, true),
   'stockmetadata staat niet duurzaam in het werkartikel')
 assert(diagnostics[#diagnostics].detail.status == 'saved')

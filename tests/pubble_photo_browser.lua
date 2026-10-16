@@ -102,12 +102,13 @@ assert(vim.json.decode(selection.opts.stdin).photo.image_metadata_id == 732)
 reply(selection, { markdown = 'b: Nieuwe foto\nc: F\n\n=== ARTIKEL ===\n\nKop\n' })
 assert(vim.api.nvim_get_current_buf() == source)
 
--- A changed article rejects browser events and preserves the new text.
+-- A changed article keeps browser choice alive and selects against the latest text.
 source, browse = start()
 count = #requests
 vim.api.nvim_buf_set_lines(source, -1, -1, false, { 'Nieuw' })
 event(browse, { event = 'selected', image_metadata_id = 731 })
-assert(#requests == count and browse.killed)
+assert(#requests == count + 1 and browse.killed)
+assert(vim.json.decode(requests[#requests].opts.stdin).markdown:find('Nieuw', 1, true))
 assert(vim.api.nvim_buf_get_lines(source, -2, -1, false)[1] == 'Nieuw')
 key('q')
 

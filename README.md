@@ -14,10 +14,12 @@ daarna de terminal en Neovim. De twee doublure-testbranches blijven beschikbaar.
 ## Workflow
 
 Bestaande foto uit Pubble nodig? Gebruik `<leader>pf` / `:PubbleFoto`, of
-**Foto zoeken** bij de fotocontrole van `<leader>aw`. Bron, Onderwerp en Plaats
+**Foto zoeken** bij de fotocontrole van `<leader>aw`. Bron en Zoekwoorden
 staan in een tijdelijke Vim-buffer. Kies bij Bron tussen
-`Artikelfoto's` (standaard), `Beeldbank` of `Beide`. Onderwerp ondersteunt maximaal
-drie komma-gescheiden alternatieven; Plaats mag leeg voor algemene foto's.
+`Artikelfoto's`, `Beeldbank` of `Beide` (standaard). Zoekwoorden ondersteunt maximaal
+vier komma-gescheiden begrippen. Een plaats wordt niet automatisch toegevoegd;
+typ die desgewenst zelf erbij, bijvoorbeeld `Zoekwoorden: biljart, Kampen`.
+Oude Onderwerp/Plaats-invoer blijft leesbaar, zonder een aparte plaatsbonus.
 Escape gaat naar Normal-modus, gewone
 bewerkingen/undo/plakken werken, Enter zoekt en Ctrl-C annuleert. De artikelbuffer
 en cursorpositie blijven behouden. De resultatenlijst heeft één regel per foto
@@ -34,8 +36,14 @@ het artikel en verzend met een volgende `<leader>aw`. De bronfoto blijft gelijk.
 Vanuit een krantversiebuffer gebruikt de fotokeuze altijd het hoofddocument:
 de foto geldt voor alle edities en vervuilt nooit de kranttekst met YAML of
 een extra artikelgrens. Dit geldt ook voor de AI-stockroute.
+Fotozoeken blijft beschikbaar tijdens rewrite, Facebook en kalender. De
+handmatige fotozoekvraag krijgt voorrang op native invoervensters met behoud
+van hun drafts; een al actieve fotozoeker wordt hergebruikt. Bij overlappende
+tekstwijzigingen bewaart de Python-actie `merge` de nieuwste tekst en voegt
+alleen media toe (maximaal twee lokale herpogingen, geen extra AI/API).
+Gelijktijdig gewijzigde media/credit en daadwerkelijke verzending blokkeren wel.
 Werkt met de bijgewerkte Texttools-core (`pubble_photo_cli`).
-Gecombineerde onderwerp-/plaatstermen hebben in de rangschikking voorrang als ze
+Gecombineerde zoektermen hebben in de rangschikking voorrang als ze
 in het bronartikel voorkomen; daarna tellen fototrefwoorden, bijschrift en kop.
 Er is geen beeldherkenning/AI en geen automatische 112-uitsluiting. De losse
 beeldbank werkt ook zonder bronartikel. Ontbreekt een veilige thumbnail, dan
@@ -48,12 +56,12 @@ resultaten intact. Geen automatische scan bij alleen dubbele resultaten en
 geen extra API-/AI-calls voor ontdubbelen. Wel groeit de tijdelijke metadata
 en lokale sortering zolang je meer pagina's ophaalt. Sluiten ruimt dit op.
 Sinds 7 oktober stelt de fotozoeker maximaal twee onderwerpen plus bekende
-woordvarianten voor (maximaal drie onderwerpwoorden). Onderwerp en plaats worden
+woordvarianten voor (maximaal drie voorgestelde zoekwoorden). Alle zelf gekozen begrippen worden
 los én in alle betekenisvolle combinaties gezocht, zonder categorie-/locatiefilter.
-`hond` met `Zwolle` zoekt dus `hond`, `Zwolle` en `hond Zwolle`. Specifiekere
+`Zoekwoorden: hond, Zwolle` zoekt dus `hond`, `Zwolle` en `hond Zwolle`. Specifiekere
 matches komen eerst, dan bevestigde fototrefwoorden/bijschrift/kop;
 enkelvoud/meervoud telt niet dubbel. `Gevonden via` toont de zoekherkomst.
-`sport, landstede` met `Zwolle` levert zeven routes op: alle drie samen, drie
+`Zoekwoorden: sport, landstede, Zwolle` levert zeven routes op: alle drie samen, drie
 paren en drie losse termen. De eerste pagina verdeelt maximaal 36 bronrecords
 over die routes; honderden Pubble-treffers worden met `]p` vervolgd. De toets en
 melding voor meer bronresultaten staan alleen in beeld als Pubble een volgende
@@ -117,7 +125,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 |---|---|
 | `<leader>z` | Rustige Zen-weergave met een bredere tekstkolom, zonder regelnummers, tekens in de marge of zichtbare witruimte. Markdown loopt alleen visueel om bij woordgrenzen; het bestand krijgt geen extra regeleinden. |
 | `<leader>ar` | Journalistiek herschrijven en krantgericht maken met AI. De bestaande prompt behoudt een al goede body en redigeert een ruwe bron; geen extra redactie-keuze. Bij meerdere bestemmingen volgt bij onderscheidende gebiedssignalen Gerichte varianten / Eén algemene versie met advies. Iedere unieke tekst komt direct uit het origineel; kranten met dezelfde tekst delen een reviewbuffer. Geen tussenrewrite of automatische streamer. Bevestigde 112-/agendacontext geeft natuurlijke zoekintentie in dezelfde call. Bestemmingen, bron en redactionele staart blijven beschermd. |
-| `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. Tijdens een doublurecontrole wordt deze actie eenmaal uitgesteld en alleen na doorgaan hervat. Een herkend maar onvolledig item toont `<!-- Ontbreekt: … -->` inclusief invoerformaat, bijvoorbeeld `Tijd: HH:MM`. |
+| `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. Tijdens een doublurecontrole wordt deze actie eenmaal uitgesteld en alleen na doorgaan hervat. Een herkend maar onvolledig item zet ontbrekende velden klaar als bijvoorbeeld `Datum:` en `Tijd:`, met apart `<!-- Ontbreekt: … -->` inclusief formaat (`Datum: YYYY-MM-DD`, `Tijd: HH:MM`). |
 | `<leader>kA` | Plaats vanuit een gewone artikelbuffer uitsluitend het gecontroleerde `## Kalender`-item. Krant, websiteartikel, social en Teams worden niet verstuurd. De actie controleert eerst op doublures en schrijft ontvangen agenda-ID's direct terug, zodat opnieuw drukken geen dubbel item maakt. In een voorstel uit een bestaand websiteartikel blijft dezelfde leader dat item aan het bronartikel koppelen. |
 | *onderdeel van `<leader>ar`* | **Plaatsencontrole.** Wijzen plaatsen in de tekst naar kranten die nog niet gekozen zijn, dan volgt eenmalig de vraag of die mee moeten. Die vraag komt alleen wanneer de controle bij import niet heeft plaatsgevonden — een zelf getypte of geplakte buffer komt niet langs de importroute — of wanneer de tekst sindsdien naar andere kranten is gaan wijzen. Een provincie is context en levert geen voorstel op. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |

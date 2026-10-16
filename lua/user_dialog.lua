@@ -5,6 +5,13 @@ local queue, active = {}, false
 local suspend_active
 local manual_select_provider
 
+local function source_buffer(opts)
+  local buf = opts.source_buf or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(buf) then return nil end
+  return vim.b[buf].user_dialog_source or vim.b[buf].pubble_photo_source
+    or vim.b[buf].edition_source_buf or buf
+end
+
 local function next_dialog()
   if active or #queue == 0 then return end
   active = true
@@ -26,6 +33,7 @@ local function next_dialog()
   vim.cmd('stopinsert')
   local return_win = vim.api.nvim_get_current_win()
   local buf = vim.api.nvim_create_buf(false, true)
+  vim.b[buf].user_dialog_source = request.source_buf
   local vim_edit = opts.input and opts.vim_edit == true
   local width = math.max(1, math.min(90, vim.o.columns - 4))
   local lines = vim.split(opts.prompt or 'Maak een keuze', '\n', { plain = true })
@@ -186,6 +194,7 @@ function M.select(items, opts, done)
     items = items,
     opts = opts,
     done = done,
+    source_buf = source_buffer(opts),
     provider = not opts.required and not opts.native and manual_select_provider or nil,
   })
   vim.schedule(next_dialog)
@@ -225,7 +234,15 @@ end
 
 function M.input(opts, done)
   opts = vim.tbl_extend('force', opts or {}, { input = true })
-  table.insert(queue, { items = {}, opts = opts, done = done })
+  local request = { items = {}, opts = opts, done = done, source_buf = source_buffer(opts) }
+  if opts.priority then
+    -- Explicit manual work may pause an overlay, never answer or discard it.
+    -- An optional external picker without a suspension hook finishes normally.
+    if active and suspend_active then suspend_active() end
+    table.insert(queue, 1, request)
+  else
+    table.insert(queue, request)
+  end
   vim.schedule(next_dialog)
 end
 

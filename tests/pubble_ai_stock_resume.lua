@@ -114,18 +114,22 @@ key(picker, 'q')
 reply({ version = 1, files = files })
 assert(#tags == before, 'late callback na sluiten opent geen tags')
 
--- Changes during preparation must not prompt/import stale content.
+-- Read-only Inbox preparation survives text changes, without changing text.
 picker = open()
 launch(picker)
 focus()
 local latest = { '=== ARTIKEL ===', '', 'Nieuwere kop', '', 'Eigen wijziging.' }
 vim.api.nvim_buf_set_lines(source, 0, -1, false, latest)
 reply({ version = 1, files = files })
-assert(#tags == before and vim.deep_equal(vim.api.nvim_buf_get_lines(source, 0, -1, false), latest))
+assert(#tags == before + 1 and vim.deep_equal(vim.api.nvim_buf_get_lines(source, 0, -1, false), latest))
+tags[#tags].done(nil)
 count = #requests
 key(picker, 'i')
-assert(#requests == count, 'i mag gewijzigde artikelstate niet hergebruiken')
-assert(notices[#notices]:find('Open de fotokeuze opnieuw', 1, true), 'geen stille weigering bij gewijzigde tekst')
+assert(#requests == count + 1, 'i moet de nieuwste artikeltekst gebruiken')
+assert(vim.json.decode(requests[#requests].opts.stdin).markdown:find('Nieuwere kop', 1, true))
+reply({ version = 1, files = files })
+tags[#tags].done(nil)
+count = #requests
 key(picker, 'q')
 focus()
 assert(#requests == count)

@@ -31,7 +31,8 @@ end
 local function current(s)
   return sessions[s.source] == s and not s.closed
     and vim.api.nvim_buf_is_valid(s.source)
-    and vim.api.nvim_buf_get_changedtick(s.source) == s.tick
+    and vim.api.nvim_buf_is_loaded(s.source)
+    and vim.bo[s.source].modifiable and not vim.bo[s.source].readonly
     and vim.b[s.source].publication_in_progress ~= true
 end
 
@@ -48,15 +49,17 @@ local function photo_context(s)
   return buf == s.source or buf == s.buffer
 end
 
-local function run(s, args, input, done, on_error)
+local function run(s, args, input, done, on_error, merges_left)
   if s.busy then return end
   s.busy = true
   local cmd = { commands.bin('python'), '-m', 'texttools.pubble_photo_cli' }
   vim.list_extend(cmd, args)
   local action = args[1]
+  local request_tick = vim.api.nvim_buf_get_changedtick(s.source)
+  local mutates = action == 'select' or action == 'ai-import' or action == 'merge'
   local labels = { search = 'Foto · Zoeken', ['ai-prompt'] = 'Foto · AI-prompt',
     ['ai-inbox-baseline'] = 'Foto · AI-Inbox beginsituatie', ['ai-inbox'] = 'Foto · AI-Inbox controleren',
-    ['ai-import'] = 'Foto · AI-stock importeren' }
+    ['ai-import'] = 'Foto · AI-stock importeren', ['merge'] = 'Foto · Nieuwste tekst behouden' }
   local trace = labels[action] and workflow_log.start(s.source, labels[action], {
     command = 'pubble-photo ' .. action,
   }) or nil
@@ -81,7 +84,7 @@ local function run(s, args, input, done, on_error)
       if not current(s) then
         stop_ai_resume(s)
         finish('stale', { reason = 'buffer_changed' })
-        notify('Artikel is intussen gewijzigd. Open de fotokeuze opnieuw; niets overschreven.', vim.log.levels.WARN)
+        notify('Fotoactie gestopt: verzending gestart of artikel niet meer bewerkbaar. Er is niets overschreven.', vim.log.levels.WARN)
         return
       end
       local decoded, data = pcall(vim.json.decode, result.stdout or '')
@@ -93,10 +96,34 @@ local function run(s, args, input, done, on_error)
           or 'Fotokeuze mislukt; artikel is niet gewijzigd.')
         return
       end
-      done(data)
-      finish('succeeded', { location_id = data.stock_location_id,
+      local detail = { location_id = data.stock_location_id,
         candidate_count = type(data.photos) == 'table' and #data.photos or nil,
-        keyword_count = type(data.keywords) == 'table' and #data.keywords or nil })
+        keyword_count = type(data.keywords) == 'table' and #data.keywords or nil }
+      if mutates and vim.api.nvim_buf_get_changedtick(s.source) ~= request_tick then
+        local remaining = merges_left == nil and 2 or merges_left
+        if remaining == 0 then
+          finish('stale', { reason = 'continuous_buffer_changes' })
+          failed('Het artikel blijft veranderen. De foto is nog niet gekoppeld; kies haar opnieuw als de bewerking klaar is.')
+          return
+        end
+        local valid, payload = pcall(vim.json.decode, input or '')
+        if not valid or type(payload.markdown) ~= 'string' or type(data.markdown) ~= 'string' then
+          finish('failed', { reason = 'invalid_merge_input' })
+          failed('Fotoresultaat kan niet veilig worden samengevoegd; niets overschreven.')
+          return
+        end
+        finish('succeeded', detail)
+        -- Rebase only media through the shared Python action. Never rerun an
+        -- Inbox import (copy/create), and never replace newer article content.
+        run(s, { 'merge' }, vim.json.encode({ markdown = text(s.source),
+          original_markdown = payload.markdown, prepared_markdown = data.markdown }), function(merged)
+          data.markdown = merged.markdown
+          done(data)
+        end, on_error, remaining - 1)
+        return
+      end
+      done(data)
+      finish('succeeded', detail)
     end)
   end)
   if not ok then
@@ -194,7 +221,7 @@ local function open_browser_choice(s)
     if s.browser_choice ~= session or s.closed then return end
     if not current(s) then
       stop_browser(s)
-      notify('Artikel is gewijzigd; browserkeuze vervallen. Open de fotokeuze opnieuw.', vim.log.levels.WARN)
+      notify('Browserkeuze gestopt: verzending gestart of artikel niet meer bewerkbaar.', vim.log.levels.WARN)
       return
     end
     if data.version ~= 1 then return end
@@ -206,7 +233,7 @@ local function open_browser_choice(s)
       for _, photo in ipairs(s.photos) do
         if photo.image_metadata_id == data.image_metadata_id then
           -- The explicit browser button is the confirmation. The shared select
-          -- action and source changedtick guard still apply; never auto-send.
+          -- action and media-only merge guard still apply; never auto-send.
           choose(s, photo, true)
           return
         end
@@ -304,7 +331,7 @@ ai_import = function(s, automatic)
   if s.busy or s.stock_form_open then return end
   if not current(s) then
     stop_ai_resume(s)
-    notify('Artikel is intussen gewijzigd. Open de fotokeuze opnieuw; niets overschreven.', vim.log.levels.WARN)
+    notify('Fotoactie gestopt: verzending gestart of artikel niet meer bewerkbaar. Er is niets overschreven.', vim.log.levels.WARN)
     return
   end
   if not automatic then stop_ai_resume(s) end
@@ -384,17 +411,20 @@ local search
 local function ask_query(s, initial)
   if s.busy or not current(s) then return end
   stop_browser(s)
-  dialog.input({ prompt = s.search_help or (s.structured and 'Foto: zoekwoorden en plaats, los én gecombineerd' or 'Pubble-foto’s zoeken'),
+  s.query_pending = true
+  dialog.input({ prompt = s.search_help or (s.structured and 'Foto: Zoekwoorden met komma’s, bijvoorbeeld biljart, Kampen; los én gecombineerd gezocht' or 'Pubble-foto’s zoeken'),
     default = initial or s.editor_text or s.query or '', vim_edit = true,
+    priority = true, source_buf = s.source,
     on_open = function(buf, win)
       s.input_win = win
       vim.b[buf].pubble_photo_source = s.source
     end,
   }, function(query)
+    s.query_pending = false
     s.input_win = nil
     if not current(s) then
       if not s.closed then
-        notify('Artikel is intussen gewijzigd. Open de fotokeuze opnieuw; niets overschreven.', vim.log.levels.WARN)
+        notify('Fotoactie gestopt: verzending gestart of artikel niet meer bewerkbaar. Er is niets overschreven.', vim.log.levels.WARN)
       end
       return
     end
@@ -508,7 +538,7 @@ end
 function M.open(buf)
   buf = buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
-  buf = vim.b[buf].pubble_photo_source or buf
+  buf = vim.b[buf].pubble_photo_source or vim.b[buf].user_dialog_source or buf
   if not vim.api.nvim_buf_is_valid(buf) then return end
   -- A review buffer owns only edition text, never article-level media/YAML.
   -- Resolve the same durable source used by the edition review client before
@@ -535,9 +565,20 @@ function M.open(buf)
     vim.api.nvim_set_current_win(existing.input_win)
     return
   end
+  if existing and current(existing) then
+    if existing.busy or existing.query_pending or existing.stock_form_open then
+      notify('De fotokeuze is al actief.', vim.log.levels.INFO)
+      return
+    end
+    if existing.buffer and vim.api.nvim_buf_is_valid(existing.buffer) then
+      local win = vim.fn.bufwinid(existing.buffer)
+      if win ~= -1 then vim.api.nvim_set_current_win(win) end
+      return
+    end
+  end
   if existing then close(existing) end
   local source_win = vim.api.nvim_get_current_buf() == buf and vim.api.nvim_get_current_win() or vim.fn.bufwinid(buf)
-  local s = { source = buf, source_win = source_win, tick = vim.api.nvim_buf_get_changedtick(buf), hidden = {}, expanded = {} }
+  local s = { source = buf, source_win = source_win, hidden = {}, expanded = {} }
   sessions[buf] = s
   run(s, { 'suggest' }, text(buf), function(data)
     s.structured = type(data.editor_text) == 'string'

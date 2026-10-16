@@ -34,20 +34,17 @@ local function mapping(buf, key)
   error('mapping ontbreekt: ' .. key)
 end
 
--- Changing the source while suggesting a query must not start a stale search.
+-- Background text changes do not invalidate a read-only query/search.
 local a = article()
 photos.open(a)
 assert(requests[1].cmd[4] == 'suggest')
 vim.api.nvim_buf_set_lines(a, -1, -1, false, { 'Eigen wijziging.' })
 reply(1, { query = 'Bovenkerk' })
-assert(#requests == 1)
+assert(#requests == 2 and requests[2].cmd[4] == 'search')
 assert(table.concat(vim.api.nvim_buf_get_lines(a, 0, -1, false)):find('Eigen wijziging', 1, true))
 
 -- Search, preview and select use only the shared JSON actions. No auto-send.
-photos.open(a)
-reply(2, { query = 'Bovenkerk' })
-assert(requests[3].cmd[4] == 'search')
-reply(3, data)
+reply(2, data)
 local picker = vim.api.nvim_get_current_buf()
 assert(picker ~= a)
 local display = table.concat(vim.api.nvim_buf_get_lines(picker, 0, -1, false), '\n')
@@ -59,13 +56,15 @@ end
 vim.api.nvim_win_set_cursor(0, { 5, 0 })
 assert(vim.fn.maparg('o', 'n') == '')
 mapping(picker, '<CR>')()
-assert(requests[4].cmd[4] == 'select')
-local payload = vim.json.decode(requests[4].opts.stdin)
+assert(requests[3].cmd[4] == 'select')
+local payload = vim.json.decode(requests[3].opts.stdin)
 assert(payload.photo.image_metadata_id == 731)
 -- A late apply callback never overwrites newer edits either.
 vim.api.nvim_buf_set_lines(a, -1, -1, false, { 'Nog een wijziging.' })
-reply(4, { markdown = 'VEROUDERD' })
+reply(3, { markdown = 'c: Fotograaf\n' .. payload.markdown })
 assert(vim.api.nvim_buf_get_lines(a, -2, -1, false)[1] == 'Nog een wijziging.')
+assert(requests[4].cmd[4] == 'merge')
+reply(4, { markdown = 'c: Fotograaf\n' .. table.concat(vim.api.nvim_buf_get_lines(a, 0, -1, false), '\n') .. '\n' })
 
 -- Closing a picker cancels its late callbacks without changing the article.
 photos.open(a)

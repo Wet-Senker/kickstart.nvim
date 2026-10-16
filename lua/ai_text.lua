@@ -3579,14 +3579,17 @@ local function build_calendar_section_lines(lines)
     table.insert(section, "<!-- Controle nodig: " .. f.manual_check_reason .. " -->")
     table.insert(section, "")
   end
-  local function add(target, label, val)
+  local function add(target, label, val, editable_empty)
     if val and val ~= "" then
       table.insert(target, label .. ": " .. val)
+    elseif editable_empty then
+      table.insert(target, label .. ":")
     end
   end
 
   local missing_hints = {
     calendar_title = "Titel (`Titel: ...`)",
+    date = "Datum (`Datum: YYYY-MM-DD`, bijvoorbeeld `Datum: 2026-09-03`)",
     event_date = "Datum (`Datum: YYYY-MM-DD`, bijvoorbeeld `Datum: 2026-09-03`)",
     start_time = "Tijd (`Tijd: HH:MM`, bijvoorbeeld `Tijd: 10:00`)",
     location_name = "Locatie (`Locatie: ...`)",
@@ -3606,19 +3609,19 @@ local function build_calendar_section_lines(lines)
   end
 
   local function add_item(target, item)
-    add(target, "Titel",       item.calendar_title or item.event_title)
-    add(target, "Datum",       item.event_date)
+    add(target, "Titel",       item.calendar_title or item.event_title, true)
+    add(target, "Datum",       item.event_date, true)
     add(target, "Einddatum",   item.event_end_date)
     add(target, "Herhaling",   item.recurrence)
     if type(item.recurrence_days) == "table" and #item.recurrence_days > 0 then
       add(target, "Dagen", table.concat(item.recurrence_days, ", "))
     end
     add(target, "Herhaal tot", item.recurrence_until)
-    add(target, "Tijd",        item.start_time)
+    add(target, "Tijd",        item.start_time, true)
     add(target, "Eindtijd",    item.end_time)
-    add(target, "Locatie",     item.location_name)
+    add(target, "Locatie",     item.location_name, true)
     add(target, "Adres",       item.location_address)
-    add(target, "Stad",        item.city)
+    add(target, "Stad",        item.city, true)
 
     if item.calendar_ready ~= "true" and item.missing_event_fields then
       add_missing_hint(target, item.missing_event_fields)
