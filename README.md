@@ -102,7 +102,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
               ↳ detecteert 112 en kalender automatisch
 <leader>ac    Kalendermetadata + ## Kalender sectie
 <leader>ao    Tekstcheck: spelling/grammatica + ## Suggesties
-<leader>an    Minimaal publicatieklaar maken: kop/lead waar nodig, rest behouden
+<leader>an    Behoudend publicatieklaar: neutrale tekst, praktische info als proza
 <leader>at    Tussenkopjes + optionele streamer + 2 kopopties
 <leader>af    Facebook-post genereren → ## Facebook sectie
 <leader>al    LinkedIn-post genereren → ## LinkedIn sectie
@@ -129,7 +129,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | `<leader>kA` | Plaats vanuit een gewone artikelbuffer uitsluitend het gecontroleerde `## Kalender`-item. Krant, websiteartikel, social en Teams worden niet verstuurd. De actie controleert eerst op doublures en schrijft ontvangen agenda-ID's direct terug, zodat opnieuw drukken geen dubbel item maakt. In een voorstel uit een bestaand websiteartikel blijft dezelfde leader dat item aan het bronartikel koppelen. |
 | *onderdeel van `<leader>ar`* | **Plaatsencontrole.** Wijzen plaatsen in de tekst naar kranten die nog niet gekozen zijn, dan volgt eenmalig de vraag of die mee moeten. Die vraag komt alleen wanneer de controle bij import niet heeft plaatsgevonden — een zelf getypte of geplakte buffer komt niet langs de importroute — of wanneer de tekst sindsdien naar andere kranten is gaan wijzen. Een provincie is context en levert geen voorstel op. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
-| `<leader>an` | Minimaal publicatieklaar maken in twee fasen: eerst uitsluitend zekere persbericht-/mailruis als volledige regels verwijderen, daarna kop en nieuwsgerichte lead herstellen en reclametaal, directe aanspreekvormen en lokale taalfouten minimaal neutraliseren. Daarna draait dezelfde nacontrole als bij `<leader>ar`. |
+| `<leader>an` | Behoudend publicatieklaar maken: bronruis verwijderen, kop/lead zo nodig herstellen, schrijverssubjectiviteit en ik-/wij-/u-taal buiten citaten neutraliseren en praktische lijstjes omzetten in lopende tekst. Goede bodytekst blijft staan. Daarna dezelfde nacontrole als bij `<leader>ar`. |
 | `<leader>at` | Tussenkopjes, een streamer (als er nog geen eigen `>` staat) en twee kopopties. Een gekozen kop vervangt alleen een bestaande korte kop; bij een dateline, auteursregel of eerste alinea van meer dan tien woorden wordt zij vóór de lead ingevoegd. |
 | `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. Zijn er krantversies, dan hoort de tekst bij de versie en niet bij de bron: die blijft het onherschreven importbericht. Op de bron vraagt Neovim of hij voor iedere unieke versie een eigen tekst maakt, elk uit het afgeronde artikel daarvan; in een krantbuffer maakt hij alleen die ene. Een gedeelde buffer krijgt geen enkele krant als sitecontext mee. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
 | `<leader>al` | LinkedIn-post genereren → bewerkbare `## LinkedIn` sectie. In een krantreview geldt de tekst alleen voor die krant. |
@@ -178,15 +178,31 @@ die originele regels en accepteert geen vervangende AI-tekst. Daarna blijven
 een goede kop en lead staan;
 een ontbrekende of ondeugdelijke kop of lead wordt gericht hersteld. De lead
 brengt het nieuws direct en begint niet met een datum of tijd. Een dateline
-wordt alleen toegevoegd als één plaats ondubbelzinnig centraal staat. In de
+wordt behouden of toegevoegd: centrale plaats, anders provincie, anders REGIO. In de
 rest maakt de AI de kleinst mogelijke ingreep: subjectieve, promotionele of
 overdreven journalistentaal en directe lezersaanspraak verdwijnen, zonder een
 volledige rewrite. Alleen een expliciet aan een bron gekoppelde claim mag
 indirect worden toegeschreven; er worden nooit nieuwe directe citaten gemaakt.
+Ook ik-/wij-taal van de afzender wordt buiten citaten derde persoon of zakelijk
+onpersoonlijk. Praktische lijstjes (datum, locatie, aanvang, kaarten) worden
+op dezelfde plek aaneengesloten tekst; openingstijd en aanvang blijven apart.
+Lege promotionele zinnen/alinea's en reclamekopjes mogen verdwijnen, niet de
+feitelijke kern. Goede formuleringen, alinea's, details en nuttige koppen
+blijven zoveel mogelijk staan; AN kort niet standaard in. Voor alleen
+objectieve taalfouten is er `<leader>ao`; voor ruimere redactie en lokale
+krantvarianten `<leader>ar`. Er komt geen extra menu of AI-ronde bij.
 Verandering van bestaande citaten, getallen, datums, tijden, URL's of
 mailadressen wordt technisch geweigerd. Een geslaagde controle geldt bij
 verzending alleen voor de exact gecontroleerde body. Bewerk je de buffer terwijl
 de AI draait, dan wordt het late resultaat niet toegepast.
+
+AR, AN en AP mogen bij duidelijke aangeleverde website-/nieuwsbronherkomst
+onder de artikeltekst één gewone `Bron: bronnaam of website`-regel zetten.
+Een losse informatie-/kaartverkooplink of genoemde persoon is daarvoor niet
+genoeg. Bestaande bronregels blijven behouden, bij twijfel geen nieuwe regel.
+Dit is publiceerbare tekst, niet een besturingstag boven `=== ARTIKEL ===`.
+Geen extra AI-ronde of online zoekactie; de optionele bronregel is geen reden
+om een verder goede body alsnog volledig te herschrijven.
 
 Voor een complete papieren agendapagina plak je alle dagen en activiteiten en
 gebruik je eenmaal `<leader>ka`. Gewone items worden per activiteit geredigeerd;
@@ -276,6 +292,12 @@ Teams-selectors zijn hoofdletterongevoelig en mogen worden gecombineerd als
 `:TeamsRedactie`, inclusief waarneming. De selector zelf verschijnt niet in
 Teams; de boodschap komt na de plaatsingszin en vóór de kop. Zonder passende
 regel blijft het bestaande Teams-bericht ongewijzigd.
+
+De volledige Overijssel-selectie (B/SW/ST/K, ook uitgeschreven codes) kan één
+gedeelde regiomelding sturen. Die vervangt alleen losse waarnemingsmeldingen
+aan dezelfde ontvanger; vaste redacteuren houden hun eigen melding. Ontvanger
+en tekst staan buiten Git in de gedeelde Teams-config. @none en concept blijven
+alle meldingen onderdrukken; retries sturen reeds geslaagde meldingen niet dubbel.
 
 Bij een vervanger in `:TeamsRedactie` kies je een hersteldatum (voorstel:
 over één week) of `Voor onbepaalde tijd`. De datumkiezer gebruikt dezelfde
@@ -384,6 +406,15 @@ krant. De website houdt de oorspronkelijke tekst. Controleer de tijdsvorm en
 druk opnieuw `<leader>aw`; feiten, absolute data, tijden, getallen en citaten
 mogen niet veranderen.
 
+Nieuwe metadata bewaart de volledige evenementperiode, ook zonder agenda-item:
+20–22 oktober is op 21 oktober nog lopend. Een brongebonden metadatacache wordt
+vóór de planning veilig met fotogegevens samengevoegd; nieuwere tekst maakt de
+cache ongeldig. Het kranttijd-overzicht toont per editie krantdatum, periode en
+fase. Je kunt alle getoonde edities herschrijven of web-only houden, of alleen
+afgelopen edities web-only houden en de overige meteen laten herschrijven.
+Reeds goedgekeurde edities worden niet opnieuw bevraagd. Oudere metadata zonder
+einddatum houdt de eendagsfallback totdat metadata opnieuw wordt verzameld.
+
 "Herschrijven voor krant" geldt tevens als toestemming voor de
 aankondigingsdeadline van dezelfde gebeurtenis: na de controle van die
 krantvariant volgt geen tweede "Toch ook naar de krant". De kern bewaakt bron,
@@ -411,6 +442,14 @@ hoofdletter-C-weigeractie is daarom vervallen. Was er nog nooit een
 Kalenderblok en ziet de
 laatste lokale controle bij verzenden alsnog een sterke kandidaat, dan vraagt
 Neovim eerst. Ja maakt en toont het blok; nee verzendt alleen web en print.
+
+Bij `<leader>aw` en alleen-agenda `<leader>kA` worden agenda-items met een
+enkelvoudige plaats buiten de gezamenlijke plaatsenlijst overgeslagen, met
+een melding. Het hoofdartikel en overige lokale items kunnen doorgaan;
+bronblokken en bestaande IDs blijven staan. Zwolle is ook bij B/ST toegestaan:
+de controle gebruikt het gezamenlijke gebied, niet alleen de gekozen krant.
+Lege/samengestelde plaatsen en ongeldige lokale data moeten wel worden aangevuld
+of gecorrigeerd. Controleer bij een overgeslagen plaats ook de spelling.
 
 **Kamper-Kiekdetectie** — de letterlijke rubrieknaam levert 70 punten op en de
 opeenvolgende nummers 1, 2 en 3 ieder 10. Alleen de ondubbelzinnige score 100

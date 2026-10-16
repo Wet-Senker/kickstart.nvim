@@ -292,6 +292,61 @@ assert(buffer_text:find('krantuitzondering: D | evenement voorbij\n=== ARTIKEL =
   'reden staat niet zichtbaar boven de artikelgrens')
 vim.fn.delete(temp_file)
 
+-- Gemengde fasen: één overzicht, één expliciete keuze, daarna uitsluitend de
+-- overgebleven krant genereren. Geen vervolg-keuze voor dezelfde voorbereiding.
+local mixed_questions = 0
+dialog.confirm = function(prompt, buttons)
+  mixed_questions = mixed_questions + 1
+  assert(prompt:find('2026-10-20 t/m 2026-10-22: loopt nog', 1, true))
+  assert(prompt:find('SW · krant 2026-10-28', 1, true))
+  assert(buttons:find('overige herschrijven', 1, true))
+  return 3
+end
+calls, done_args = run_prepare({
+  ok_result { decision_required = true, targets = {
+    { edition = 'B', newspaper_date = '2026-10-21', transitions = {
+      { start = '2026-10-20', ['end'] = '2026-10-22', newspaper_state = 'ongoing' } } },
+    { edition = 'SW', newspaper_date = '2026-10-28', transitions = {
+      { start = '2026-10-20', ['end'] = '2026-10-22', newspaper_state = 'past' } } },
+  } },
+  ok_result {},
+}, nil, { 'B', 'SW' })
+assert(mixed_questions == 1 and #calls == 2, 'gemengde fasen vroegen dubbel')
+assert(not vim.tbl_contains(calls[2], '--dry-run'), 'keuze om overige te herschrijven niet hergebruikt')
+assert(vim.deep_equal(editions_of(calls[2]), { 'B' }), 'verlopen krant ging toch mee')
+assert(vim.tbl_contains(done_args[4], 'SW'), 'websitekeuze ging verloren')
+
+-- Een al goedgekeurde krant verschijnt niet opnieuw in het overzicht. Bij
+-- website voor SW wordt B nog wel met de eerdere toestemming gegenereerd.
+dialog.confirm = function(prompt)
+  assert(prompt:find('voor SW', 1, true), 'nog niet beoordeelde editie ontbreekt')
+  assert(not prompt:find('B · krant', 1, true), 'eerdere toestemming werd opnieuw gevraagd')
+  return 2
+end
+calls, done_args = run_prepare({
+  ok_result { decision_required = true, targets = {
+    { edition = 'B', newspaper_date = '2026-10-28', transitions = { { newspaper_state = 'past' } } },
+    { edition = 'SW', newspaper_date = '2026-10-21', transitions = { { newspaper_state = 'ongoing' } } },
+  } },
+  ok_result {},
+}, with_forced_late({ 'B' }), { 'B', 'SW' })
+assert(#calls == 2 and vim.deep_equal(editions_of(calls[2]), { 'B' }))
+assert(vim.tbl_contains(calls[2], '--allow-past-rewrite'))
+assert(vim.tbl_contains(done_args[4], 'SW'))
+
+-- Nieuwere tekst mag ook bij een late timingrespons niet worden toegepast.
+local callback
+vim.system = function(_, _, cb) callback = cb; return { kill = function() end } end
+local changed_buf = new_buf()
+local changed_result
+ai._temporal_print_prepare(changed_buf, file, {}, { 'B' }, function(...)
+  changed_result = { ... }
+end)
+vim.api.nvim_buf_set_lines(changed_buf, -1, -1, false, { 'Nieuwere tekst.' })
+callback(ok_result {})
+assert(vim.wait(1000, function() return changed_result ~= nil end))
+assert(changed_result[1] == false and changed_result[2]:find('Tekst gewijzigd', 1, true))
+
 vim.system, dialog.select, dialog.confirm = original_system, original_select, original_confirm
 
 print 'print timing dry run: OK'

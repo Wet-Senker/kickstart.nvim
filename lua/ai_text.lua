@@ -398,6 +398,21 @@ end
 M._publication_status_from_output = publication_status_from_output
 M._failed_publication_labels = failed_publication_labels
 
+local function skipped_calendar_items(status)
+  if type(status) ~= "table" or type(status.phases) ~= "table" then return {} end
+  for _, phase in ipairs(status.phases) do
+    if type(phase) == "table" and phase.name == "calendar" and type(phase.skipped_items) == "table" then
+      local items = {}
+      for _, item in ipairs(phase.skipped_items) do
+        if type(item) == "string" then table.insert(items, item) end
+      end
+      return items
+    end
+  end
+  return {}
+end
+M._skipped_calendar_items = skipped_calendar_items
+
 local function active_publication_photo_guard(resolution)
   if type(resolution) == "table" and resolution.has_photo == false then
     return false,
@@ -2162,7 +2177,7 @@ local function article_context_help(buf)
     lines = {
       "<leader>ar  Herschrijven: kies algemeen of gerichte krantversies, met advies.",
       "<leader>aA  Handmatig één algemene tekst voor alle gekozen kranten.",
-      "<leader>an / <leader>ao  Tekst behouden: neutraliseren of alleen taal controleren.",
+      "<leader>an / <leader>ao  Behoudend publicatieklaar maken / alleen taal controleren.",
       "<leader>av  Zelf geschreven artikel voorbereiden zonder rewrite.",
     },
   })
@@ -2820,7 +2835,10 @@ local function post_full_article_rewrite(options)
         end
         local cal_lines = vim.split(result.stdout, "\n", { plain = true })
         local cal_fm, _ = split_frontmatter_lines(cal_lines)
-        if #cal_fm > 0 then vim.b[buf].cached_calendar_metadata = cal_fm end
+        if #cal_fm > 0 then
+          vim.b[buf].cached_calendar_metadata = cal_fm
+          vim.b[buf].cached_calendar_metadata_source = rewritten_str
+        end
         strip_leading_control_line(buf, "^[Cc]al[^:]*:%s*x%s*$")
       end)
     end, "AI · Kalender", buf)
@@ -2838,7 +2856,10 @@ local function post_full_article_rewrite(options)
           end
           local meta_lines = vim.split(result.stdout, "\n", { plain = true })
           local new_fm, _ = split_frontmatter_lines(meta_lines)
-          if #new_fm > 0 then vim.b[buf].cached_metadata = new_fm end
+          if #new_fm > 0 then
+            vim.b[buf].cached_metadata = new_fm
+            vim.b[buf].cached_metadata_source = rewritten_str
+          end
         end)
       end, "AI · Metadata", buf)
     end
@@ -3707,6 +3728,7 @@ local function write_calendar_section(buf, meta_lines)
   local new_fm = (split_frontmatter_lines(meta_lines))
   if #new_fm > 0 then
     vim.b[buf].cached_calendar_metadata = new_fm
+    vim.b[buf].cached_calendar_metadata_source = table.concat(meta_lines, '\n')
   end
 
   local section = build_calendar_section_lines(meta_lines)
@@ -4087,7 +4109,10 @@ function M.prepare_article(buf)
         end
         local meta_lines = vim.split(res.stdout, "\n", { plain = true })
         local new_fm = split_frontmatter_lines(meta_lines)
-        if #new_fm > 0 then vim.b[buf].cached_metadata = new_fm end
+        if #new_fm > 0 then
+          vim.b[buf].cached_metadata = new_fm
+          vim.b[buf].cached_metadata_source = input
+        end
         notify_workflow(
           "Artikel voorbereid — verzend met <leader>aw. (Agenda nodig? <leader>ac)"
         )
@@ -5088,6 +5113,43 @@ function M.pubble_send(target_buf)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
   if publication_recovery.review_conflict(buf) then return end
+  if vim.b[buf].metadata_merge_pending then return end
+  local cache_key = vim.b[buf].cached_calendar_metadata and 'cached_calendar_metadata' or 'cached_metadata'
+  local cache, source = vim.b[buf][cache_key], vim.b[buf][cache_key .. '_source']
+  if cache and source and not vim.b[buf].publication_in_progress
+      and not vim.b[buf].publication_planning_pending and not vim.b[buf].publication_date_review_pending
+      and not vim.b[buf].late_newspaper_review_pending then
+    local tick = vim.api.nvim_buf_get_changedtick(buf)
+    local current = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+    vim.b[buf].metadata_merge_pending = true
+    ai_system({ articlemeta, '--merge-cached-metadata' }, { text = true, stdin = vim.json.encode({
+      markdown = current, cached_frontmatter = table.concat(cache, '\n'), source = source,
+    }) }, function(result)
+      vim.schedule(function()
+        if not vim.api.nvim_buf_is_valid(buf) then return end
+        vim.b[buf].metadata_merge_pending = nil
+        if vim.api.nvim_buf_get_changedtick(buf) ~= tick then
+          notify_workflow('Tekst gewijzigd tijdens metadatacontrole; druk opnieuw <leader>aw.', vim.log.levels.WARN)
+          return
+        end
+        if result.code ~= 0 then
+          notify_workflow('Metadata samenvoegen mislukt: ' .. (result.stderr or ''), vim.log.levels.ERROR)
+          return
+        end
+        vim.b[buf].cached_metadata, vim.b[buf].cached_calendar_metadata = nil, nil
+        vim.b[buf].cached_metadata_source, vim.b[buf].cached_calendar_metadata_source = nil, nil
+        if result.stdout ~= current then
+          vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(result.stdout, '\n', { plain = true }))
+        end
+        M.pubble_send(buf)
+      end)
+    end, 'Publicatie · Metadata samenvoegen', buf, function()
+      vim.schedule(function()
+        if vim.api.nvim_buf_is_valid(buf) then vim.b[buf].metadata_merge_pending = nil end
+      end)
+    end)
+    return
+  end
   if vim.b[buf].publication_date_review_pending then
     notify_workflow('Beantwoord eerst de openstaande tekst-/datumcontrole.', vim.log.levels.INFO)
     return
@@ -5754,6 +5816,14 @@ function M.pubble_send(target_buf)
             if existing_count > 0 then msg = msg .. " (" .. existing_count .. " hervat)" end
           end
           local failed_labels = failed_publication_labels(publication_status)
+          local skipped_agenda = skipped_calendar_items(publication_status)
+          if #skipped_agenda > 0 then
+            notify_workflow(
+              "Agenda overgeslagen buiten het gezamenlijke verspreidingsgebied: "
+                .. table.concat(skipped_agenda, ", ") .. ".",
+              vim.log.levels.WARN, { ttl = 12 }
+            )
+          end
           local message_level
           if publication_status and publication_status.outcome == "partial" and #failed_labels > 0 then
             msg = msg .. " | LET OP: " .. table.concat(failed_labels, " + ") .. " mislukt"
@@ -6716,6 +6786,21 @@ local function temporal_print_command(
   return command
 end
 
+local function timing_overview(targets)
+  local lines = {}
+  local labels = { future = 'nog te komen', opening = 'begint die dag', ongoing = 'loopt nog', past = 'afgelopen' }
+  for _, target in ipairs(targets or {}) do
+    local parts = {}
+    for _, transition in ipairs(target.transitions or {}) do
+      table.insert(parts, tostring(transition.start or '?') .. ' t/m ' .. tostring(transition['end'] or '?')
+        .. ': ' .. (labels[transition.newspaper_state] or '?'))
+    end
+    table.insert(lines, tostring(target.edition or '?') .. ' · krant ' .. tostring(target.newspaper_date or '?')
+      .. (#parts > 0 and (' · ' .. table.concat(parts, '; ')) or ''))
+  end
+  return #lines > 0 and ('\n\n' .. table.concat(lines, '\n')) or ''
+end
+
 M._newspaper_time_version_choice = function(targets)
   local editions = {}
   for _, target in ipairs(targets or {}) do
@@ -6724,7 +6809,8 @@ M._newspaper_time_version_choice = function(targets)
   local label = #editions > 0 and (" voor " .. table.concat(editions, ", ")) or ""
   return require('user_dialog').confirm(
     "Voor de krant is een andere tijdsversie nodig" .. label
-      .. " (de tekst verwijst naar een datum die in de latere krant anders leest). Wat wil je?",
+      .. " (de tekst verwijst naar een datum die in de latere krant anders leest). Wat wil je?"
+      .. timing_overview(targets),
     "&Kranttijdsversie maken en gebruiken\nAlleen &website voor deze editie(s)\n&Annuleren",
     1
   )
@@ -6739,13 +6825,16 @@ M._past_timing_confirm = function(targets)
   local suffix = #editions > 0 and (" (" .. table.concat(editions, ", ") .. ")") or ""
   return require('user_dialog').confirm(
     "De publicatiedatum van de krant ligt na minstens één evenement"
-      .. suffix .. ". Aangepaste kranttekst maken?",
-    "&Herschrijven voor krant\n&Niet in krant (web/agenda wel)",
+      .. suffix .. ". Kies voor alle getoonde edities."
+      .. timing_overview(targets),
+    "&Herschrijven voor alle getoonde kranten\nAlleen &website voor alle getoonde kranten\n"
+      .. "Alleen &afgelopen edities web; overige herschrijven\n&Annuleren",
     2
   )
 end
 
 temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
+  local input_tick = vim.api.nvim_buf_get_changedtick(buf)
   -- Een web-only editie (krant: nee, of "alleen website" bij een te late
   -- krant) heeft nooit een kranttijdsversie nodig: er gaat niets naar de krant.
   -- Zonder dit filter kreeg zo'n editie toch een versie (en de vraag
@@ -6806,10 +6895,17 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
   -- editie die hier om een beslissing of herziening vraagt in die al
   -- goedgekeurde set zit, hoeft er niet nogmaals gevraagd te worden — "alleen
   -- website" en "annuleren" zijn dan al verworpen bij die eerdere keuze. Zit
-  -- er ook maar één andere editie bij (bijvoorbeeld een editie die niet laat
-  -- is maar wel een eigen datumkwestie heeft), dan blijft de gewone,
-  -- vragende flow gelden voor de hele aanroep.
+  -- er ook een andere editie bij, dan verschijnt alleen die nog onbeantwoorde
+  -- editie in het overzicht; de eerdere toestemming blijft behouden.
   local forced_late_editions = late_newspaper_codes(buf, "force")
+  local function unapproved_targets(targets)
+    local approved, pending = {}, {}
+    for _, code in ipairs(forced_late_editions) do approved[code] = true end
+    for _, target in ipairs(targets or {}) do
+      if not approved[target.edition] then table.insert(pending, target) end
+    end
+    return pending
+  end
 
   -- `confirmed` = de redacteur koos al expliciet "Kranttijdsversie maken": nu
   -- pas echt genereren. Zonder `confirmed` draait dit eerst als dry-run (geen
@@ -6829,6 +6925,10 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
           done(false, "Artikelbuffer bestaat niet meer")
           return
         end
+        if vim.api.nvim_buf_get_changedtick(buf) ~= input_tick then
+          done(false, 'Tekst gewijzigd tijdens kranttijdcontrole; start opnieuw met <leader>aw.')
+          return
+        end
         local ok, payload = pcall(vim.fn.json_decode, result.stdout or "")
         if result.code ~= 0 or not ok or type(payload) ~= "table" then
           local err = vim.trim(result.stderr or result.stdout or "")
@@ -6841,12 +6941,24 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
         end
 
         if payload.decision_required == true then
-          local past_target_editions = timing_target_editions(payload.targets, true)
-          if editions_fully_covered(past_target_editions, forced_late_editions) then
+          local pending_targets = unapproved_targets(payload.targets)
+          local past_target_editions = timing_target_editions(pending_targets, true)
+          if editions_fully_covered(timing_target_editions(payload.targets, false), forced_late_editions) then
             run(true, false, true)
             return
           end
-          local choice = M._past_timing_confirm(payload.targets)
+          local choice
+          if #past_target_editions == 0 and #timing_target_editions(pending_targets, false) > 0 then
+            choice = M._newspaper_time_version_choice(pending_targets)
+            -- Het gewone menu gebruikt 3 voor annuleren; het gemengde menu 4.
+            if choice == 3 then choice = 4 end
+          else
+            choice = M._past_timing_confirm(pending_targets)
+          end
+          if vim.api.nvim_buf_get_changedtick(buf) ~= input_tick then
+            done(false, 'Tekst gewijzigd tijdens krantkeuze; start opnieuw met <leader>aw.')
+            return
+          end
           if choice == 1 then
             require('workflow_log').decision(buf, 'Kranttijd verlopen evenement', 'rewrite', past_target_editions)
             -- Met allow_past_rewrite=true blijft requires_review voor deze
@@ -6855,21 +6967,22 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
             -- opnieuw tonen. "Herschrijven voor krant" is zelf al die keuze,
             -- dus confirmed=true gaat direct door naar de echte generatie.
             run(true, false, true)
-          elseif choice == 2 then
-            require('workflow_log').decision(buf, 'Kranttijd verlopen evenement', 'website', past_target_editions)
-            -- Alleen de verlopen edities vallen af. Overige kranttargets
-            -- krijgen in dezelfde flow alsnog hun eigen tijdsversie.
+          elseif choice == 2 or choice == 3 then
+            local excluded = choice == 2 and timing_target_editions(pending_targets, false) or past_target_editions
+            if #excluded == 0 then excluded = edition_codes end
+            require('workflow_log').decision(buf, 'Kranttijd overzicht', 'website', excluded)
             if not M._record_newspaper_exclusions(
-                buf, file, past_target_editions, "evenement voorbij op krantdatum"
+                buf, file, excluded, "alleen website gekozen bij kranttijdcontrole"
               ) then
               done(false, "Krantuitzondering kon niet worden vastgelegd")
               return
             end
             vim.b[buf].skip_newspaper_editions = merged_edition_codes(
-              effective_skipped_newspapers(buf), past_target_editions
+              effective_skipped_newspapers(buf), excluded
             )
+            input_tick = vim.api.nvim_buf_get_changedtick(buf)
             local skip_set = {}
-            for _, code in ipairs(past_target_editions) do skip_set[code] = true end
+            for _, code in ipairs(excluded) do skip_set[code] = true end
             local remaining = {}
             for _, code in ipairs(edition_codes) do
               if not skip_set[code] then table.insert(remaining, code) end
@@ -6878,7 +6991,10 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
             if #edition_codes == 0 then
               done(true, nil, false, effective_skipped_newspapers(buf))
             else
-              run(false, false, false)
+              -- Dezelfde keuze gaf expliciet toestemming voor de overige
+              -- versies: geen tweede vrijwel gelijke vraag.
+              require('workflow_log').decision(buf, 'Kranttijd overzicht', 'rewrite', remaining)
+              run(true, false, true)
             end
           else
             require('workflow_log').decision(buf, 'Kranttijd verlopen evenement', 'cancel', past_target_editions)
@@ -6898,19 +7014,24 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
           -- De voorcheck ziet de datum-aanleiding nu wél en biedt de keuze; de
           -- eenmalige herstart-vlag heeft z'n werk gedaan.
           vim.b[buf].print_timing_reentry = nil
-          local review_target_editions = timing_target_editions(payload.targets, false)
-          if editions_fully_covered(review_target_editions, forced_late_editions) then
+          local pending_targets = unapproved_targets(payload.targets)
+          local review_target_editions = timing_target_editions(pending_targets, false)
+          if editions_fully_covered(timing_target_editions(payload.targets, false), forced_late_editions) then
             run(allow_past_rewrite, skip_past_newspaper, true)
             return
           end
-          local choice = M._newspaper_time_version_choice(payload.targets)
+          local choice = M._newspaper_time_version_choice(pending_targets)
+          if vim.api.nvim_buf_get_changedtick(buf) ~= input_tick then
+            done(false, 'Tekst gewijzigd tijdens krantkeuze; start opnieuw met <leader>aw.')
+            return
+          end
           if choice == 1 then
             require('workflow_log').decision(buf, 'Kranttijdsversie', 'rewrite', review_target_editions)
             run(allow_past_rewrite, skip_past_newspaper, true)
           elseif choice == 2 then
             -- Alleen de edities met een kranttijdprobleem worden web-only;
             -- onveranderde krantversies blijven beschikbaar voor print.
-            local target_editions = timing_target_editions(payload.targets, false)
+            local target_editions = timing_target_editions(pending_targets, false)
             if #target_editions == 0 then target_editions = edition_codes end
             require('workflow_log').decision(buf, 'Kranttijdsversie', 'website', target_editions)
             if not M._record_newspaper_exclusions(
@@ -6919,9 +7040,26 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
               done(false, "Krantuitzondering kon niet worden vastgelegd")
               return
             end
-            done(true, nil, false, merged_edition_codes(
+            vim.b[buf].skip_newspaper_editions = merged_edition_codes(
               effective_skipped_newspapers(buf), target_editions
-            ))
+            )
+            input_tick = vim.api.nvim_buf_get_changedtick(buf)
+            local excluded, remaining = {}, {}
+            for _, code in ipairs(target_editions) do excluded[code] = true end
+            for _, code in ipairs(edition_codes) do
+              if not excluded[code] then table.insert(remaining, code) end
+            end
+            -- Alleen al goedgekeurde targets hoeven nog gegenereerd te worden.
+            local approved_targets_remain = false
+            for _, target in ipairs(payload.targets or {}) do
+              if target.edition and not excluded[target.edition] then approved_targets_remain = true end
+            end
+            if approved_targets_remain then
+              edition_codes = remaining
+              run(allow_past_rewrite, skip_past_newspaper, true)
+            else
+              done(true, nil, false, effective_skipped_newspapers(buf))
+            end
           else
             require('workflow_log').decision(buf, 'Kranttijdsversie', 'cancel', review_target_editions)
             done(false, AI_CANCELLED)
@@ -7429,7 +7567,7 @@ vim.keymap.set("n", "<leader>ao", M.tekstcheck, {
 })
 
 -- <leader>an — laat Python eerst bronruis deletion-only verwijderen en maak
--- daarna kop en lead waar nodig publicatieklaar; neutraliseer de rest minimaal.
+-- daarna behoudend publicatieklaar, inclusief praktische lijstjes naar proza.
 -- De centrale Python-validatie bewaakt citaten en concrete waarden. Een laat resultaat mag nieuwere
 -- bufferbewerkingen nooit overschrijven.
 function M.journalistic_neutralize()
@@ -7456,7 +7594,7 @@ function M.journalistic_neutralize()
         if result.code ~= 0 then
           local err = vim.trim(result.stderr or result.stdout or "")
           vim.notify(
-            "Minimaal publicatieklaar maken mislukt: " .. (err ~= "" and err or "onbekende fout"),
+            "Behoudend publicatieklaar maken mislukt: " .. (err ~= "" and err or "onbekende fout"),
             vim.log.levels.ERROR
           )
           return
@@ -7483,19 +7621,19 @@ function M.journalistic_neutralize()
           end,
         })
         notify_workflow(
-          "Artikel minimaal publicatieklaar gemaakt. Controleer vooral kop en lead; gebruik u om ongedaan te maken.",
+          "Artikel behoudend geredigeerd. Controleer kop, lead en praktische informatie; u maakt dit ongedaan.",
           vim.log.levels.INFO,
           { ttl = 9 }
         )
       end)
     end,
-    "AI · Minimaal publicatieklaar maken",
+    "AI · Behoudend publicatieklaar maken",
     buf
   )
 end
 
 vim.keymap.set("n", "<leader>an", M.journalistic_neutralize, {
-  desc = "Bronruis verwijderen + reclame/'u'-taal neutraliseren; kop/lead publicatieklaar",
+  desc = "Behoudend publicatieklaar: kop/lead, neutrale taal, praktische info als proza",
 })
 
 -- Scan de body in alinea's (blokken gescheiden door lege regels).
@@ -8237,7 +8375,7 @@ local help_categories = {
       { label = "Herschrijven — één algemene tekst voor alle kranten (<leader>aA)", action = function() M.rewrite_article_buffer(true) end },
       { label = "Schone kopie voor een andere krant (<leader>aK)", action = function() require('article_copy').copy() end },
       { label = "Tekstcheck — alleen taalfouten, tekst blijft gelijk (<leader>ao)", action = function() M.tekstcheck() end },
-      { label = "Opschonen + neutraliseren — bronruis/reclametaal eruit, kop/lead klaar (<leader>an)", action = function() M.journalistic_neutralize() end },
+      { label = "Behoudend publicatieklaar — neutrale tekst, praktische info als proza (<leader>an)", action = function() M.journalistic_neutralize() end },
       { label = "Eigen artikel voorbereiden, geen rewrite (<leader>av)", action = function() M.prepare_article() end },
       { label = "Tussenkopjes en streamer (<leader>at)", action = function() M.tussenkopjes_streamer() end },
       { label = "LinkedIn-tekst maken (<leader>al)", action = function() M.generate_linkedin() end },

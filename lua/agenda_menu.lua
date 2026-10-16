@@ -524,6 +524,15 @@ function M.artikel_plaatsen(buf)
     end
     if #urls > 0 then browser.open_urls(urls) end
 
+    local skipped = {}
+    for _, item in ipairs(decoded.skipped or {}) do
+      table.insert(skipped, tostring(item.title or 'Agenda-item') .. ' (' .. tostring(item.city or '') .. ')')
+    end
+    if #skipped > 0 then
+      workflow('Agenda overgeslagen buiten het gezamenlijke verspreidingsgebied: '
+        .. table.concat(skipped, ', ') .. '.', vim.log.levels.WARN, { ttl = 12 })
+    end
+
     if decoded.status == 'created' then
       workflow(string.format('%d agenda-item(s) geplaatst; overige publicatiekanalen zijn overgeslagen.',
         #(decoded.created or {})), vim.log.levels.INFO, { ttl = 10 })

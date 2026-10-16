@@ -77,6 +77,57 @@ assert(
 )
 assert(#post_rewrite_calls == 1, 'verouderd neutraliteitsresultaat startte toch nacontroles')
 
+-- Praktische lijstjes mogen proza worden; controls, frontmatter en losse
+-- social-/kalender-/redactiesecties blijven buiten de schrijfopdracht.
+local concert = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_set_current_buf(concert)
+local protected_sections = {
+  '---', '', '## Facebook', '', 'Bestaande Facebooktekst.', '',
+  '## LinkedIn', '', 'Bestaande LinkedIntekst.', '',
+  '## Kalender', '', 'Titel: Concert', 'Tijd: 20:00', '',
+  '## Niet voor publicatie', '', '> Alleen voor de redactie: Testpersoon.',
+}
+local concert_lines = {
+  '---', 'source_document:', '  id: test-concert', '---', '',
+  'e: B, SUGGESTIE, SW', "suggestiereden: SW — plaatsnaam ‘Zwolle’", '',
+  '=== ARTIKEL ===', '', 'Allerzielenconcert', '',
+  'KAMPEN - Op maandag 2 november is er een concert.', '',
+  'Praktische informatie', '', 'Aanvang: 20.00 uur', 'Kerk open: 19.15 uur', '',
+}
+vim.list_extend(concert_lines, protected_sections)
+vim.api.nvim_buf_set_lines(concert, 0, -1, false, concert_lines)
+local concert_input
+local edited_concert = 'Allerzielenconcert\n\n**KAMPEN - Het concert is op maandag 2 november.**\n\n'
+  .. 'Het concert begint om 20.00 uur; de kerk gaat om 19.15 uur open.'
+vim.system = function(command, opts, callback)
+  concert_input = opts.stdin
+  assert(command[2] == 'journalistiek_neutraliseren', 'AN veranderde van kernactie')
+  callback { code = 0, stdout = edited_concert, stderr = '' }
+  return { kill = function() end }
+end
+ai.journalistic_neutralize()
+assert(vim.wait(1000, function() return #post_rewrite_calls == 2 end, 10), 'concertnacontrole ontbrak')
+assert(concert_input:find('Praktische informatie', 1, true), 'publieke praktische info ontbrak in AI-input')
+for _, private in ipairs { 'source_document', 'suggestiereden', 'Facebook', 'LinkedIn', 'Kalender', 'Testpersoon' } do
+  assert(not concert_input:find(private, 1, true), private .. ' kwam onterecht in AI-input')
+end
+local concert_result = table.concat(vim.api.nvim_buf_get_lines(concert, 0, -1, false), '\n')
+assert(concert_result:find(edited_concert, 1, true), 'praktische proza werd niet toegepast')
+assert(concert_result:find('source_document:\n  id: test-concert', 1, true), 'frontmatter ging verloren')
+assert(concert_result:find('e: B, SUGGESTIE, SW', 1, true), 'editiekeuzes gingen verloren')
+assert(concert_result:find(table.concat(protected_sections, '\n'), 1, true), 'beschermde secties veranderden')
+
+-- Een geweigerde waarde-/citaatcontrole houdt ook deze volledige buffer intact.
+vim.system = function(_, _, callback)
+  callback { code = 1, stdout = '', stderr = 'Neutraliteitscontrole geweigerd: gewijzigde tijd.' }
+  return { kill = function() end }
+end
+ai.journalistic_neutralize()
+vim.wait(100, function() return false end, 10)
+assert(concert_result == table.concat(vim.api.nvim_buf_get_lines(concert, 0, -1, false), '\n'),
+  'een geweigerd resultaat veranderde het concertdocument')
+assert(#post_rewrite_calls == 2, 'geweigerd resultaat startte toch nacontroles')
+
 ai._post_full_article_rewrite = original_post_rewrite
 
 -- Regressie: als minimaal publicatieklaar maken voor het eerst een betrouwbare

@@ -30,6 +30,18 @@ assert(
   "uitvoer zonder resultaatmarker werd als status gezien"
 )
 
+local skipped = ai_text._publication_status_from_output(
+  'PUBBLE_RESULT_JSON: {"mode":"published","outcome":"success","phases":'
+    .. '[{"name":"calendar","status":"succeeded","skipped_items":["Concert Almere (Almere)"]}]}', ''
+)
+assert(vim.deep_equal(ai_text._skipped_calendar_items(skipped), { 'Concert Almere (Almere)' }),
+  'overgeslagen agenda-item niet uit geslaagde publicatiestatus gelezen')
+assert(#ai_text._skipped_calendar_items(nil) == 0, 'oude resultaatvorm moet blijven werken')
+assert(#ai_text._skipped_calendar_items(partial) == 0, 'geen buitengebiedmelding zonder overgeslagen items')
+assert(vim.deep_equal(ai_text._skipped_calendar_items({ phases = { 42, {
+  name = 'calendar', skipped_items = { false, 'Concert Almere (Almere)' },
+} } }), { 'Concert Almere (Almere)' }), 'ongeldige velden mogen de melding niet laten crashen')
+
 local opened_url
 local opened_command
 local opened_options
