@@ -19,6 +19,7 @@ In Neovim:
   <leader>al    LinkedIn-post genereren — verschijnt als ## LinkedIn sectie
   <leader>aV    overzicht van bron en losse krantversiebuffers
   <leader>aG    huidige krantversie opslaan en goedkeuren
+  <leader>aK    schone Kopie-buffer; e: aanpassen, daarna <leader>ar
   <leader>aw    importcontrole, planning, doublures en versturen
                 ↳ zo nodig eerst kranttijd-/vervolgteksten controleren
   <leader>kd    actieve webartikelen per site op doublures controleren

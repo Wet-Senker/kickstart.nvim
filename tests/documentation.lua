@@ -15,6 +15,7 @@ local weekly_most_read = read("lua/weekly_most_read.lua")
 local context_help = read("lua/context_help.lua")
 local edition_review = read("lua/edition_review.lua")
 local archive_context = read("lua/archive_context.lua")
+local article_copy = read("lua/article_copy.lua")
 
 local documented_mappings = {
   { key = "<leader>ar", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ar"' },
@@ -26,6 +27,7 @@ local documented_mappings = {
   { key = "<leader>af", source = ai_text, registration = 'vim.keymap.set("n", "<leader>af"' },
   { key = "<leader>aV", source = edition_review, registration = 'vim.keymap.set("n", "<leader>aV"' },
   { key = "<leader>aG", source = edition_review, registration = 'vim.keymap.set("n", "<leader>aG"' },
+  { key = "<leader>aK", source = article_copy, registration = "vim.keymap.set('n', '<leader>aK'" },
   { key = "<leader>aw", source = ai_text, registration = 'vim.keymap.set("n", "<leader>aw"' },
   { key = "<leader>ap", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ap"' },
   { key = "<leader>ag", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ag"' },

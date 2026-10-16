@@ -6,6 +6,7 @@ local pubble_duplicates = require("pubble_duplicates")
 local context_help = require("context_help")
 local workflow_log = require("workflow_log")
 local publication_recovery = require("publication_recovery")
+require("article_copy").setup()
 workflow_log.setup()
 
 -- Nieuwe pv-imports leven in de gedeelde werkmap. Desktop blijft als
@@ -8234,6 +8235,7 @@ local help_categories = {
     items = {
       { label = "Herschrijven — algemeen of gericht, met advies (<leader>ar)", action = function() M.rewrite_article_buffer() end },
       { label = "Herschrijven — één algemene tekst voor alle kranten (<leader>aA)", action = function() M.rewrite_article_buffer(true) end },
+      { label = "Schone kopie voor een andere krant (<leader>aK)", action = function() require('article_copy').copy() end },
       { label = "Tekstcheck — alleen taalfouten, tekst blijft gelijk (<leader>ao)", action = function() M.tekstcheck() end },
       { label = "Opschonen + neutraliseren — bronruis/reclametaal eruit, kop/lead klaar (<leader>an)", action = function() M.journalistic_neutralize() end },
       { label = "Eigen artikel voorbereiden, geen rewrite (<leader>av)", action = function() M.prepare_article() end },
