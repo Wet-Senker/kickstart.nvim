@@ -4,6 +4,8 @@ local M = {}
 local notifications = require('texttools_notify')
 local log = require('workflow_log')
 local paths = require('texttools_paths')
+local running = {}
+local function canonical(file) return vim.fn.resolve(vim.fn.fnamemodify(file, ':p')) end
 
 local function marker_path(buf)
   local existing = vim.b[buf].publication_recovery_marker
@@ -13,20 +15,54 @@ local function marker_path(buf)
   return name .. '.pubble-recovery.json'
 end
 
-local function save_marker(buf, record)
-  local path = marker_path(buf)
-  if not path then return end -- Een naamloze scratchbuffer heeft geen heropenpad.
+local function write_marker(path, record)
+  if not path then return false end
   local temporary = path .. '.tmp-' .. vim.fn.getpid()
   local ok = pcall(function()
     assert(vim.fn.writefile({ vim.json.encode(record) }, temporary) == 0)
     assert(vim.fn.rename(temporary, path) == 0)
   end)
-  if ok then
-    vim.b[buf].publication_recovery_marker = path
-  else
+  return ok
+end
+
+local function save_marker(buf, record)
+  local path = marker_path(buf)
+  local ok = write_marker(path, record)
+  if ok then vim.b[buf].publication_recovery_marker = path else
     log.diagnostic(buf, 'Publicatie · Herstel', { status = 'failed', reason = 'recovery_marker_write_failed' })
     notifications.workflow('De herstelverwijzing kon niet op schijf worden bewaard. Laat deze buffer open en beoordeel eerst het herstelbestand.', vim.log.levels.ERROR)
   end
+  return ok
+end
+
+-- Clientbinding: vóór iedere externe write moet de bron naar exact het
+-- statusbestand verwijzen. Geen domeinstate of ID-merge in de editor.
+function M.begin_attempt(buf, file)
+  local path = marker_path(buf) or (file .. '.pubble-recovery.json')
+  if running[canonical(file)] then return nil end
+  if not write_marker(path, { version = 1, completed = false, recovery_name = vim.fn.fnamemodify(file, ':t') }) then
+    notifications.workflow('Verzending gestopt: de herstelverwijzing kon niet worden opgeslagen. Er is niets naar Pubble gestuurd.', vim.log.levels.ERROR)
+    return nil
+  end
+  local attempt = { marker = path, file = file, buf = buf }
+  vim.b[buf].publication_recovery_marker = path
+  running[canonical(file)] = attempt
+  return attempt
+end
+
+function M.end_attempt(attempt)
+  if attempt and running[canonical(attempt.file)] == attempt then running[canonical(attempt.file)] = nil end
+end
+
+function M.release_unpublished(buf, file)
+  if running[canonical(file)] then return false end
+  local path = marker_path(buf)
+  if not path or vim.fn.filereadable(path) ~= 1 then return true end
+  local ok, record = pcall(function() return vim.json.decode(table.concat(vim.fn.readfile(path), '\n')) end)
+  if not ok or record.completed or record.recovery_name ~= vim.fn.fnamemodify(file, ':t') then return false end
+  if vim.fn.delete(path) ~= 0 then return false end
+  vim.b[buf].publication_recovery_marker = nil
+  return true
 end
 
 -- Ook na heropenen van de oude bron mag aw niet voorbij de bewaarde ID-state.
@@ -36,23 +72,39 @@ local function load_conflict(buf)
   -- Een herstelbuffer erft de marker alleen om die na succes te kunnen
   -- afronden. Die marker blokkeert uitsluitend de oude bron, niet de retry.
   local path = name .. '.pubble-recovery.json'
-  if not path or vim.fn.filereadable(path) ~= 1 then return nil end
+  if not path or vim.fn.getftype(path) == '' then return nil end
   local ok, record = pcall(function()
     return vim.json.decode(table.concat(vim.fn.readfile(path, '', 32), '\n'))
   end)
   vim.b[buf].publication_recovery_marker = path
   if not ok or type(record) ~= 'table' or record.version ~= 1 then return { invalid = true } end
-  if record.completed == true then return { completed = true } end
+  if record.completed == true then
+    local archive = record.archive_path
+    if archive ~= nil and (type(archive) ~= 'string' or not archive:match('^/.*%.md$')) then
+      return { invalid = true }
+    end
+    return { completed = true, archive_path = archive }
+  end
   local name = record.recovery_name
   if type(name) ~= 'string' or name == '' or vim.fn.fnamemodify(name, ':t') ~= name
       or not name:match('%.md$') then return { invalid = true } end
   return { file = paths.inbox() .. '/' .. name }
 end
 
+function M.preserve_published_edits(buf, archive_path)
+  vim.b[buf].failed_send_conflict = { completed = true, archive_path = archive_path }
+  vim.b[buf].published_archive_path = archive_path
+  save_marker(buf, { version = 1, completed = true, archive_path = archive_path })
+  log.diagnostic(buf, 'Publicatie · Herstel', { status = 'blocked', reason = 'published_buffer_changed' })
+end
+
 function M.restore(buf, file, expected_tick, keep_file)
   if not vim.api.nvim_buf_is_valid(buf) then return false end
+  if keep_file then vim.b[buf].failed_send_file = file end
   local ok, lines = pcall(vim.fn.readfile, file)
   if not ok then
+    vim.b[buf].failed_send_conflict = { file = file }
+    save_marker(buf, { version = 1, completed = false, recovery_name = vim.fn.fnamemodify(file, ':t') })
     log.diagnostic(buf, 'Publicatie · Herstel', { status = 'failed', reason = 'recovery_file_missing' })
     notifications.workflow('Herstelbestand kon niet worden gelezen; de huidige tekst is behouden.', vim.log.levels.ERROR)
     return false
@@ -74,6 +126,7 @@ function M.restore(buf, file, expected_tick, keep_file)
   end
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   if keep_file then vim.b[buf].failed_send_file = file end
+  vim.b[buf].publication_recovery_synced_tick = vim.api.nvim_buf_get_changedtick(buf)
   log.diagnostic(buf, 'Publicatie · Herstel', { status = 'ready', reason = 'unchanged_buffer' })
   return true
 end
@@ -81,10 +134,54 @@ end
 -- true betekent: deze aw is afgehandeld als review, er mag NIET verzonden
 -- worden. Alleen het apart geopende, ID-bevattende herstelbestand mag hervatten.
 function M.review_conflict(buf)
+  if vim.bo[buf].buftype == 'nofile' and vim.b[buf].published_archive_path then
+    notifications.workflow('Dit is een alleen-lezen gepubliceerde versie; opnieuw verzenden is geblokkeerd.', vim.log.levels.WARN)
+    return true
+  end
   local conflict = load_conflict(buf) or vim.b[buf].failed_send_conflict
+  local name = vim.api.nvim_buf_get_name(buf)
+  if (name ~= '' and running[canonical(name)])
+      or (type(conflict) == 'table' and conflict.file and running[canonical(conflict.file)]) then
+    notifications.workflow('Deze publicatierun wordt nog afgehandeld. Wacht op afronding; er wordt niets opnieuw verstuurd.', vim.log.levels.INFO)
+    return true
+  end
   if type(conflict) ~= 'table' then return false end
+  if conflict.file and name ~= '' and not name:find('://', 1, true)
+      and canonical(conflict.file) == canonical(name) and vim.fn.filereadable(conflict.file) == 1 then
+    -- Een naamloze start kan alleen haar statusbestand als heropeningang
+    -- bewaren. Dat bestand is zelf de autoriteit, niet een ID-loze oude bron.
+    vim.b[buf].failed_send_file = conflict.file
+    vim.b[buf].failed_send_conflict = nil
+    return false
+  end
+  if conflict.file and not vim.b[buf].failed_send_conflict
+      and vim.b[buf].failed_send_file == conflict.file
+      and vim.b[buf].publication_recovery_synced_tick == vim.api.nvim_buf_get_changedtick(buf) then
+    return false
+  end
   if conflict.completed then
-    notifications.workflow('Deze oude werkversie is al via het herstelbestand gepubliceerd. Gebruik het Pubble-archief; verzend dit exemplaar niet opnieuw.', vim.log.levels.WARN)
+    vim.b[buf].failed_send_conflict = conflict
+    local archive = conflict.archive_path
+    if type(archive) == 'string' and vim.fn.filereadable(archive) == 1 then
+      local choice = require('user_dialog').confirm(
+        'Dit artikel is al gepubliceerd. Je nieuwere werk is niet meegepubliceerd. Open de gepubliceerde versie alleen-lezen om te vergelijken; er wordt niets verzonden.',
+        '&Gepubliceerde versie openen\n&Annuleren', 1
+      )
+      if choice == 1 then
+        local target = vim.api.nvim_create_buf(false, true)
+        vim.api.nvim_buf_set_name(target, 'pubble-nacontrole://' .. target .. '/' .. vim.fn.fnamemodify(archive, ':t'))
+        vim.api.nvim_buf_set_lines(target, 0, -1, false, vim.fn.readfile(archive))
+        vim.b[target].published_archive_path = archive
+        vim.bo[target].bufhidden = 'wipe'
+        vim.bo[target].modified = false
+        vim.bo[target].readonly = true
+        vim.bo[target].modifiable = false
+        vim.cmd('botright vsplit')
+        vim.api.nvim_win_set_buf(0, target)
+      end
+    else
+      notifications.workflow('Deze werkversie is al gepubliceerd. Gebruik het Pubble-archief; verzend dit exemplaar niet opnieuw.', vim.log.levels.WARN)
+    end
     return true
   end
   if conflict.invalid then
@@ -133,12 +230,13 @@ function M.review_conflict(buf)
   return true
 end
 
-function M.complete(buf)
+function M.complete(buf, archive_path)
   if vim.b[buf].publication_recovery_marker then
     -- Laat bij de bewaarde oude bron een permanente blokkade staan. Zo maakt
     -- die na herstart geen nieuw artikel wanneer het ID-bestand is gearchiveerd.
-    save_marker(buf, { version = 1, completed = true })
+    return save_marker(buf, { version = 1, completed = true, archive_path = archive_path })
   end
+  return true
 end
 
 return M

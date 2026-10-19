@@ -263,17 +263,17 @@ function M._render_website_candidates(decoded)
 end
 
 local function run(cmd, stdin, on_json, on_error)
-  vim.system(cmd, { text = true, stdin = stdin }, function(result)
-    vim.schedule(function()
+  notifications.system(cmd, { text = true, stdin = stdin }, function(result)
+    notifications.schedule(function()
       if result.code ~= 0 then
-        vim.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr)
+        notifications.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr)
           or 'Agenda-actie mislukt.', vim.log.levels.ERROR)
         if on_error then on_error() end
         return
       end
       local ok, decoded = pcall(vim.json.decode, vim.trim(result.stdout or ''))
       if not ok or type(decoded) ~= 'table' then
-        vim.notify('Onleesbare JSON van de agenda-actie.', vim.log.levels.ERROR)
+        notifications.notify('Onleesbare JSON van de agenda-actie.', vim.log.levels.ERROR)
         if on_error then on_error() end
         return
       end
@@ -298,7 +298,7 @@ function M.import_check(opts)
   local buf = vim.api.nvim_get_current_buf()
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
   if vim.trim(text) == '' then
-    vim.notify('De huidige buffer is leeg.', vim.log.levels.ERROR)
+    notifications.notify('De huidige buffer is leeg.', vim.log.levels.ERROR)
     return
   end
   local cmd = command('import', '--editie', opts.editie or 'B', '--normaliseer')
@@ -315,7 +315,7 @@ function M.import_check(opts)
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
         vim.bo[buf].modified = true
       else
-        vim.notify('Buffer veranderde tijdens verwerken; herschreven tekst niet toegepast.',
+        notifications.notify('Buffer veranderde tijdens verwerken; herschreven tekst niet toegepast.',
           vim.log.levels.WARN)
       end
     end
@@ -352,7 +352,7 @@ function M.website_voorstel(candidate)
     '--artikel-id', tostring(candidate.article_id)), nil, function(decoded)
     local document = decoded.document
     if type(document) ~= 'string' or document == '' then
-      vim.notify('Agenda-analyse gaf geen bewerkbaar voorstel terug.', vim.log.levels.ERROR)
+      notifications.notify('Agenda-analyse gaf geen bewerkbaar voorstel terug.', vim.log.levels.ERROR)
       return
     end
     local buf = open_editable('Agenda aanvullen ' .. tostring(candidate.article_id), document)
@@ -381,7 +381,7 @@ function M.website_scan()
       if candidate then
         M.website_voorstel(candidate)
       else
-        vim.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
+        notifications.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
       end
     end, { buffer = buf, desc = 'Agenda-voorstel voor webartikel maken' })
     vim.keymap.set('n', 'o', function()
@@ -392,7 +392,7 @@ function M.website_scan()
       local line = vim.api.nvim_win_get_cursor(0)[1]
       local candidate = by_line[line]
       if not candidate then
-        vim.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
+        notifications.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
         return
       end
       local answer = require('user_dialog').confirm(
@@ -407,7 +407,7 @@ function M.website_scan()
         '--artikel-id', tostring(candidate.article_id),
         '--titel', tostring(candidate.headline or '')), nil, function(decoded_reject)
         if decoded_reject.status ~= 'rejected' then
-          vim.notify(tostring(decoded_reject.reason or 'Afwijzing is niet opgeslagen.'), vim.log.levels.ERROR)
+          notifications.notify(tostring(decoded_reject.reason or 'Afwijzing is niet opgeslagen.'), vim.log.levels.ERROR)
           return
         end
         if vim.api.nvim_buf_is_valid(buf) then
@@ -455,10 +455,10 @@ function M.website_plaatsen(buf)
     elseif decoded.status == 'already-created' then
       workflow(tostring(decoded.reason), vim.log.levels.INFO)
     elseif decoded.status == 'partial' then
-      vim.notify('Een deel is geplaatst; herstelmarkeringen staan in de buffer. ' .. tostring(decoded.reason or ''),
+      notifications.notify('Een deel is geplaatst; herstelmarkeringen staan in de buffer. ' .. tostring(decoded.reason or ''),
         vim.log.levels.WARN)
     else
-      vim.notify(tostring(decoded.reason or 'Agenda-item is niet geplaatst.'), vim.log.levels.WARN)
+      notifications.notify(tostring(decoded.reason or 'Agenda-item is niet geplaatst.'), vim.log.levels.WARN)
     end
   end)
 end
@@ -468,7 +468,7 @@ function M.artikel_plaatsen(buf)
   if not vim.api.nvim_buf_is_valid(buf) then return end
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
   if not text:match('\n## Kalender%s*\n') and not text:match('^## Kalender%s*\n') then
-    vim.notify('Geen bewerkbaar ## Kalender-blok gevonden. Maak dit eerst met <leader>ac.', vim.log.levels.WARN)
+    notifications.notify('Geen bewerkbaar ## Kalender-blok gevonden. Maak dit eerst met <leader>ac.', vim.log.levels.WARN)
     return
   end
   local answer = require('user_dialog').confirm(
@@ -484,7 +484,7 @@ function M.artikel_plaatsen(buf)
     if vim.bo[buf].modified then
       local saved = pcall(vim.api.nvim_buf_call, buf, function() vim.cmd 'silent write' end)
       if not saved then
-        vim.notify('Artikel kon niet worden opgeslagen; agenda-item is niet verstuurd.', vim.log.levels.ERROR)
+        notifications.notify('Artikel kon niet worden opgeslagen; agenda-item is niet verstuurd.', vim.log.levels.ERROR)
         return
       end
     end
@@ -539,10 +539,10 @@ function M.artikel_plaatsen(buf)
     elseif decoded.status == 'already-created' then
       workflow(tostring(decoded.reason), vim.log.levels.INFO)
     elseif decoded.status == 'partial' then
-      vim.notify('Een deel van de agenda-items is geplaatst. De ontvangen ID’s zijn opgeslagen. '
+      notifications.notify('Een deel van de agenda-items is geplaatst. De ontvangen ID’s zijn opgeslagen. '
         .. tostring(decoded.reason or ''), vim.log.levels.WARN)
     else
-      vim.notify(tostring(decoded.reason or 'Agenda-item is niet geplaatst.'), vim.log.levels.WARN)
+      notifications.notify(tostring(decoded.reason or 'Agenda-item is niet geplaatst.'), vim.log.levels.WARN)
     end
   end, unlock)
 end
@@ -566,7 +566,7 @@ function M.weekendbericht()
       local opened_buffers = {}
       for _, result in ipairs(results) do
         if result.error and result.error ~= vim.NIL then
-          vim.notify(string.format('%s: agenda niet gelezen — %s', result.edition or '?', result.error), vim.log.levels.ERROR)
+          notifications.notify(string.format('%s: agenda niet gelezen — %s', result.edition or '?', result.error), vim.log.levels.ERROR)
         elseif type(result.message) == 'string' and result.message ~= '' then
           -- Het eerste bericht neemt het huidige venster over; de rest opent
           -- ernaast. Zo blijft er geen leeg eerste venster staan.
@@ -629,11 +629,11 @@ function M.mark_weekend_batch_send_started(controller, recovery_file)
   local batch_id = vim.b[controller].weekend_batch_controller
   local batch = type(batch_id) == 'string' and weekend_batches[batch_id] or nil
   if not batch then
-    vim.notify('Weekendbatch ontbreekt; er wordt niets verzonden.', vim.log.levels.ERROR)
+    notifications.notify('Weekendbatch ontbreekt; er wordt niets verzonden.', vim.log.levels.ERROR)
     return false
   end
   if not batch.send_started and not weekend_snapshot_is_current(batch, batch.prepared_ticks or {}) then
-    vim.notify('De weekendselectie of tekst is gewijzigd. Druk opnieuw <leader>aw in een '
+    notifications.notify('De weekendselectie of tekst is gewijzigd. Druk opnieuw <leader>aw in een '
       .. 'overgebleven weekendbuffer; er is nog niets verzonden.', vim.log.levels.WARN)
     return false
   end
@@ -667,7 +667,7 @@ function M.prepare_weekend_batch_send(buf, on_ready)
   if type(batch_id) ~= 'string' or batch_id == '' then return false end
   local batch = weekend_batches[batch_id]
   if not batch then
-    vim.notify('Deze weekendbatch is niet meer compleet; maak hem opnieuw met <leader>kw.', vim.log.levels.ERROR)
+    notifications.notify('Deze weekendbatch is niet meer compleet; maak hem opnieuw met <leader>kw.', vim.log.levels.ERROR)
     return true
   end
   if batch.sent or vim.b[buf].weekend_batch_sent == true then
@@ -686,7 +686,7 @@ function M.prepare_weekend_batch_send(buf, on_ready)
       return true
     end
     if batch.send_started then
-      vim.notify('Deze weekendbatch heeft al een publicatiepoging gedaan. '
+      notifications.notify('Deze weekendbatch heeft al een publicatiepoging gedaan. '
         .. 'Hervat via de oorspronkelijke Weekendbatch-buffer met de opgeslagen IDs; '
         .. 'de editieselectie kan nu niet meer veilig worden gewijzigd.', vim.log.levels.WARN)
       return true
@@ -695,7 +695,7 @@ function M.prepare_weekend_batch_send(buf, on_ready)
     vim.api.nvim_buf_delete(batch.controller, { force = true })
     batch.controller = nil
   elseif batch.send_started then
-    vim.notify('De weekendcontroller met publicatiestatus ontbreekt. Gebruik het herstelbestand'
+    notifications.notify('De weekendcontroller met publicatiestatus ontbreekt. Gebruik het herstelbestand'
       .. (batch.recovery_file and (': ' .. batch.recovery_file) or '')
       .. '; de batch wordt niet opnieuw aangemaakt, om doublures te voorkomen.', vim.log.levels.ERROR)
     return true
@@ -726,11 +726,11 @@ function M.prepare_weekend_batch_send(buf, on_ready)
   batch.preparing = true
   workflow('Weekendbuffers samenvoegen voor één veilige publicatierun…', vim.log.levels.INFO)
   local payload = vim.json.encode { now = batch.now, messages = messages }
-  vim.system(command('weekendbundel'), { text = true, stdin = payload }, function(result)
-    vim.schedule(function()
+  notifications.system(command('weekendbundel'), { text = true, stdin = payload }, function(result)
+    notifications.schedule(function()
       batch.preparing = false
       if result.code ~= 0 then
-        vim.notify(
+        notifications.notify(
           vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr)
             or 'Weekendbuffers konden niet worden samengevoegd.',
           vim.log.levels.ERROR
@@ -738,7 +738,7 @@ function M.prepare_weekend_batch_send(buf, on_ready)
         return
       end
       if not weekend_snapshot_is_current(batch, ticks) then
-        vim.notify(
+        notifications.notify(
           'De weekendselectie of tekst is tijdens de voorbereiding gewijzigd; druk opnieuw <leader>aw.',
           vim.log.levels.WARN
         )
@@ -746,7 +746,7 @@ function M.prepare_weekend_batch_send(buf, on_ready)
       end
       local ok, decoded = pcall(vim.json.decode, vim.trim(result.stdout or ''))
       if not ok or type(decoded) ~= 'table' or type(decoded.message) ~= 'string' then
-        vim.notify('Onleesbare weekendbundel van Texttools.', vim.log.levels.ERROR)
+        notifications.notify('Onleesbare weekendbundel van Texttools.', vim.log.levels.ERROR)
         return
       end
       local controller = vim.api.nvim_create_buf(false, true)

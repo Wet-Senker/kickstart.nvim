@@ -227,7 +227,7 @@ end
 local function require_empty_inbox(inbox)
   local images = image_files(inbox)
   if #images == 0 then return true end
-  vim.notify(
+  notifications.notify(
     'Pubble Inbox bevat al foto\'s: ' .. table.concat(images, ', ')
       .. '\nVerwijder deze eerst om verwarring te voorkomen.',
     vim.log.levels.WARN
@@ -349,6 +349,9 @@ local function with_rubriek_disambiguator(working_title, frontmatter)
   if type(working_title) ~= 'string' then return working_title end
   local date = read_newspaper_field(frontmatter, 'planning_date')
   if not date then return working_title end
+  -- Alleen titelweergave; planning_date blijft ISO voor de gedeelde kern.
+  local year, month, day = date:match('^(%d%d%d%d)%-(%d%d)%-(%d%d)$')
+  if year then date = day .. '-' .. month .. '-' .. year:sub(3) end
   local keyword = read_newspaper_field(frontmatter, 'keyword')
   local suffix = keyword and (keyword .. ' ' .. date) or date
   return working_title .. ' ' .. suffix
@@ -500,7 +503,7 @@ end
 -- hulpproces; bij geen bekende stad/plaats blijft de veilige prefix `112:`.
 local function detect_112_prefix(lines)
   local pubble_places = texttools_commands.bin('pubble-places')
-  local result = vim.system(
+  local result = notifications.system(
     { pubble_places, '--json' },
     { text = true, stdin = table.concat(lines, '\n') }
   ):wait()
@@ -576,7 +579,7 @@ end
 local function prepare_layout_export(buf, options)
   local plan, error_message = layout_export.prepare(buf, options)
   if not plan then
-    vim.notify(error_message, vim.log.levels.ERROR)
+    notifications.notify(error_message, vim.log.levels.ERROR)
     return nil
   end
   return plan
@@ -585,7 +588,7 @@ end
 local function copy_to_inbox(source, destination)
   local ok, error_message = vim.uv.fs_copyfile(source, destination)
   if not ok then
-    vim.notify('Foto kopiëren naar Pubble Inbox mislukt: ' .. (error_message or source), vim.log.levels.ERROR)
+    notifications.notify('Foto kopiëren naar Pubble Inbox mislukt: ' .. (error_message or source), vim.log.levels.ERROR)
     return false
   end
   return true
@@ -679,7 +682,7 @@ end
 local function selection_is_current(buf, tick)
   if not vim.api.nvim_buf_is_valid(buf) then return false end
   if vim.api.nvim_buf_get_changedtick(buf) ~= tick then
-    vim.notify('Artikel gewijzigd tijdens persoonskeuze; template niet toegepast.', vim.log.levels.WARN)
+    notifications.notify('Artikel gewijzigd tijdens persoonskeuze; template niet toegepast.', vim.log.levels.WARN)
     return false
   end
   return true
@@ -718,13 +721,13 @@ local function mark_template_applied(target_buf, name, done)
     if result.code ~= 0 or not ok or type(data) ~= 'table'
         or data.version ~= 1 or type(data.markdown) ~= 'string'
         or type(data.removed_count) ~= 'number' then
-      vim.notify('Datelinecontrole voor de rubriek mislukt; controleer de plaatsaanduiding.', vim.log.levels.ERROR)
+      notifications.notify('Datelinecontrole voor de rubriek mislukt; controleer de plaatsaanduiding.', vim.log.levels.ERROR)
       if done then done(false) end
       return
     end
     if vim.api.nvim_buf_get_changedtick(buf) ~= tick then
       if data.removed_count > 0 then
-        vim.notify('Artikel gewijzigd tijdens datelinecontrole; verwijder de plaatsaanduiding handmatig.', vim.log.levels.WARN)
+        notifications.notify('Artikel gewijzigd tijdens datelinecontrole; verwijder de plaatsaanduiding handmatig.', vim.log.levels.WARN)
       end
       if done then done(false) end
       return
@@ -734,10 +737,10 @@ local function mark_template_applied(target_buf, name, done)
     end
     if done then done(true) end
   end
-  local started = pcall(vim.system,
+  local started = pcall(notifications.system,
     { texttools_commands.bin('article-dateline'), '--rubric-template', name },
-    { text = true, stdin = input }, vim.schedule_wrap(settle))
-  if not started then vim.schedule(function() settle({ code = 1 }) end) end
+    { text = true, stdin = input }, notifications.schedule_wrap(settle))
+  if not started then notifications.schedule(function() settle({ code = 1 }) end) end
 end
 M._mark_template_applied = mark_template_applied
 
@@ -748,7 +751,7 @@ function M.raadspraat_menu(target_buf, context, done)
   local base = M.config.photo_root .. '/raadspraat'
   local parties = scan_dir(base, 'directory')
   if #parties == 0 then
-    vim.notify('Geen partijmappen gevonden in ' .. base, vim.log.levels.WARN)
+    notifications.notify('Geen partijmappen gevonden in ' .. base, vim.log.levels.WARN)
     return
   end
 
@@ -762,7 +765,7 @@ function M.raadspraat_menu(target_buf, context, done)
     local photos = image_files(party_dir)
 
     if #photos == 0 then
-      vim.notify("Geen foto's gevonden voor " .. party, vim.log.levels.WARN)
+      notifications.notify("Geen foto's gevonden voor " .. party, vim.log.levels.WARN)
       return
     end
 
@@ -868,7 +871,7 @@ end
 local function copy_to_staging(src)
   local dir = vim.fn.expand('%:p:h')
   if dir == '' then
-    vim.notify('Save the article first so there is a folder to copy into.', vim.log.levels.WARN)
+    notifications.notify('Save the article first so there is a folder to copy into.', vim.log.levels.WARN)
     return
   end
   local dst = dir .. '/' .. vim.fn.fnamemodify(src, ':t')
@@ -879,7 +882,7 @@ local function copy_to_staging(src)
       { annote = 'Rubriek' }
     )
   else
-    vim.notify('Could not copy image: ' .. src, vim.log.levels.ERROR)
+    notifications.notify('Could not copy image: ' .. src, vim.log.levels.ERROR)
   end
 end
 
@@ -931,7 +934,7 @@ function M.ondernemen_menu(target_buf, context, done)
   local base = M.config.photo_root .. '/ondernemen_in_kampen'
   local photos = image_files(base)
   if #photos == 0 then
-    vim.notify('Geen foto\'s gevonden in ' .. base, vim.log.levels.WARN)
+    notifications.notify('Geen foto\'s gevonden in ' .. base, vim.log.levels.WARN)
     return
   end
 
@@ -1197,11 +1200,11 @@ function M.kamperkiek_flow(template, target_buf, candidate, done)
   local images = image_files(inbox)
 
   if #images == 0 then
-    vim.notify('Geen foto gevonden in Pubble Inbox. Zet de foto er eerst in.', vim.log.levels.ERROR)
+    notifications.notify('Geen foto gevonden in Pubble Inbox. Zet de foto er eerst in.', vim.log.levels.ERROR)
     return false, 'photo_missing'
   end
   if #images > 1 then
-    vim.notify('Meerdere foto\'s gevonden in Pubble Inbox. Verwijder alle foto\'s behalve de Kiek-foto.', vim.log.levels.ERROR)
+    notifications.notify('Meerdere foto\'s gevonden in Pubble Inbox. Verwijder alle foto\'s behalve de Kiek-foto.', vim.log.levels.ERROR)
     return false, 'multiple_photos'
   end
 
@@ -1368,7 +1371,7 @@ function M.stock_rubriek_flow(config, target_buf, candidate, done)
   -- Waarschuw als er al foto's in de inbox staan.
   if not require_empty_inbox(inbox) then return false, 'inbox_not_empty' end
   if vim.fn.filereadable(stock_src) ~= 1 then
-    vim.notify('Stockfoto niet gevonden: ' .. stock_src, vim.log.levels.ERROR)
+    notifications.notify('Stockfoto niet gevonden: ' .. stock_src, vim.log.levels.ERROR)
     return false, 'stock_image_missing'
   end
 

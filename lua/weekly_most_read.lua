@@ -32,7 +32,7 @@ end
 
 local function decode(result, fallback)
   if result.code ~= 0 then
-    vim.notify(
+    notifications.notify(
       vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or fallback,
       vim.log.levels.ERROR
     )
@@ -40,7 +40,7 @@ local function decode(result, fallback)
   end
   local ok, data = pcall(vim.json.decode, vim.trim(result.stdout or ''))
   if not ok or type(data) ~= 'table' then
-    vim.notify('Onleesbaar antwoord van het weekoverzicht.', vim.log.levels.ERROR)
+    notifications.notify('Onleesbaar antwoord van het weekoverzicht.', vim.log.levels.ERROR)
     return nil
   end
   return data
@@ -201,8 +201,8 @@ end
 function M.prepare(edition)
   local cmd = vim.list_extend(vim.deepcopy(command), { 'prepare', '--edition', edition })
   workflow('Meestgelezen · artikelen en cijfers ophalen…', vim.log.levels.INFO)
-  vim.system(cmd, { text = true }, function(result)
-    vim.schedule(function()
+  notifications.system(cmd, { text = true, texttools_activity = { action = 'Meestgelezen ophalen' } }, function(result)
+    notifications.schedule(function()
       local data = decode(result, 'Meestgelezen weekoverzicht voorbereiden mislukt.')
       if not data or type(data.document) ~= 'string' then return end
       local buf = open_editable('Meestgelezen review ' .. edition, data.document, true)
@@ -253,8 +253,8 @@ function M.generate(buf)
   end
   workflow('Meestgelezen · gecontroleerde tekst schrijven…', vim.log.levels.INFO)
   local cmd = vim.list_extend(vim.deepcopy(command), { 'generate' })
-  vim.system(cmd, { text = true, stdin = text }, function(result)
-    vim.schedule(function()
+  notifications.system(cmd, { text = true, stdin = text, texttools_activity = { action = 'Meestgelezen schrijven', buf = buf } }, function(result)
+    notifications.schedule(function()
       local data = decode(result, 'Meestgelezen artikel genereren mislukt.')
       if not data then return end
       local opened = 0
@@ -284,14 +284,14 @@ function M.photos(buf)
   buf = buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
   if vim.b[buf].weekly_most_read_review ~= true then
-    vim.notify('Open eerst een meestgelezen-review met <leader>kv.', vim.log.levels.WARN)
+    notifications.notify('Open eerst een meestgelezen-review met <leader>kv.', vim.log.levels.WARN)
     return
   end
   local text = review_text(buf)
   if not text then return end
   local summary = selection_summary(text)
   if summary.selected == 0 or summary.selected > 5 then
-    vim.notify('Laat eerst één tot vijf keuzeregels staan.', vim.log.levels.WARN)
+    notifications.notify('Laat eerst één tot vijf keuzeregels staan.', vim.log.levels.WARN)
     return
   end
   local args = {
@@ -302,8 +302,8 @@ function M.photos(buf)
   }
   local download_cmd = vim.list_extend(vim.deepcopy(command), args)
   workflow("Meestgelezen · alle beschikbare hoofdfoto's downloaden…", vim.log.levels.INFO)
-  vim.system(download_cmd, { text = true, stdin = text }, function(result)
-    vim.schedule(function()
+  notifications.system(download_cmd, { text = true, stdin = text, texttools_activity = { action = 'Meestgelezen foto’s ophalen', buf = buf } }, function(result)
+    notifications.schedule(function()
       local downloaded = decode(result, "Hoofdfoto's downloaden mislukt.")
       if not downloaded then return end
       local count = tonumber(downloaded.count) or 0

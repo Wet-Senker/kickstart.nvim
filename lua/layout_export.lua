@@ -1,4 +1,5 @@
 local M = {}
+local notifications = require('texttools_notify')
 
 local ARTICLE_BOUNDARY = '=== ARTIKEL ==='
 
@@ -185,9 +186,9 @@ function M.finalize_with_media(buf, article_path, done)
     table.insert(command, '--image-name')
     table.insert(command, plan.img_name)
   end
-  local started = pcall(vim.system, command, { text = true }, function(result)
-    vim.schedule(function()
-      if not vim.api.nvim_buf_is_valid(buf) then return end
+  local started = pcall(notifications.system, command, { text = true, timeout = 60000 }, function(result)
+    notifications.schedule(function()
+      if not vim.api.nvim_buf_is_valid(buf) then done(nil, 'Artikelbuffer gesloten; publicatiestatus is behouden.'); return end
       if result.code ~= 0 then
         done(nil, vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or 'Foto-export mislukt.')
         return

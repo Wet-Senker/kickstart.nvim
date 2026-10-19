@@ -1,4 +1,5 @@
 local M = {}
+local activity = require('article_activity')
 
 local function log_path()
   local directory = vim.env.TEXTTOOLS_LOG_DIR
@@ -74,6 +75,7 @@ function M.start(buf, action, detail)
     workflow_id = workflow_id,
     source = source_for(buf),
     started_ns = vim.uv.hrtime(),
+    buf = buf,
   }
   append {
     ts = timestamp(),
@@ -87,12 +89,14 @@ function M.start(buf, action, detail)
     action_id = token.action_id,
     detail = detail,
   }
+  activity.start(buf, token.action_id, token.action)
   return token
 end
 
 function M.finish(token, outcome, detail)
   if type(token) ~= 'table' or token.finished then return end
   token.finished = true
+  activity.finish(token.buf, token.action_id)
   append {
     ts = timestamp(),
     kind = 'workflow',
@@ -173,6 +177,9 @@ end
 function M.with_environment(options, token)
   local result = vim.deepcopy(options or {})
   result.env = vim.tbl_extend('force', result.env or {}, M.environment(token))
+  if type(token) == 'table' then
+    result.texttools_activity = { action = token.action, id = token.action_id, buf = token.buf, tracked = true }
+  end
   return result
 end
 
@@ -199,6 +206,7 @@ end
 function M.show(options)
   options = options or {}
   local source_buf = options.buf or vim.api.nvim_get_current_buf()
+  source_buf = activity.source(source_buf) or source_buf
   local command = {
     require('texttools_commands').bin('python'),
     '-m',

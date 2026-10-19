@@ -1,8 +1,7 @@
 local messages = {}
 package.loaded['agenda_menu'] = nil
-package.loaded['texttools_notify'] = {
-  workflow = function(message) table.insert(messages, message) end,
-}
+local notifications = require('texttools_notify')
+notifications.workflow = function(message) table.insert(messages, message) end
 package.loaded['ordered_browser'] = {
   open_urls = function() error('test mag geen browser openen') end,
 }

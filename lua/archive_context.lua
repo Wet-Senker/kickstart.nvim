@@ -36,12 +36,12 @@ end
 local function decode(result, fallback)
   if result.code ~= 0 then
     local message = vim.trim(result.stderr or '')
-    vim.notify(message ~= '' and message or fallback, vim.log.levels.ERROR)
+    notifications.notify(message ~= '' and message or fallback, vim.log.levels.ERROR)
     return nil
   end
   local ok, data = pcall(vim.json.decode, vim.trim(result.stdout or ''))
   if not ok or type(data) ~= 'table' then
-    vim.notify('Onleesbaar antwoord van de archiefzoeker.', vim.log.levels.ERROR)
+    notifications.notify('Onleesbaar antwoord van de archiefzoeker.', vim.log.levels.ERROR)
     return nil
   end
   return data
@@ -149,7 +149,7 @@ function M.search(buf)
     if type(source) == 'number' and vim.api.nvim_buf_is_valid(source) then
       return M.search(source)
     end
-    vim.notify('De bijbehorende artikelbuffer bestaat niet meer.', vim.log.levels.WARN)
+    notifications.notify('De bijbehorende artikelbuffer bestaat niet meer.', vim.log.levels.WARN)
     return
   end
   if vim.b[buf].archive_context_running == true then
@@ -161,7 +161,7 @@ function M.search(buf)
   local offset = offset_for(buf)
   local file = write_temp(buf)
   if not file then
-    vim.notify('Kon het artikel niet tijdelijk wegschrijven.', vim.log.levels.ERROR)
+    notifications.notify('Kon het artikel niet tijdelijk wegschrijven.', vim.log.levels.ERROR)
     return
   end
 
@@ -171,11 +171,11 @@ function M.search(buf)
       or string.format('Archief · verhalen %d en verder ophalen…', offset + 1),
     vim.log.levels.INFO
   )
-  vim.system(
+  notifications.system(
     { command, file, '--offset', tostring(offset), '--json' },
-    { text = true },
+    { text = true, texttools_activity = { action = 'Archief zoeken', buf = buf } },
     function(result)
-      vim.schedule(function()
+      notifications.schedule(function()
         vim.fn.delete(file)
         if vim.api.nvim_buf_is_valid(buf) then
           vim.b[buf].archive_context_running = false
@@ -189,7 +189,7 @@ function M.search(buf)
             offset == 0 and 'Er is niet eerder over dit onderwerp geschreven.'
               or 'Er zijn geen verdere verhalen meer.',
             vim.log.levels.INFO,
-            { ttl = 8 }
+            { ttl = 8, kind = 'success' }
           )
           return
         end
@@ -202,7 +202,7 @@ function M.search(buf)
             offset + shown, total, PAGE_SIZE
           ),
           vim.log.levels.INFO,
-          { ttl = 12 }
+          { ttl = 12, kind = 'success' }
         )
       end)
     end
@@ -213,50 +213,50 @@ function M.summarise(buf)
   buf = buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
   if vim.b[buf].archive_context_review ~= true then
-    vim.notify('Open eerst een archieflijst met <leader>aa.', vim.log.levels.WARN)
+    notifications.notify('Open eerst een archieflijst met <leader>aa.', vim.log.levels.WARN)
     return
   end
   local source = vim.b[buf].archive_context_source
   if not (type(source) == 'number' and vim.api.nvim_buf_is_valid(source)) then
-    vim.notify('De bijbehorende artikelbuffer bestaat niet meer.', vim.log.levels.WARN)
+    notifications.notify('De bijbehorende artikelbuffer bestaat niet meer.', vim.log.levels.WARN)
     return
   end
   if selection_count(buffer_text(buf)) == 0 then
-    vim.notify('Laat minimaal één regel staan om samen te vatten.', vim.log.levels.WARN)
+    notifications.notify('Laat minimaal één regel staan om samen te vatten.', vim.log.levels.WARN)
     return
   end
 
   local review_file = vim.fn.tempname() .. '.md'
   if vim.fn.writefile(vim.api.nvim_buf_get_lines(buf, 0, -1, false), review_file) ~= 0 then
-    vim.notify('Kon de keuzelijst niet tijdelijk wegschrijven.', vim.log.levels.ERROR)
+    notifications.notify('Kon de keuzelijst niet tijdelijk wegschrijven.', vim.log.levels.ERROR)
     return
   end
   local article_file = write_temp(source)
   if not article_file then
     vim.fn.delete(review_file)
-    vim.notify('Kon het artikel niet tijdelijk wegschrijven.', vim.log.levels.ERROR)
+    notifications.notify('Kon het artikel niet tijdelijk wegschrijven.', vim.log.levels.ERROR)
     return
   end
 
   workflow('Archief · achtergrondtekst schrijven…', vim.log.levels.INFO)
-  vim.system(
+  notifications.system(
     { command, article_file, '--summarise', review_file, '--json' },
-    { text = true },
+    { text = true, texttools_activity = { action = 'Archief samenvatten', buf = source } },
     function(result)
-      vim.schedule(function()
+      notifications.schedule(function()
         vim.fn.delete(review_file)
         vim.fn.delete(article_file)
         local data = decode(result, 'Achtergrondtekst maken mislukt.')
         if not data or type(data.background) ~= 'string' then return end
         if not vim.api.nvim_buf_is_valid(source) then
-          vim.notify('De artikelbuffer is intussen gesloten.', vim.log.levels.WARN)
+          notifications.notify('De artikelbuffer is intussen gesloten.', vim.log.levels.WARN)
           return
         end
         M.apply(source, data.background)
         workflow(
           'Achtergrond toegevoegd onder ## Achtergrond. Lees hem na; hij gaat vóór verzending weer weg.',
           vim.log.levels.INFO,
-          { ttl = 12 }
+          { ttl = 12, kind = 'success' }
         )
       end)
     end

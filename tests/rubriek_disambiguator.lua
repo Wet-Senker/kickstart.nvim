@@ -26,7 +26,7 @@ local txt = apply_with_fm({
   '  planning_date: 2026-10-07',
   '---',
 })
-assert(txt:find('working_title: "x %- 1 LEUGENBANKIEN gemeente 2026%-10%-07"'),
+assert(txt:find('working_title: "x %- 1 LEUGENBANKIEN gemeente 07%-10%-26"'),
   'trefwoord + datum ontbreekt: ' .. txt)
 
 -- Alleen planning_date (geen trefwoord) → alleen de datum.
@@ -36,7 +36,7 @@ local txt2 = apply_with_fm({
   '  planning_date: 2026-10-07',
   '---',
 })
-assert(txt2:find('working_title: "x %- 1 LEUGENBANKIEN 2026%-10%-07"'),
+assert(txt2:find('working_title: "x %- 1 LEUGENBANKIEN 07%-10%-26"'),
   'datum-only ontbreekt: ' .. txt2)
 
 -- Geen metadata-stap (geen planning_date) → werktitel onveranderd.

@@ -29,6 +29,7 @@ for i = 1, 7 do
 end
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, body)
 ai.tussenkopjes_streamer({ automatic = true, buf = buf })
+assert(vim.wait(1000, function() return #calls == 2 end))
 assert(#calls == 2 and not callbacks.kopopties, 'automatisch pad moet precies twee calls zonder kopopties doen')
 vim.api.nvim_buf_set_lines(buf, -1, -1, false, { '## Kalender', '', 'Kalendergegevens' })
 callbacks.tussenkopjes({ code = 0, stdout = '4: Onderwerp' })
@@ -46,6 +47,7 @@ callbacks = {}
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, body)
 vim.api.nvim_buf_set_lines(buf, -1, -1, false, { '> Eigen streamer' })
 ai.tussenkopjes_streamer({ automatic = true, buf = buf })
+assert(vim.wait(1000, function() return #calls == 1 end))
 assert(#calls == 1 and calls[1] == 'tussenkopjes', 'eigen streamer startte extra AI-calls')
 callbacks.tussenkopjes({ code = 0, stdout = '4: Eigen onderwerp' })
 assert(vim.wait(1000, function() return not vim.b[buf].article_structure_running end))
@@ -61,6 +63,7 @@ table.insert(with_heading, 9, '**Bestaand onderwerp**')
 table.insert(with_heading, 10, '')
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, with_heading)
 ai.tussenkopjes_streamer({ automatic = true, buf = buf })
+assert(vim.wait(1000, function() return #calls == 1 end))
 assert(#calls == 1 and calls[1] == 'streamer', 'bestaand tussenkopje startte toch de tussenkopjes-AI')
 callbacks.streamer({ code = 0, stdout = 'Aanvullende streamer' })
 assert(vim.wait(1000, function() return not vim.b[buf].article_structure_running end))
@@ -75,6 +78,7 @@ calls = {}
 callbacks = {}
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, body)
 ai.tussenkopjes_streamer({ automatic = true, buf = buf })
+assert(vim.wait(1000, function() return #calls == 2 end))
 vim.api.nvim_buf_set_lines(buf, 4, 5, false, { 'Eigen nieuwere alinea.' })
 callbacks.tussenkopjes({ code = 0, stdout = '4: Oude tussenkop' })
 callbacks.streamer({ code = 0, stdout = 'Oude streamer' })
@@ -87,6 +91,7 @@ assert(not result:find('> Oude streamer', 1, true), 'late streamer werd alsnog i
 calls = {}
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, { 'Korte kop', '', 'Korte tekst.' })
 ai.tussenkopjes_streamer({ automatic = true, buf = buf })
+assert(vim.wait(1000, function() return not vim.b[buf].article_structure_running end))
 assert(#calls == 0, 'kort artikel startte AI')
 
 -- De rewrite-route bevat de tussenkopjes al in haar prompt. Ook als de AI er
@@ -96,6 +101,7 @@ vim.api.nvim_buf_set_lines(buf, 0, -1, false, body)
 local completed = false
 ai.tussenkopjes_streamer({ automatic = true, streamer_only = true, buf = buf,
   done = function(ok) assert(ok); completed = true end })
+assert(vim.wait(1000, function() return #calls == 1 end))
 assert(#calls == 1 and calls[1] == 'streamer', 'rewrite-opmaak vroeg toch losse tussenkopjes')
 callbacks.streamer({ code = 0, stdout = 'Definitieve streamer' })
 assert(vim.wait(1000, function() return completed end))
@@ -104,6 +110,7 @@ calls = {}
 completed = false
 ai.tussenkopjes_streamer({ automatic = true, streamer_only = true, buf = buf,
   done = function(ok) assert(ok); completed = true end })
+assert(vim.wait(1000, function() return completed end))
 assert(completed and #calls == 0, 'bestaande streamer veroorzaakte extra AI-werk')
 vim.system = original_system
 print 'automatic structure: OK'

@@ -153,8 +153,69 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | `<leader>kh` / `:ContextHelp` | Toont dynamische hulp voor de huidige workflowfase: status, aanbevolen vervolgstap, andere hoofdopties en het gevolg daarvan. Werkt onder meer bij krantversies, publicatiereview/-herstel, agenda, rubriekexport, doublurecontrole en Meestgelezen. Zonder herkende context verwijst de melding naar de algemene `<leader>ah`-hulp. |
 | `<leader>aq` | Annuleer alle actieve editor-AI-taken van de huidige buffer. |
 | `:AICancel` | Zelfde expliciete annulering als `<leader>aq`. |
+| `<leader>kl` / `:TexttoolsActiviteit` | Toon of sluit de activiteitenstrook onder het artikel, ook tijdens werk. |
+| `:TexttoolsActiviteit!` | Wissel tussen de kleine strook en het uitgebreide artikel-logboek. |
 | `:TexttoolsLog` | Toon de veilige tijdlijn van het huidige artikel: handelingen, duur, uitkomst en een eventueel onafgesloten proces. |
 | `:TexttoolsLog!` | Toon de laatst gelogde Texttools-workflow, ongeacht de huidige buffer. |
+
+De datum achter de krantwerktitel en vaste rubriektitels gebruikt Nederlandse
+notatie: `19-10-26` voor 19 oktober 2026. Technische datumvelden blijven ISO;
+een ongewijzigde herpoging houdt dezelfde bewerkdatum.
+
+Ook rechtstreeks plaatsen met `<leader>aw`, zonder herschrijven, controleert
+de volledige metadata: korte inhoudstitel en inhoudelijke houdbaarheid. Als die
+ontbreekt, vraagt de gedeelde Python-kern dezelfde analyse op als na herschrijven,
+zonder de artikeltekst te veranderen. Een bestaande `x` en werktitel zijn op
+zichzelf niet voldoende. Vaste rubriektitels en bewuste eigen werktitels blijven
+behouden. Nieuwe analyse wordt vóór de eerste CMS-create opgeslagen en bij een
+ongewijzigde herpoging hergebruikt. De bewerkdatum blijft lokaal bepaald.
+
+De **activiteitenstrook** staat in een apart, ondoorzichtig paneel met een vaste
+hoogte van twee tekstregels, plus een proceskop en een bedieningsbalk. De strook
+groeit niet wanneer er taken starten of stoppen. De proceskop blijft zichtbaar
+tijdens teruglezen en bundelt gelijke taken. Bij onvoldoende breedte geeft
+`+N` het aantal overige soorten taken aan. Onder de kop staat het laatste
+relevante resultaat of een aandachtmelding. Lange tekst wordt afgebroken;
+een afgekorte samenvatting eindigt op `…`. De volledige uitleg staat in het
+uitklapbare logboek. Interne stappen zoals metadata bewaren staan alleen daar.
+
+Ga met `<C-j>` of de muis naar het paneel. `e` opent het uitgebreide logboek
+(nogmaals `e` maakt het compact), `l` opent de technische tijdlijn en `q` sluit
+echt, ook tijdens werk. Dan staat de taakstatus in de gewone editorstatusbalk;
+met een zichtbare strook wordt die informatie niet dubbel getoond. De bestaande
+toets `a` markeert aandachtmeldingen als gelezen, niet als opgelost.
+Een bevestigde geslaagde herhaling ruimt uitsluitend de melding van dezelfde
+actie op. Een oud resultaat kan geen nieuwere fout wissen. Meldingen zonder
+actiekoppeling worden niet door willekeurige successen gewist. De geschiedenis
+blijft beschikbaar. Keuzevensters en bestaande publicatiecontroles blijven leidend.
+
+Bij teruglezen blijft dezelfde melding onder de cursor, ook wanneer het logboek
+zijn limiet bereikt. De zichtbaarheid en compacte/uitgebreide voorkeur blijven
+lokaal bewaard. Een nieuwe fout kan een gesloten strook opnieuw tonen zonder
+focusovername. Andere editor-/pluginmeldingen behouden hun eigen kanaal.
+
+De geschiedenis volgt het bronartikel, ook vanuit foto-, archief- en
+krantreviewbuffers. Ze bewaart maximaal honderd meldingen per open artikel in
+de huidige NeoVim-sessie en wordt nooit aan het artikelbestand toegevoegd.
+`:TexttoolsLog` blijft het duurzame, technische diagnosekanaal; open dit na een
+herstart voor eerdere runs. De nieuwe weergave voegt geen AI-/netwerkcalls,
+subprocessen of polling toe. Ook asynchrone Texttools-subprocessen zonder
+bestaande workflowtrace worden lokaal als lopend geregistreerd; getraceerde
+taken worden niet dubbel geteld. Bijwerken gebeurt via bestaande callbacks en
+gebundelde redraws; alleen de weergavevoorkeur wordt bij bediening opgeslagen.
+
+Gevalideerde resultaten verschijnen als `OK:` in de geschiedenis.
+Een volledige doublurecontrole zonder treffers meldt dat expliciet, net als
+de agenda-doublurecontrole en de tekst-/datumcontrole. Overgeslagen, onvolledige
+en verouderde controles krijgen geen onterechte melding dat niets is gevonden.
+Gevonden mogelijke doublures krijgen geen `OK:`. De Python-kern beschrijft
+per editie **Concept opgeslagen**, **Ingepland voor …** of **Online gepubliceerd
+volgens Pubble**, op basis van de bestaande CMS-respons, zonder extra websitecheck.
+Een onbekend publicatiemoment krijgt geen onlineclaim. Bij een mislukte verzending
+kan de noodrem webartikelen weer offline zetten; daarom komt dan geen positieve
+webbevestiging. Een oudere kern krijgt een veilige algemene opslagmelding.
+Pas na alle vervolgstappen volgt de aparte afrondingsmelding. Fouten bij media,
+Teams of archivering blijven zichtbaar.
 
 In hiërarchische keuzemenu's staan acties eerst en staat `← Terug naar …`
 altijd onderaan. Escape sluit de volledige workflow. Korte persoon- en
@@ -563,8 +624,17 @@ de zichtbare tekst een niet-schrijfbare `pubble-nacontrole://`-buffer. Daardoor
 kan `:w` of `:wq` de verwijderde bron niet opnieuw aanmaken. Een mislukte
 verwijdering geeft een expliciete waarschuwing met het achtergebleven pad.
 
-Na `<leader>aw` verhuist het volledige Markdownbestand met frontmatter en alle
-Pubble-ID's naar `~/Documents/Pubble Archief/<jaar>/<maand>/`. Het blijft de
+Heb je tijdens de voorbereiding of publicatie verder getypt, dan worden je
+nieuwere tekst, agenda en fotokeuze niet als gepubliceerd gemarkeerd. Het
+werkbestand blijft staan en de buffer blijft bewerkbaar, met een duidelijke
+waarschuwing dat deze wijzigingen **niet** zijn meegepubliceerd. Een duurzame
+blokkade voorkomt opnieuw plaatsen, ook na heropenen. `<leader>aw` biedt dan
+alleen de gepubliceerde archiefversie ter vergelijking aan, in een apart
+alleen-lezen venster. Verwerk gewenste correcties bewust in Pubble.
+
+Na volledig succes bewaart `~/Documents/Pubble Archief/<jaar>/<maand>/` een
+leesbare versie met titel en weblinks, zonder technische frontmatter.
+Vóór volledige afronding blijft het aparte herstelbestand met Pubble-ID's de
 bron voor hervatten en evenementvervolgen. `TEXTTOOLS_ARCHIVE_DIR` kan naar
 een gesynchroniseerde cloudmap wijzen; het standaardpad mag ook een symlink
 naar die cloudmap zijn. Archiveren en Telescope gebruiken dezelfde instelling.
@@ -574,10 +644,28 @@ naar die cloudmap zijn. Archiveren en Telescope gebruiken dezelfde instelling.
 
 ---
 
-## Achtergrondtaken en pending_jobs
+## Achtergrondtaken
 
-`<leader>ar` kan meerdere AI-aanroepen tegelijk starten. De teller
-`vim.b[buf].pending_jobs` registreert alle bufferwijzigende AI-taken centraal.
+Vóór de eerste verzendcall wordt een kleine herstelverwijzing naast de bron
+opgeslagen. Lukt dat niet, dan wordt niets verstuurd. Na het verwijderen of
+heropenen van een buffer leidt `<leader>aw` naar dezelfde bewaarde Pubble-status;
+een nog lopende run kan niet vanuit een tweede buffer worden gestart. Ontbrekende
+of onleesbare hersteldata geeft een blokkade, nooit stil een nieuwe verzending.
+Bewaar die herstelverwijzing en het statusbestand tot de run is afgerond.
+
+Archiveren, dateline/redactieadres en kopinspectie/-plaatsing wachten niet meer
+synchroon in de editor. Documentresultaten worden alleen op de ongewijzigde
+bufferrevisie toegepast. Lokale documentacties hebben 3 seconden procesbudget;
+export en archivering 60 seconden. Een time-out is geen bewijs dat er niets is
+geschreven: de herstelroute blijft leidend. De archiver behoudt het ID-bestand
+totdat de voltooiingsmarker is opgeslagen; pas daarna volgt de opruiming.
+Bij startfouten komen de betrokken verzendvlaggen vrij en blijft hervatten veilig.
+
+`<leader>ar` kan meerdere AI-aanroepen tegelijk starten. `buffer_jobs` houdt
+de bufferwijzigende taken bij met unieke tokens en herkenbare actienamen.
+Een taak kan uitsluitend zichzelf afronden; een dubbele of late afronding
+kan geen andere taak afmelden. `vim.b[buf].pending_jobs` blijft beschikbaar
+als afgeleide compatibiliteitsteller, maar beslist niet meer over verzending.
 Druk je tijdens zo'n taak op `<leader>aw`, dan wordt één verzendverzoek onthouden;
 de laatste taak start het direct na haar bufferwijziging. Er is geen
 driesecondenpoll meer. Controlecodes worden gestript zodra de bijbehorende taak
@@ -589,6 +677,12 @@ worden genegeerd, `pending_jobs` loopt terug naar nul en een wachtende verzendin
 wordt ingetrokken. Pubble-publicaties, uploads en archivering zijn bewust niet
 annuleerbaar met `<leader>aq`, omdat daar extern al state kan zijn geschreven.
 Escape behoudt overal zijn normale Vim-gedrag.
+
+Pubble-fouten tonen een HTTP-status, een vaste Nederlandse categorie en waar
+beschikbaar bekende validatievelden/-codes. Vrije serverteksten en meegeëchode
+artikelinhoud worden niet overgenomen. Dezelfde veilige informatie staat in
+`:TexttoolsLog`. Onbekende servermeldingen blijven daarom bewust algemeen.
+Werk Texttools en deze client samen bij en herstart NeoVim zodra geen taken lopen.
 
 De melding na het voorbereiden van evenementvervolgen en de uiteindelijke
 verzendsamenvatting verschijnen als tijdelijke, niet-blokkerende notificatie.
@@ -770,6 +864,19 @@ eindstatus. Gericht herhalen kan met:
 ```bash
 bash tests/run_headless.sh duplicate_stages.lua edition_detection.lua
 ```
+
+De volledige runner voert de snelheidsbenchmark afzonderlijk uit ná alle
+functionele tests. Gericht meten:
+
+```bash
+bash tests/run_headless.sh benchmarks/article_recognition.lua
+```
+
+De herkenningsbenchmark gebruikt dezelfde invoer en grens van 5 ms als voorheen,
+maar met 30 opwarmrondes en de mediaan van vijf reeksen van 200 scans. Het
+bereik wordt ook afgedrukt. Draai hem zonder gelijktijdige zware tests/builds;
+de runner kan belasting door andere programma's niet uitsluiten. De langere
+meting voegt alleen enkele seconden testtijd toe, geen productiewerk.
 
 De eerdere instabiliteit in die twee tests is opgelost door de onafhankelijke
 agenda-/herkenningsadapters te mocken. De editie-integratie blijft de echte

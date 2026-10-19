@@ -99,7 +99,8 @@ local publication_review_help = ai._article_context_help(review_buf)
 assert(publication_review_help.title == 'Publicatieteksten controleren', 'eventreviewstatus ontbreekt')
 
 local pending_buf = vim.api.nvim_create_buf(false, true)
-vim.b[pending_buf].pending_jobs = 2
+require('buffer_jobs').start(pending_buf, 'Testtaak 1')
+require('buffer_jobs').start(pending_buf, 'Testtaak 2')
 vim.b[pending_buf].send_requested = true
 local pending_help = ai._article_context_help(pending_buf)
 assert(pending_help.status:find('Verzending staat klaar', 1, true), 'wachtende verzending ontbreekt in hulp')
@@ -146,6 +147,46 @@ local external_ok, _, external_managed = ai._finalize_published_buffer(
 assert(external_ok and not external_managed, "een extern bestand werd als pv-bron behandeld")
 assert(vim.fn.filereadable(external) == 1, "een willekeurig extern Markdownbestand is verwijderd")
 assert(vim.bo[external_buf].buftype == "", "een extern bestand werd een nofile-buffer")
+
+-- Succes is geen toestemming om nieuwere edits als gepubliceerd te markeren.
+local changed_source = paths.work() .. '/nieuwere-edits.md'
+vim.fn.writefile({ 'Oorspronkelijke tekst' }, changed_source)
+local changed_buf = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_buf_set_name(changed_buf, changed_source)
+local changed_name = vim.api.nvim_buf_get_name(changed_buf)
+vim.api.nvim_buf_set_lines(changed_buf, 0, -1, false, { 'Oorspronkelijke tekst' })
+local tick = vim.api.nvim_buf_get_changedtick(changed_buf)
+local newer = { 'c: Nieuwe fotograaf', '', 'Nieuwere tekst', '', '## Kalender', 'Nieuw item' }
+vim.api.nvim_buf_set_lines(changed_buf, 0, -1, false, newer)
+local archive = test_root .. '/gepubliceerd.md'
+vim.fn.writefile({ '# Gepubliceerde versie', '', 'Oorspronkelijke tekst' }, archive)
+local safe, _, cleaned, preserved = ai._finalize_published_buffer(
+  changed_buf, changed_source, { '**Verstuurd**' }, archive, tick
+)
+assert(safe and not cleaned and preserved, 'nieuwe edits werden opgeruimd na publicatie')
+assert(vim.deep_equal(vim.api.nvim_buf_get_lines(changed_buf, 0, -1, false), newer),
+  'succesroute wijzigde nieuwere tekst/agenda/foto')
+assert(vim.bo[changed_buf].modifiable and not vim.bo[changed_buf].readonly and vim.bo[changed_buf].modified,
+  'nieuwere edits zijn niet meer bewerkbaar of staan ten onrechte als opgeslagen')
+assert(vim.fn.filereadable(changed_source) == 1, 'nieuwer werkbestand is verwijderd')
+assert(vim.api.nvim_buf_get_name(changed_buf) == changed_name, 'werkbuffer is losgekoppeld')
+local marker = changed_name .. '.pubble-recovery.json'
+assert(vim.json.decode(table.concat(vim.fn.readfile(marker), '\n')).completed,
+  'bron kan na heropenen opnieuw worden gepubliceerd')
+local help = ai._article_context_help(changed_buf)
+assert(help.title == 'Gepubliceerd, nieuwere wijzigingen behouden', 'contexthelp mist het verschil met de gepubliceerde versie')
+local recovery = require('publication_recovery')
+local dialog = require('user_dialog')
+dialog.confirm = function() return 1 end
+assert(recovery.review_conflict(changed_buf), 'aw startte opnieuw een publicatie')
+local view = vim.api.nvim_get_current_buf()
+assert(view ~= changed_buf and vim.bo[view].buftype == 'nofile' and vim.bo[view].readonly
+  and not vim.bo[view].modifiable, 'archiefvergelijking is geen aparte alleen-lezen weergave')
+assert(vim.deep_equal(vim.api.nvim_buf_get_lines(view, 0, -1, false), vim.fn.readfile(archive)),
+  'archiefvergelijking mist de gepubliceerde tekst')
+assert(recovery.review_conflict(view), 'archiefweergave kan als nieuw artikel worden verstuurd')
+vim.b[changed_buf].failed_send_conflict = nil
+assert(recovery.review_conflict(changed_buf), 'heropenen omzeilt de duurzame publicatieblokkade')
 
 vim.fn.delete(test_root, "rf")
 print("published review buffer: OK")

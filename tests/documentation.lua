@@ -16,6 +16,7 @@ local context_help = read("lua/context_help.lua")
 local edition_review = read("lua/edition_review.lua")
 local archive_context = read("lua/archive_context.lua")
 local article_copy = read("lua/article_copy.lua")
+local article_activity = read("lua/article_activity.lua")
 
 local documented_mappings = {
   { key = "<leader>ar", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ar"' },
@@ -43,6 +44,7 @@ local documented_mappings = {
   { key = "<leader>kv", source = weekly_most_read, registration = "vim.keymap.set('n', '<leader>kv'" },
   { key = "<leader>kf", source = weekly_most_read, registration = "vim.keymap.set('n', '<leader>kf'" },
   { key = "<leader>kh", source = context_help, registration = "vim.keymap.set('n', '<leader>kh'" },
+  { key = "<leader>kl", source = article_activity, registration = "vim.keymap.set('n', '<leader>kl'" },
 }
 
 for _, mapping in ipairs(documented_mappings) do

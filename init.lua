@@ -390,6 +390,14 @@ require('catppuccin').setup {
   -- cursor location to LINE:COLUMN
   ---@diagnostic disable-next-line: duplicate-set-field
   statusline.section_location = function() return '%2l:%-2v' end
+  local filename = statusline.section_filename
+  statusline.section_filename = function(args)
+    local win = vim.g.statusline_winid or vim.api.nvim_get_current_win()
+    local buf = vim.api.nvim_win_get_buf(win)
+    local activity_ui = require 'article_activity'
+    local activity = not activity_ui.panel_visible(buf) and activity_ui.statusline(buf) or ''
+    return filename(args) .. (activity ~= '' and (' │ ' .. activity) or '')
+  end
 
   -- ... and there is more!
   --  Check out: https://github.com/nvim-mini/mini.nvim
@@ -588,7 +596,10 @@ do
 
   -- Useful status updates for LSP.
   vim.pack.add { gh 'j-hui/fidget.nvim' }
-  require('fidget').setup {}
+  require('fidget').setup {
+    notification = { window = { winblend = 0, normal_hl = 'NormalFloat', border = 'rounded', max_width = 72, max_height = 6 } },
+  }
+  require('article_activity').setup()
 
   --  This function gets run when an LSP attaches to a particular buffer.
   --    That is to say, every time a new file is opened that is associated with

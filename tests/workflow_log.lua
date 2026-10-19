@@ -56,5 +56,16 @@ assert(fast_finished.action_id == fast_token.action_id, 'verkeerde actie afgeron
 assert(fast_finished.outcome == 'failed' and fast_finished.detail.exit_code == 1,
   'foutuitkomst ontbreekt')
 
+-- Vanuit een paneel hoort :TexttoolsLog bij de bron, niet bij de toevallig
+-- laatst gelogde workflow van een ander artikel.
+local pane = vim.api.nvim_create_buf(false, true)
+vim.b[pane].texttools_activity_source = buf
+vim.api.nvim_set_current_buf(pane)
+local native_system, command = vim.system, nil
+vim.system = function(args) command = args; return {} end
+workflow_log.show()
+assert(command and command[#command] == token.workflow_id, 'logboekpaneel verloor de bronfilter')
+vim.system = native_system
+
 vim.fn.delete(directory, 'rf')
 print('workflow log: OK')

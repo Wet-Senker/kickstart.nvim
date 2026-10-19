@@ -106,5 +106,22 @@ assert(completed == false and error_result, 'ontbrekende foto werd genegeerd')
 assert(layout_export.pending(buf), 'exportplan ging bij fout verloren')
 assert(vim.fn.filereadable(layout_dir .. '/retry.txt') == 0, 'tekst werd ondanks ontbrekende foto afgerond')
 
+-- Ook bij een gewiste bron krijgt de caller zijn terminale callback, zodat
+-- de duurzame publicatiebinding niet als eeuwig lopend achterblijft.
+local native_system, callback = vim.system, nil
+vim.system = function(_, options, done)
+  assert(options.timeout == 60000)
+  callback = done
+  return {}
+end
+completed, error_result = nil, nil
+layout_export.finalize_with_media(buf, state, function(result, err)
+  completed, error_result = result or false, err
+end)
+vim.api.nvim_buf_delete(buf, { force = true })
+callback({ code = 0 })
+assert(vim.wait(1000, function() return completed ~= nil end))
+assert(completed == false and error_result, 'gewiste bron kreeg geen terminale exportcallback')
+vim.system = native_system
 vim.fn.delete(tmp, 'rf')
 print('layout export: OK')

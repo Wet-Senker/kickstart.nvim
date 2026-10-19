@@ -23,11 +23,31 @@ In Neovim:
   <leader>aw    importcontrole, planning, doublures en versturen
                 ↳ zo nodig eerst kranttijd-/vervolgteksten controleren
   <leader>kd    actieve webartikelen per site op doublures controleren
+  <leader>kl    activiteitenstrook onder de tekst tonen/sluiten
+  :TexttoolsActiviteit! compact/uitgebreid; in paneel e/a/l/q
   :TexttoolsLog veilige tijdlijn met duur en uitkomst per hoofdhandeling
 ```
 
 Na volledig succes verhuist het artikel naar `Pubble Archief`; het werkbestand
 verdwijnt en de open tekst wordt een niet-schrijfbare nacontrolebuffer.
+Uitzondering: nieuwere edits tijdens de publicatie blijven bewerkbaar en zijn
+niet meegepubliceerd. `<leader>aw` opent dan alleen de gepubliceerde versie
+ter vergelijking; opnieuw plaatsen is ook na heropenen geblokkeerd.
+Een herstelverwijzing wordt nu vóór verzending bewaard. Verwijder die niet:
+na een gesloten buffer of fout leidt `aw` naar dezelfde Pubble-status. Kan de
+verwijzing niet worden opgeslagen, dan start de verzending niet.
+
+De activiteitenstrook heeft twee vaste tekstregels; lopende taken staan in een
+vaste kop boven de scrollbare geschiedenis. `+N` betekent overige soorten taken.
+Bevestigde resultaten krijgen `OK:`, ook na een controle zonder treffers;
+mogelijke doublures krijgen geen OK. `<C-j>` naar het paneel, `e` voor alle
+meldingen (nogmaals voor compact), `l` voor technische diagnose en `q` om echt
+te sluiten, ook tijdens werk. Dan blijft taakstatus in de editorstatusbalk staan.
+`a` markeert gelezen, niet opgelost; een geslaagde herhaling kan alleen de fout
+van dezelfde actie opruimen. Een nieuwe fout kan de strook zonder focusovername
+heropenen. Webresultaten onderscheiden concept, ingepland en online volgens
+Pubble; er is geen extra publieke websitecheck. Voorkeur blijft lokaal bewaard;
+maximaal honderd sessiemeldingen per artikel, nooit in de publicatietekst.
 
 ### 2. pubble-batch (meerdere documenten tegelijk)
 

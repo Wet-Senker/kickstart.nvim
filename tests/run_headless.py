@@ -15,12 +15,17 @@ def main():
         sys.exit("Texttools ontbreekt: stel TEXTTOOLS_ROOT in en draai daar uv sync --locked.")
     nvim = os.environ.get("NVIM_BIN", "nvim")
     print(subprocess.check_output([nvim, "--version"], text=True).splitlines()[0], flush=True)
-    tests = [root / "tests" / name for name in sys.argv[1:]] if sys.argv[1:] else sorted((root / "tests").glob("*.lua"))
+    tests_root = root / "tests"
+    if sys.argv[1:]:
+        tests = [tests_root / name for name in sys.argv[1:]]
+    else:
+        tests = sorted(tests_root.glob("*.lua"))
+        tests += sorted((tests_root / "benchmarks").glob("*.lua"))
     failed = []
     for test in tests:
-        if test.parent != root / "tests" or test.suffix != ".lua" or not test.is_file():
+        if test.parent not in (tests_root, tests_root / "benchmarks") or test.suffix != ".lua" or not test.is_file():
             sys.exit(f"Ongeldig testbestand: {test}")
-        print(f"Running tests/{test.name}", flush=True)
+        print(f"Running {test.relative_to(root)}", flush=True)
         with tempfile.TemporaryDirectory(prefix="nvim-headless-") as state:
             env = dict(os.environ)
             env.update({

@@ -98,22 +98,22 @@ end
 local function mark_keys(keys, on_done)
   keys = keys or {}
   if #keys == 0 then
-    vim.notify('Geen kandidaatpaar om te markeren.', vim.log.levels.INFO)
+    notifications.notify('Geen kandidaatpaar om te markeren.', vim.log.levels.INFO)
     return
   end
-  vim.system(mark_command(), {
+  notifications.system(mark_command(), {
     text = true,
     stdin = vim.json.encode { review_keys = keys },
   }, function(process)
-    vim.schedule(function()
+    notifications.schedule(function()
       if process.code ~= 0 then
-        vim.notify(vim.trim(process.stderr or '') ~= '' and vim.trim(process.stderr)
+        notifications.notify(vim.trim(process.stderr or '') ~= '' and vim.trim(process.stderr)
           or 'Markeren als gecontroleerd mislukt.', vim.log.levels.ERROR)
         return
       end
       local ok, response = pcall(vim.json.decode, vim.trim(process.stdout or ''))
       if not ok or type(response) ~= 'table' then
-        vim.notify('Onleesbaar antwoord bij het markeren.', vim.log.levels.ERROR)
+        notifications.notify('Onleesbaar antwoord bij het markeren.', vim.log.levels.ERROR)
         return
       end
       notifications.workflow(string.format(
@@ -208,7 +208,7 @@ local function show_report(result, edition, include_reviewed)
   vim.keymap.set('n', 'o', function()
     local entry = entry_at_cursor()
     if not entry or not entry.article or not entry.article.editor_url then
-      vim.notify('Zet de cursor op een titelregel.', vim.log.levels.INFO)
+      notifications.notify('Zet de cursor op een titelregel.', vim.log.levels.INFO)
       return
     end
     browser.open_urls { tostring(entry.article.editor_url) }
@@ -217,7 +217,7 @@ local function show_report(result, edition, include_reviewed)
   vim.keymap.set('n', '<CR>', function()
     local entry = entry_at_cursor()
     if not entry or not entry.article then
-      vim.notify('Zet de cursor op een titelregel.', vim.log.levels.INFO)
+      notifications.notify('Zet de cursor op een titelregel.', vim.log.levels.INFO)
       return
     end
     open_article_buffer(entry.article)
@@ -226,7 +226,7 @@ local function show_report(result, edition, include_reviewed)
   vim.keymap.set('n', 'm', function()
     local entry = entry_at_cursor()
     if not entry or not entry.pair or not entry.pair.review_key then
-      vim.notify('Zet de cursor op een regel van het kandidaatpaar.', vim.log.levels.INFO)
+      notifications.notify('Zet de cursor op een regel van het kandidaatpaar.', vim.log.levels.INFO)
       return
     end
     mark_keys({ entry.pair.review_key }, function()
@@ -252,16 +252,16 @@ function M.run(edition, options)
   edition = edition or 'all'
   options = options or {}
   notifications.workflow('Webartikelen · doublures zoeken…', vim.log.levels.INFO)
-  vim.system(command(edition, options.include_reviewed), { text = true }, function(process)
-    vim.schedule(function()
+  notifications.system(command(edition, options.include_reviewed), { text = true }, function(process)
+    notifications.schedule(function()
       if process.code ~= 0 then
-        vim.notify(vim.trim(process.stderr or '') ~= '' and vim.trim(process.stderr)
+        notifications.notify(vim.trim(process.stderr or '') ~= '' and vim.trim(process.stderr)
           or 'Webdoublurecontrole mislukt.', vim.log.levels.ERROR)
         return
       end
       local ok, result = pcall(vim.json.decode, vim.trim(process.stdout or ''))
       if not ok or type(result) ~= 'table' then
-        vim.notify('Onleesbare JSON van de webdoublurecontrole.', vim.log.levels.ERROR)
+        notifications.notify('Onleesbare JSON van de webdoublurecontrole.', vim.log.levels.ERROR)
         return
       end
       show_report(result, edition, options.include_reviewed == true)

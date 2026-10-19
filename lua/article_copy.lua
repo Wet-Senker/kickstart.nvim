@@ -1,5 +1,6 @@
 -- Dunne client: Python bepaalt welke artikelinhoud in een schone kopie hoort.
 local M = {}
+local notifications = require('texttools_notify')
 local commands = require('texttools_commands')
 local paths = require('texttools_paths')
 local requests = {}
@@ -18,22 +19,22 @@ function M.copy(buf)
   end
   local stem = source_name ~= '' and vim.fn.fnamemodify(source_name, ':t:r') or 'artikel'
   stem = stem:gsub('[^%w_.-]', '-')
-  local started, err = pcall(vim.system,
+  local started, err = pcall(notifications.system,
     { commands.bin('python'), '-m', 'texttools.article_copy_cli' },
     { text = true, stdin = text, timeout = 10000 },
-    vim.schedule_wrap(function(result)
+    notifications.schedule_wrap(function(result)
       if requests[buf] ~= request then return end
       requests[buf] = nil
       if not vim.api.nvim_buf_is_valid(buf) then return end
       if vim.api.nvim_buf_get_changedtick(buf) ~= tick then
-        vim.notify('Artikel gewijzigd tijdens kopiëren; maak de kopie opnieuw.', vim.log.levels.WARN)
+        notifications.notify('Artikel gewijzigd tijdens kopiëren; maak de kopie opnieuw.', vim.log.levels.WARN)
         return
       end
       local ok, data = pcall(vim.json.decode, result.stdout or '')
       if result.code ~= 0 or not ok or type(data) ~= 'table'
           or data.contract_version ~= 1 or type(data.markdown) ~= 'string'
           or data.markdown == '' then
-        vim.notify('Artikelkopie mislukt: ' .. vim.trim(result.stderr or ''), vim.log.levels.ERROR)
+        notifications.notify('Artikelkopie mislukt: ' .. vim.trim(result.stderr or ''), vim.log.levels.ERROR)
         return
       end
       local copied = vim.api.nvim_create_buf(true, false)
@@ -52,11 +53,11 @@ function M.copy(buf)
       vim.bo[copied].modified = true
       vim.api.nvim_set_current_buf(copied)
       vim.api.nvim_win_set_cursor(0, { 1, 3 })
-      vim.notify('Schone kopie geopend. Vul e: in, kies opnieuw een foto en herschrijf met <leader>ar.', vim.log.levels.INFO)
+      notifications.notify('Schone kopie geopend. Vul e: in, kies opnieuw een foto en herschrijf met <leader>ar.', vim.log.levels.INFO)
     end))
   if not started then
     if requests[buf] == request then requests[buf] = nil end
-    vim.notify('Artikelkopie kon niet starten: ' .. tostring(err), vim.log.levels.ERROR)
+    notifications.notify('Artikelkopie kon niet starten: ' .. tostring(err), vim.log.levels.ERROR)
   end
 end
 

@@ -127,13 +127,8 @@ local conflict_decision = recognition.rubric_decision(conflict)
 assert(conflict_decision.action == 'confirm', 'botsende rubrieksignalen moeten een menu openen')
 assert(#conflict_decision.candidates == 2, 'conflictmenu bevat niet beide rubriekkandidaten')
 
--- De herkenning blijft ruim onder het afgesproken budget en doet geen I/O.
-local benchmark_text = supplied_kiek .. string.rep('\nExtra gewone artikeltekst zonder nieuwe signalen.', 100)
-local iterations = 200
-local started = vim.uv.hrtime()
-for _ = 1, iterations do recognition.evaluate(benchmark_text) end
-local average_ms = ((vim.uv.hrtime() - started) / 1e6) / iterations
-assert(average_ms < 5, string.format('artikelherkenning is te traag: %.3f ms gemiddeld', average_ms))
+-- Het ongewijzigde snelheidsbudget wordt afzonderlijk gemeten in
+-- tests/benchmarks/article_recognition.lua, na de functionele suite.
 
 -- Integratie: één centrale importcall past Kamper Kiek zonder keuzemenu toe.
 local tmp = vim.fn.tempname()
@@ -324,4 +319,4 @@ ai_text._duplicate_stage_runner = original_duplicate_runner
 ai_text._kamper_kiek_topics_runner = original_kiek_topics_runner
 
 vim.fn.delete(tmp, 'rf')
-print(string.format('article recognition: OK (%.3f ms gemiddeld)', average_ms))
+print('article recognition: OK')

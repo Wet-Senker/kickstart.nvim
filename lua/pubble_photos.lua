@@ -2,7 +2,8 @@
 local M = {}
 local commands = require 'texttools_commands'
 local dialog = require 'user_dialog'
-local notify = require('texttools_notify').workflow
+local notifications = require('texttools_notify')
+local notify = notifications.workflow
 local workflow_log = require 'workflow_log'
 local browser = require 'ordered_browser'
 local sessions = {}
@@ -73,8 +74,8 @@ local function run(s, args, input, done, on_error, merges_left)
     notify(message, vim.log.levels.ERROR, { ttl = 15 })
     if on_error then on_error(message) end
   end
-  local ok, err = pcall(vim.system, cmd, options, function(result)
-    vim.schedule(function()
+  local ok, err = pcall(notifications.system, cmd, options, function(result)
+    notifications.schedule(function()
       s.busy = false
       s.process = nil
       if s.closed or sessions[s.source] ~= s then
@@ -252,7 +253,7 @@ local function open_browser_choice(s)
     end
   end
   local cmd = { commands.bin('python'), '-m', 'texttools.pubble_photo_cli', 'browse' }
-  local ok, process = pcall(vim.system, cmd, {
+  local ok, process = pcall(notifications.system, cmd, {
     text = true, stdin = vim.json.encode({ photos = s.photos, page = s.data }),
     stdout = function(err, chunk)
       if err or not chunk then return end
@@ -262,11 +263,11 @@ local function open_browser_choice(s)
         local line = session.pending:sub(1, ending - 1)
         session.pending = session.pending:sub(ending + 1)
         local decoded, data = pcall(vim.json.decode, line)
-        if decoded and type(data) == 'table' then vim.schedule(function() event(data) end) end
+        if decoded and type(data) == 'table' then notifications.schedule(function() event(data) end) end
       end
     end,
   }, function(result)
-    vim.schedule(function()
+    notifications.schedule(function()
       if s.browser_choice ~= session then return end
       s.browser_choice = nil
       if result.code ~= 0 then
@@ -305,7 +306,7 @@ ai_prompt = function(s)
         s.ai_resume_autocmd = vim.api.nvim_create_autocmd({ 'FocusGained', 'BufEnter' }, {
           desc = 'AI-fototags aanbieden bij terugkeer naar het artikel',
           callback = function()
-            vim.schedule(function()
+            notifications.schedule(function()
               if s.ai_waiting and not s.busy and not s.stock_form_open and photo_context(s) then
                 ai_import(s, true)
               end
@@ -394,7 +395,7 @@ ai_import = function(s, automatic)
           -- Pas na duurzaam opslaan de originelen herstelbaar wegzetten. Geen
           -- bufferwrite in deze callback; nieuwe redactiebewerkingen blijven veilig.
           local cmd = { commands.bin('python'), '-m', 'texttools.pubble_photo_cli', 'ai-import-finalize' }
-          local ok = pcall(vim.system, cmd, { text = true, stdin = vim.json.encode({ article_path = article_path, batch_id = data.batch_id }) }, vim.schedule_wrap(function(result)
+          local ok = pcall(notifications.system, cmd, { text = true, stdin = vim.json.encode({ article_path = article_path, batch_id = data.batch_id }) }, notifications.schedule_wrap(function(result)
             if result.code ~= 0 then
               dialog.select({ 'Begrepen' }, { native = true, prompt = 'Stockkopieën zijn geïmporteerd, maar Inbox-originelen konden niet volledig worden weggezet.\n'
                 .. vim.trim(result.stderr or '') .. "\nDe foto's blijven herstelbaar; controleer de Inbox vóór een volgend artikel." }, function() end)

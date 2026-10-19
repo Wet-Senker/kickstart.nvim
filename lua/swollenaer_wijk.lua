@@ -1,5 +1,6 @@
 -- Dunne NeoVim-client voor de Python-wijkactie bij De Swollenaer.
 local M = {}
+local notifications = require('texttools_notify')
 local commands = require('texttools_commands')
 local workflow_log = require('workflow_log')
 
@@ -50,8 +51,8 @@ function M.ensure(buf, article_path, resolved, callback)
     workflow_log.diagnostic(buf, 'Swollenaer · Wijkcontrole', detail)
   end
   local options = workflow_log.with_environment({ text = true }, trace)
-  local started, start_error = pcall(vim.system, command, options, function(process)
-    vim.schedule(function()
+  local started, start_error = pcall(notifications.system, command, options, function(process)
+    notifications.schedule(function()
       if not vim.api.nvim_buf_is_valid(buf) or vim.api.nvim_buf_get_changedtick(buf) ~= tick then
         diagnose({ status = 'stale', reason = 'buffer_changed' })
         complete('stale', 'De artikeltekst is tijdens de wijkcontrole gewijzigd. Druk opnieuw <leader>aw.', {
@@ -111,10 +112,10 @@ function M.ensure(buf, article_path, resolved, callback)
           commands.bin('pubble-wijk'), 'onthoud',
           '--street', street.name, '--house', street.house, '--choice', name,
         }
-        local save_started, save_error = pcall(vim.system, save_command, workflow_log.with_environment({ text = true }, trace), function(saved)
-          vim.schedule(function()
+        local save_started, save_error = pcall(notifications.system, save_command, workflow_log.with_environment({ text = true }, trace), function(saved)
+          notifications.schedule(function()
             if saved.code ~= 0 then
-              vim.notify('Wijk gekozen, maar adres kon niet worden onthouden: ' .. vim.trim(saved.stderr or ''), vim.log.levels.WARN)
+              notifications.notify('Wijk gekozen, maar adres kon niet worden onthouden: ' .. vim.trim(saved.stderr or ''), vim.log.levels.WARN)
               workflow_log.diagnostic(buf, 'Swollenaer · Wijkcache', {
                 status = 'failed',
                 reason = 'manual_cache_write_failed',
@@ -125,7 +126,7 @@ function M.ensure(buf, article_path, resolved, callback)
           end)
         end)
         if not save_started then
-          vim.notify('Wijk gekozen, maar adrescache kon niet starten: ' .. tostring(save_error), vim.log.levels.WARN)
+          notifications.notify('Wijk gekozen, maar adrescache kon niet starten: ' .. tostring(save_error), vim.log.levels.WARN)
           workflow_log.diagnostic(buf, 'Swollenaer · Wijkcache', {
             status = 'failed',
             reason = 'manual_cache_process_failed',
@@ -137,7 +138,7 @@ function M.ensure(buf, article_path, resolved, callback)
 
       if result.status == 'citywide' then
         if type(result.selection_note) == 'string' and result.selection_note ~= '' then
-          vim.notify(result.selection_note, vim.log.levels.INFO)
+          notifications.notify(result.selection_note, vim.log.levels.INFO)
         end
         apply(result.suggested or 'Heel Zwolle', false)
         return
@@ -146,7 +147,7 @@ function M.ensure(buf, article_path, resolved, callback)
       if result.status == 'suggested' and type(result.suggested) == 'string' then
         local evidence = type(result.evidence) == 'table' and result.evidence[1] or nil
         if result.request_mode == 'forced' then
-          vim.notify('Wijk voorgesteld: ' .. result.suggested .. (evidence and (' — ' .. evidence) or ''), vim.log.levels.INFO)
+          notifications.notify('Wijk voorgesteld: ' .. result.suggested .. (evidence and (' — ' .. evidence) or ''), vim.log.levels.INFO)
           apply(result.suggested, false)
           return
         end

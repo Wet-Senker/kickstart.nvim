@@ -1,5 +1,6 @@
 -- Dunne UI-adapter voor de gedeelde, AI-vrije publicatiedatumcontrole.
 local M = {}
+local notifications = require('texttools_notify')
 local commands = require('texttools_commands')
 local requests = {}
 local workflow = require('workflow_log')
@@ -31,18 +32,18 @@ function M.review(buf, file, editions, dates, done)
       '--editions', table.concat(editions, ','), '--display-dates', vim.json.encode(dates), '--documents' }
     if approve then table.insert(cmd, '--approve') end
     local opts = workflow.with_environment({ text = true, stdin = vim.json.encode(documents), timeout = 10000 }, trace)
-    local started = pcall(vim.system, cmd, opts,
-      vim.schedule_wrap(function(result)
+    local started = pcall(notifications.system, cmd, opts,
+      notifications.schedule_wrap(function(result)
         if not current() then
           if requests[buf] == request then
-            vim.notify('Tekst gewijzigd tijdens datumcontrole; start de verzending opnieuw.', vim.log.levels.WARN)
+            notifications.notify('Tekst gewijzigd tijdens datumcontrole; start de verzending opnieuw.', vim.log.levels.WARN)
             finish('cancel')
           end
           return
         end
         local ok, review = pcall(vim.json.decode, result.stdout or '')
         if result.code ~= 0 or not ok or type(review) ~= 'table' or review.version ~= 1 then
-          vim.notify('Datumcontrole mislukt; er is niets verzonden.', vim.log.levels.ERROR)
+          notifications.notify('Datumcontrole mislukt; er is niets verzonden.', vim.log.levels.ERROR)
           finish('cancel')
           return
         end
@@ -53,8 +54,14 @@ function M.review(buf, file, editions, dates, done)
           -- De Python-actie voegt alleen de bron-/datumgebonden goedkeuring toe.
           vim.fn.writefile(vim.split(review.markdown, '\n', { plain = true }), file)
           vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(review.editor_markdown, '\n', { plain = true }))
+          notifications.workflow('Tekst- en datumcontrole afgerond: je bevestiging is opgeslagen.', vim.log.levels.INFO,
+            { buf = buf, kind = 'success' })
           finish('ready')
         elseif review.ready then
+          local message = review.approved == true and 'Tekst- en datumcontrole afgerond: de eerdere bevestiging is nog geldig.'
+            or (type(review.issues) == 'table' and #review.issues == 0
+              and 'Tekst- en datumcontrole afgerond: geen aandachtspunten gevonden.' or 'Tekst- en datumcontrole afgerond.')
+          notifications.workflow(message, vim.log.levels.INFO, { buf = buf, kind = 'success' })
           finish('ready')
         else
           local prompt = { 'Tekst en publicatiedatum controleren:' }
@@ -85,7 +92,7 @@ function M.review(buf, file, editions, dates, done)
         end
       end))
     if not started then
-      vim.notify('Datumcontrole kon niet starten; er is niets verzonden.', vim.log.levels.ERROR)
+      notifications.notify('Datumcontrole kon niet starten; er is niets verzonden.', vim.log.levels.ERROR)
       finish('cancel')
     end
   end

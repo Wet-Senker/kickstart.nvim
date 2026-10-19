@@ -350,12 +350,11 @@ function M.show(result, callback, options)
     end
   end
   focus_dialog()
-  vim.schedule(focus_dialog)
+  notifications.schedule(focus_dialog)
 end
 
 function M.check(command, callback, options)
   options = options or {}
-  notifications.workflow('Pubble wordt gecontroleerd op mogelijke doublures…', vim.log.levels.INFO)
   local trace_buf = options.buf
   if type(trace_buf) ~= 'number' or not vim.api.nvim_buf_is_valid(trace_buf) then
     trace_buf = vim.api.nvim_get_current_buf()
@@ -370,7 +369,7 @@ function M.check(command, callback, options)
     workflow_log.finish(trace, outcome, detail)
   end
   local function handle_result(result)
-    vim.schedule(function()
+    notifications.schedule(function()
       if options.is_current and not options.is_current() then
         finish_trace('cancelled', { reason = 'stale_result', exit_code = result.code })
         callback(false, nil)
@@ -384,6 +383,7 @@ function M.check(command, callback, options)
           error = result.code ~= 0 and 'ProcessExit' or 'InvalidResult',
         })
         local detail = vim.trim(result.stderr or result.stdout or '')
+        notifications.workflow('Doublurecontrole mislukt. Controleer opnieuw vóór verzending.', vim.log.levels.ERROR, { buf = trace_buf })
         local continue_label = options.failure_continue_label or 'Toch verzenden'
         local prompt = 'Doublurecontrole mislukt'
           .. (detail ~= '' and (': ' .. trim_text(detail, 180)) or '')
@@ -406,6 +406,18 @@ function M.check(command, callback, options)
         exit_code = result.code,
         candidate_count = #data.candidates,
       })
+      if data.performed == false then
+        notifications.workflow('Doublurecontrole overgeslagen; er is niet op doublures gecontroleerd.', vim.log.levels.INFO, { buf = trace_buf })
+      elseif data.history_complete == false then
+        notifications.workflow('Doublurecontrole onvolledig; het resultaat is geen volledige controle.', vim.log.levels.WARN, { buf = trace_buf })
+      elseif data.performed == true or data.history_complete == true then
+        local message = #data.candidates == 0 and 'Doublurecontrole afgerond: geen mogelijke doublures gevonden.'
+          or ('Doublurecontrole afgerond: %d mogelijke doublure(s) gevonden.'):format(#data.candidates)
+        notifications.workflow(message, vim.log.levels.INFO, {
+          buf = trace_buf, kind = #data.candidates == 0 and 'success' or nil, resolved = true,
+          status = #data.candidates > 0 and 'Mogelijke doublures gevonden' or nil,
+        })
+      end
       if #data.candidates == 0 then
         callback(true, data)
         return
@@ -415,8 +427,9 @@ function M.check(command, callback, options)
       end, options)
     end)
   end
+  handle_result = notifications.bind(trace_buf, handle_result)
   local process_options = workflow_log.with_environment({ text = true }, trace)
-  local started, err = pcall(vim.system, command, process_options, handle_result)
+  local started, err = pcall(notifications.system, command, process_options, handle_result)
   if not started then
     finish_trace('failed', { error = 'ProcessStartError' })
     handle_result({ code = 1, stderr = tostring(err) })

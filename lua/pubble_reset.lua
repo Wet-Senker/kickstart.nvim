@@ -127,14 +127,14 @@ local function finish(buf)
 end
 
 local function apply(buf, plan, tick, source)
-  vim.system(command 'apply', { text = true, stdin = source }, function(result)
-    vim.schedule(function()
+  notifications.system(command 'apply', { text = true, stdin = source }, function(result)
+    notifications.schedule(function()
       finish(buf)
       if not vim.api.nvim_buf_is_valid(buf) then return end
       local outcome = decode(result.stdout)
       if not outcome then
         local err = vim.trim(result.stderr or '')
-        vim.notify(
+        notifications.notify(
           'Reset mislukt' .. (err ~= '' and (': ' .. err) or '') .. '. Er is niets aan je tekst veranderd.',
           vim.log.levels.ERROR
         )
@@ -145,7 +145,7 @@ local function apply(buf, plan, tick, source)
       if #errors > 0 then
         -- De ID's in de tekst zijn de enige verwijzing naar wat er in Pubble
         -- staat: pas terugzetten als alles offline is, anders raak je ze kwijt.
-        vim.notify(
+        notifications.notify(
           'Niet alles kon offline worden gezet; je tekst is NIET teruggezet zodat je het opnieuw kunt proberen:\n- '
             .. table.concat(errors, '\n- '),
           vim.log.levels.ERROR
@@ -157,7 +157,7 @@ local function apply(buf, plan, tick, source)
       local snapshot = text(outcome.restore_from)
       if snapshot and vim.fn.filereadable(snapshot) == 1 then
         if vim.api.nvim_buf_get_changedtick(buf) ~= tick then
-          vim.notify(
+          notifications.notify(
             'De tekst veranderde tijdens de reset; ze is niet overschreven. Webartikelen staan wel offline.',
             vim.log.levels.WARN
           )
@@ -191,19 +191,19 @@ function M.reset(target_buf)
     return
   end
   if vim.b[buf].publication_in_progress then
-    vim.notify('Er loopt nog een verzending; wacht tot die klaar is.', vim.log.levels.WARN)
+    notifications.notify('Er loopt nog een verzending; wacht tot die klaar is.', vim.log.levels.WARN)
     return
   end
   local source = buffer_text(buf)
   if vim.trim(source) == '' then
-    vim.notify('De huidige buffer is leeg.', vim.log.levels.ERROR)
+    notifications.notify('De huidige buffer is leeg.', vim.log.levels.ERROR)
     return
   end
 
   local tick = vim.api.nvim_buf_get_changedtick(buf)
   active[buf] = true
-  vim.system(command 'plan', { text = true, stdin = source }, function(result)
-    vim.schedule(function()
+  notifications.system(command 'plan', { text = true, stdin = source }, function(result)
+    notifications.schedule(function()
       if not vim.api.nvim_buf_is_valid(buf) then
         active[buf] = nil
         return
@@ -212,12 +212,12 @@ function M.reset(target_buf)
       if result.code ~= 0 or not plan then
         finish(buf)
         local err = vim.trim(result.stderr or '')
-        vim.notify('Resetplan maken mislukt' .. (err ~= '' and (': ' .. err) or ''), vim.log.levels.ERROR)
+        notifications.notify('Resetplan maken mislukt' .. (err ~= '' and (': ' .. err) or ''), vim.log.levels.ERROR)
         return
       end
       if vim.api.nvim_buf_get_changedtick(buf) ~= tick then
         finish(buf)
-        vim.notify('De tekst veranderde tijdens het plan maken; start de reset opnieuw.', vim.log.levels.WARN)
+        notifications.notify('De tekst veranderde tijdens het plan maken; start de reset opnieuw.', vim.log.levels.WARN)
         return
       end
       local has_items = type(plan.items) == 'table' and #plan.items > 0

@@ -148,14 +148,12 @@ local function command(...)
   return result
 end
 
-local function progress(title)
-  local ok, fidget = pcall(require, 'fidget.progress')
-  if not ok or type(fidget.handle) ~= 'table' then return { finish = function() end } end
-  return fidget.handle.create {
-    title = title,
-    message = '',
-    lsp_client = { name = 'agenda-page' },
-  }
+local function progress(title, buf)
+  local log = require('workflow_log')
+  local trace = log.start(buf, title)
+  return { finish = function(_, result)
+    log.finish(trace, result.code == 0 and 'succeeded' or 'failed', { exit_code = result.code })
+  end }
 end
 
 local function replace_buffer(buf, text)
@@ -199,19 +197,19 @@ local function show_validation(decoded)
     return true
   end
   local errors = decoded.errors or { 'Onbekende validatiefout' }
-  vim.notify('Agendapagina nog niet verzendklaar:\n- ' .. table.concat(errors, '\n- '), vim.log.levels.WARN)
+  notifications.notify('Agendapagina nog niet verzendklaar:\n- ' .. table.concat(errors, '\n- '), vim.log.levels.WARN)
   return false
 end
 
 local function validate_buffer(buf, callback, edition)
   local text = buffer_text(buf)
   local validate_command = edition and command('validate', '--edition', edition) or command 'validate'
-  vim.system(validate_command, { text = true, stdin = text }, function(result)
-    vim.schedule(function()
+  notifications.system(validate_command, { text = true, stdin = text }, function(result)
+    notifications.schedule(function()
       if not vim.api.nvim_buf_is_valid(buf) then return end
       local decoded = decode_validation(result.stdout)
       if not decoded then
-        vim.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or 'De agendacontrole gaf geen leesbaar resultaat.', vim.log.levels.ERROR)
+        notifications.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or 'De agendacontrole gaf geen leesbaar resultaat.', vim.log.levels.ERROR)
         if callback then callback(false) end
         return
       end
@@ -236,7 +234,7 @@ function M.prepare(buf)
     return
   end
   if vim.trim(buffer_text(buf)) == '' then
-    vim.notify('De huidige buffer is leeg.', vim.log.levels.ERROR)
+    notifications.notify('De huidige buffer is leeg.', vim.log.levels.ERROR)
     return
   end
   if M.is_prepared(buf) then
@@ -254,27 +252,28 @@ function M.prepare(buf)
 
   local original = buffer_text(buf)
   local changedtick = vim.api.nvim_buf_get_changedtick(buf)
-  local handle = progress 'Agenda · Voorbereiden'
+  local handle = progress('Agenda · Voorbereiden', buf)
   local process
-  process = vim.system(command 'prepare', { text = true, stdin = original }, function(result)
-    handle:finish()
+  process = notifications.system(command 'prepare', { text = true, stdin = original }, function(result)
+    handle:finish(result)
     active_prepare[buf] = nil
-    vim.schedule(function()
+    notifications.schedule(function()
       if not vim.api.nvim_buf_is_valid(buf) then return end
       if vim.b[buf].agenda_prepare_cancelled then
         vim.b[buf].agenda_prepare_cancelled = false
         return
       end
       if result.code ~= 0 then
-        vim.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or 'Voorbereiden van de agendapagina is mislukt.', vim.log.levels.ERROR)
+        notifications.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or 'Voorbereiden van de agendapagina is mislukt.', vim.log.levels.ERROR)
         return
       end
       if vim.api.nvim_buf_get_changedtick(buf) ~= changedtick then
-        vim.notify('De buffer veranderde tijdens de AI-bewerking; het resultaat is niet over de nieuwe tekst gezet.', vim.log.levels.WARN)
+        notifications.notify('De buffer veranderde tijdens de AI-bewerking; het resultaat is niet over de nieuwe tekst gezet.', vim.log.levels.WARN)
         return
       end
       replace_buffer(buf, result.stdout or '')
-      workflow('Agendapagina voorbereid. Controleer de teksten en velden; verzend daarna met <leader>aw.', vim.log.levels.INFO, { ttl = 9 })
+      workflow('Agendapagina voorbereid. Controleer de teksten en velden; verzend daarna met <leader>aw.', vim.log.levels.INFO,
+        { buf = buf, attention = true })
     end)
   end)
   active_prepare[buf] = process
@@ -297,10 +296,10 @@ function M.validate(buf) validate_buffer(buf or vim.api.nvim_get_current_buf()) 
 
 function M.preview(buf)
   buf = buf or vim.api.nvim_get_current_buf()
-  vim.system(command 'preview', { text = true, stdin = buffer_text(buf) }, function(result)
-    vim.schedule(function()
+  notifications.system(command 'preview', { text = true, stdin = buffer_text(buf) }, function(result)
+    notifications.schedule(function()
       if result.code ~= 0 then
-        vim.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or 'Blokpreview kon niet worden gemaakt.', vim.log.levels.ERROR)
+        notifications.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or 'Blokpreview kon niet worden gemaakt.', vim.log.levels.ERROR)
         return
       end
       local readable = (result.stdout or ''):gsub('><', '>\n<')
@@ -329,7 +328,7 @@ function M.send(buf)
     return
   end
   if not M.is_prepared(buf) then
-    vim.notify('Maak deze tekst eerst klaar met <leader>ka.', vim.log.levels.ERROR)
+    notifications.notify('Maak deze tekst eerst klaar met <leader>ka.', vim.log.levels.ERROR)
     return
   end
 
@@ -350,14 +349,14 @@ function M.send(buf)
       local path = vim.api.nvim_buf_get_name(buf)
       if path == '' then
         active_send[buf] = nil
-        vim.notify('Sla de agendapagina eerst op als bestand.', vim.log.levels.ERROR)
+        notifications.notify('Sla de agendapagina eerst op als bestand.', vim.log.levels.ERROR)
         return
       end
       if vim.bo[buf].modified then
         local ok, error_message = pcall(vim.api.nvim_buf_call, buf, function() vim.cmd 'write' end)
         if not ok then
           active_send[buf] = nil
-          vim.notify('Opslaan mislukt: ' .. tostring(error_message), vim.log.levels.ERROR)
+          notifications.notify('Opslaan mislukt: ' .. tostring(error_message), vim.log.levels.ERROR)
           return
         end
       end
@@ -371,19 +370,19 @@ function M.send(buf)
       local function run_send(allow_duplicates)
         local send_command = command('send', path, '--edition', edition.code)
         if allow_duplicates then table.insert(send_command, '--allow-duplicates') end
-        local handle = progress 'Agenda · Naar Pubble'
-        vim.system(send_command, { text = true }, function(result)
-          handle:finish()
+        local handle = progress('Agenda · Naar Pubble', buf)
+        notifications.system(send_command, { text = true }, function(result)
+          handle:finish(result)
           active_send[buf] = nil
-          vim.schedule(function()
+          notifications.schedule(function()
             if result.code ~= 0 then
-              vim.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or 'Verzenden van de agendapagina is mislukt.', vim.log.levels.ERROR)
+              notifications.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or 'Verzenden van de agendapagina is mislukt.', vim.log.levels.ERROR)
               return
             end
             local raw = (result.stdout or ''):match 'AGENDA_PAGE_RESULT_JSON:(%b{})'
             local ok, status = pcall(vim.json.decode, raw or '')
             if not ok or type(status) ~= 'table' then
-              vim.notify('Pubble gaf geen leesbare verzendstatus terug.', vim.log.levels.ERROR)
+              notifications.notify('Pubble gaf geen leesbare verzendstatus terug.', vim.log.levels.ERROR)
               return
             end
             reload_after_send(buf)
@@ -401,7 +400,7 @@ function M.send(buf)
         for _, candidate in ipairs(duplicates) do
           table.insert(lines, '• ' .. duplicate_candidate_line(candidate))
         end
-        vim.notify('Mogelijke doublures gevonden:\n' .. table.concat(lines, '\n'), vim.log.levels.WARN)
+        notifications.notify('Mogelijke doublures gevonden:\n' .. table.concat(lines, '\n'), vim.log.levels.WARN)
         vim.ui.select({
           { label = 'Annuleren', allow = false },
           { label = 'Toch verzenden', allow = true },

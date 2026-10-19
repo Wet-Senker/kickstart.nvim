@@ -62,7 +62,8 @@ assert(
   'provinciale dateline werd bij import niet toegevoegd'
 )
 assert(vim.b[imported].edition_recognition_done == true, 'eenmalige importmarkering ontbreekt')
-assert(ai._duplicate_check_is_current(imported), 'multi-editie-import werd niet gecontroleerd')
+assert(vim.wait(5000, function() return ai._duplicate_check_is_current(imported) end, 20),
+  'multi-editie-import werd niet gecontroleerd')
 assert(#duplicate_runs == 1, 'multi-editie-import moet precies één doublurecontrole starten')
 assert(duplicate_runs[1].command[#duplicate_runs[1].command] == 'B,SW,ST,K', 'verkeerde edities bij importcontrole')
 

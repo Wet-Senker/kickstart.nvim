@@ -31,7 +31,7 @@ local buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(buf)
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, { 'Oude kop', '', 'Body.' })
 local tick = vim.api.nvim_buf_get_changedtick(buf)
-vim.b[buf].pending_jobs = 1  -- herschrijving in flight
+local pending_job = require('buffer_jobs').start(buf, 'Testherschrijving')
 vim.api.nvim_buf_set_lines(buf, 0, 1, false, { 'Nieuwe kop' })  -- tekst wijzigt
 ai._apply_articlemeta_calendar_result(buf, calendar_result(), tick)
 assert(not ai._has_calendar_section(vim.api.nvim_buf_get_lines(buf, 0, -1, false)),
@@ -41,6 +41,7 @@ assert(vim.b[buf].pending_calendar_meta_lines ~= nil, 'geaccepteerd kalenderresu
 -- Herschrijving herschrijft de body en rondt af; het uitgestelde blok wordt
 -- nu als laatste aangehecht.
 vim.api.nvim_buf_set_lines(buf, -1, -1, false, { 'Herschreven body.' })
+require('buffer_jobs').finish(pending_job)
 ai._apply_pending_calendar_section(buf)
 local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 assert(lines[1] == 'Nieuwe kop', 'kalender overschreef de bewerkte kop')

@@ -1,6 +1,7 @@
 -- Required questions and text input use a native floating presentation.
 -- Manually opened choice lists may use an injected fuzzy-picker provider.
 local M = {}
+local notifications = require('texttools_notify')
 local queue, active = {}, false
 local suspend_active
 local manual_select_provider
@@ -193,7 +194,7 @@ function M.select(items, opts, done)
   table.insert(queue, {
     items = items,
     opts = opts,
-    done = done,
+    done = notifications.bind(opts.source_buf, done),
     source_buf = source_buffer(opts),
     provider = not opts.required and not opts.native and manual_select_provider or nil,
   })
@@ -234,7 +235,7 @@ end
 
 function M.input(opts, done)
   opts = vim.tbl_extend('force', opts or {}, { input = true })
-  local request = { items = {}, opts = opts, done = done, source_buf = source_buffer(opts) }
+  local request = { items = {}, opts = opts, done = notifications.bind(opts.source_buf, done), source_buf = source_buffer(opts) }
   if opts.priority then
     -- Explicit manual work may pause an overlay, never answer or discard it.
     -- An optional external picker without a suspension hook finishes normally.

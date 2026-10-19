@@ -145,10 +145,10 @@ end
 
 -- Toon het overzicht van geregistreerde bronnen.
 function M.overzicht()
-  vim.system(command('bron', 'list'), { text = true }, function(result)
-    vim.schedule(function()
+  notifications.system(command('bron', 'list'), { text = true }, function(result)
+    notifications.schedule(function()
       if result.code ~= 0 then
-        vim.notify(
+        notifications.notify(
           vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr)
             or 'Kon het bronoverzicht niet ophalen.',
           vim.log.levels.ERROR
@@ -157,7 +157,7 @@ function M.overzicht()
       end
       local ok, decoded = pcall(vim.json.decode, vim.trim(result.stdout or ''))
       if not ok or type(decoded) ~= 'table' then
-        vim.notify('Het bronoverzicht gaf geen leesbare JSON terug.', vim.log.levels.ERROR)
+        notifications.notify('Het bronoverzicht gaf geen leesbare JSON terug.', vim.log.levels.ERROR)
         return
       end
       show_overview(decoded)
@@ -176,10 +176,10 @@ local function run_add(url, edition, naam, plaatsen)
     table.insert(add, plaats)
   end
 
-  vim.system(add, { text = true }, function(result)
-    vim.schedule(function()
+  notifications.system(add, { text = true }, function(result)
+    notifications.schedule(function()
       if result.code ~= 0 then
-        vim.notify(
+        notifications.notify(
           vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr)
             or 'Toevoegen van de bron is mislukt.',
           vim.log.levels.ERROR
@@ -188,7 +188,7 @@ local function run_add(url, edition, naam, plaatsen)
       end
       local ok, decoded = pcall(vim.json.decode, vim.trim(result.stdout or ''))
       if not ok or type(decoded) ~= 'table' then
-        vim.notify('De toevoegactie gaf geen leesbare JSON terug.', vim.log.levels.ERROR)
+        notifications.notify('De toevoegactie gaf geen leesbare JSON terug.', vim.log.levels.ERROR)
         return
       end
       local source = decoded.source or {}

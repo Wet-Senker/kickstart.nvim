@@ -79,14 +79,14 @@ end
 
 local function mark_keys(keys, on_done)
   if not keys or #keys == 0 then
-    vim.notify('Geen kandidaat om te markeren.', vim.log.levels.INFO)
+    notifications.notify('Geen kandidaat om te markeren.', vim.log.levels.INFO)
     return
   end
-  vim.system(mark_command(), { text = true, stdin = vim.json.encode { review_keys = keys } },
+  notifications.system(mark_command(), { text = true, stdin = vim.json.encode { review_keys = keys } },
     function(process)
-      vim.schedule(function()
+      notifications.schedule(function()
         if process.code ~= 0 then
-          vim.notify(vim.trim(process.stderr or '') ~= '' and vim.trim(process.stderr)
+          notifications.notify(vim.trim(process.stderr or '') ~= '' and vim.trim(process.stderr)
             or 'Markeren mislukt.', vim.log.levels.ERROR)
           return
         end
@@ -182,7 +182,7 @@ local function show_report(result, edition, include_reviewed)
   vim.keymap.set('n', 'o', function()
     local entry = entry_at_cursor()
     if not entry or not entry.candidate.editor_url then
-      vim.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
+      notifications.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
       return
     end
     browser.open_urls { tostring(entry.candidate.editor_url) }
@@ -191,7 +191,7 @@ local function show_report(result, edition, include_reviewed)
   vim.keymap.set('n', '<CR>', function()
     local entry = entry_at_cursor()
     if not entry then
-      vim.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
+      notifications.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
       return
     end
     open_detail_buffer(entry.candidate)
@@ -200,7 +200,7 @@ local function show_report(result, edition, include_reviewed)
   vim.keymap.set('n', 'm', function()
     local entry = entry_at_cursor()
     if not entry or not entry.candidate.review_key then
-      vim.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
+      notifications.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
       return
     end
     mark_keys({ entry.candidate.review_key }, function()
@@ -226,17 +226,17 @@ function M.run(edition, options)
   edition = edition or 'all'
   options = options or {}
   notifications.workflow('Webartikelen · rubrieken scannen…', vim.log.levels.INFO)
-  vim.system(command(edition, options.include_reviewed), { text = true }, function(process)
-    vim.schedule(function()
+  notifications.system(command(edition, options.include_reviewed), { text = true }, function(process)
+    notifications.schedule(function()
       if process.code ~= 0 then
-        vim.notify(vim.trim(process.stderr or '') ~= '' and vim.trim(process.stderr)
+        notifications.notify(vim.trim(process.stderr or '') ~= '' and vim.trim(process.stderr)
           or 'Rubriekscan mislukt.', vim.log.levels.ERROR)
         return
       end
       local ok, result = pcall(vim.json.decode, vim.trim(process.stdout or ''),
         { luanil = { object = true, array = true } })
       if not ok or type(result) ~= 'table' then
-        vim.notify('Onleesbare JSON van de rubriekscan.', vim.log.levels.ERROR)
+        notifications.notify('Onleesbare JSON van de rubriekscan.', vim.log.levels.ERROR)
         return
       end
       show_report(result, edition, options.include_reviewed == true)

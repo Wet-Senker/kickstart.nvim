@@ -1,10 +1,11 @@
 -- Open een geordende reeks URL's zonder een race tussen losse macOS-processen.
 
 local M = {}
+local notifications = require('texttools_notify')
 
 local function notify_error(detail)
-  vim.schedule(function()
-    vim.notify('Browserlinks openen mislukt: ' .. vim.trim(tostring(detail or 'onbekende fout')),
+  notifications.schedule(function()
+    notifications.notify('Browserlinks openen mislukt: ' .. vim.trim(tostring(detail or 'onbekende fout')),
       vim.log.levels.WARN)
   end)
 end
@@ -18,7 +19,7 @@ function M.open_urls(urls, opts)
   if is_macos then
     local command = { '/usr/bin/open', '-g' }
     vim.list_extend(command, urls)
-    local ok, process_or_error = pcall(vim.system, command, { text = true }, function(result)
+    local ok, process_or_error = pcall(notifications.system, command, { text = true }, function(result)
       if result.code ~= 0 then notify_error(result.stderr or result.stdout) end
     end)
     if not ok or not process_or_error then
@@ -41,7 +42,7 @@ function M.open_urls(urls, opts)
       notify_error(err)
     end
     index = index + 1
-    if urls[index] then vim.defer_fn(open_next, opts.delay_ms or 200) end
+    if urls[index] then notifications.defer_fn(open_next, opts.delay_ms or 200) end
   end
   open_next()
   return true

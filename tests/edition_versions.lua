@@ -152,10 +152,10 @@ local initial_help = review._review_help_entry(entries.B)
 assert(initial_help.status:find('nog niet goedgekeurd', 1, true), 'reviewstatus ontbreekt in contexthelp')
 local source_help = review._source_help_entry(buf)
 assert(vim.inspect(source_help):find('<leader>aV', 1, true), 'bronhulp mist route naar versies')
-vim.b[entries.B].pending_jobs = 1
+local pending_job = require('buffer_jobs').start(entries.B, 'Testherschrijving')
 assert(review.send_block_reason(buf):find('nog door AI bijgewerkt', 1, true),
   'lopende AI in een krantbuffer blokkeerde de centrale verzending niet')
-vim.b[entries.B].pending_jobs = 0
+require('buffer_jobs').finish(pending_job)
 assert(review.send_block_reason(buf) == nil, 'afgeronde reviewtaak bleef verzending blokkeren')
 
 local approved = false

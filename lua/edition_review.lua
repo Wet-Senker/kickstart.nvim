@@ -1,4 +1,5 @@
 local M = {}
+local notifications = require('texttools_notify')
 
 local config = {}
 local review_buffers = {}
@@ -14,7 +15,7 @@ local function notify(message, level)
   if config.notify then
     config.notify(message, level)
   else
-    vim.notify(message, level)
+    notifications.notify(message, level)
   end
 end
 
@@ -343,22 +344,30 @@ local function default_runner(source_buf, action, payload, done)
     done(false, nil, "Editieversie-invoer kon niet als JSON worden opgebouwd.")
     return
   end
-  if config.start_job then config.start_job(source_buf) end
-  local started, start_error = pcall(vim.system,
+  local job = config.start_job and config.start_job(source_buf, 'Editieversies · ' .. action)
+  local settled = false
+  local function complete(ok, result, err)
+    local accepted, callback_error = pcall(done, ok, result, err)
+    if config.finish_job then config.finish_job(job) end
+    if not accepted then error(callback_error) end
+  end
+  local started, start_error = pcall(notifications.system,
     { config.python, "-m", "texttools.edition_versions_cli", action },
     { text = true, stdin = encoded },
     function(result)
-      vim.schedule(function()
+      if settled then return end
+      settled = true
+      notifications.schedule(function()
         local decoded, err = decode_result(result)
-        done(decoded ~= nil, decoded, err)
-        if config.finish_job then config.finish_job(source_buf) end
+        complete(decoded ~= nil, decoded, err)
       end)
     end
   )
   if not started then
-    vim.schedule(function()
-      done(false, nil, "Editieversieactie kon niet starten: " .. tostring(start_error))
-      if config.finish_job then config.finish_job(source_buf) end
+    if settled then return end
+    settled = true
+    notifications.schedule(function()
+      complete(false, nil, "Editieversieactie kon niet starten: " .. tostring(start_error))
     end)
   end
 end
@@ -480,7 +489,7 @@ local function configure_review_buffer(review_buf)
     local source = source_buffer(review_buf)
     local reason = source and M.send_block_reason(source)
     if reason then
-      vim.notify(reason, vim.log.levels.ERROR)
+      notifications.notify(reason, vim.log.levels.ERROR)
       return
     end
     if config.send and source then config.send(source) end
@@ -660,7 +669,7 @@ end
 function M.sync(review_buf, approve, done)
   local source_buf, code = review_entry(review_buf)
   if not source_buf then
-    vim.notify("Dit is geen actieve krantversiebuffer.", vim.log.levels.ERROR)
+    notifications.notify("Dit is geen actieve krantversiebuffer.", vim.log.levels.ERROR)
     if done then done(false) end
     return
   end
@@ -756,7 +765,7 @@ end
 function M.approve(target_buf)
   local review_buf = target_buf or vim.api.nvim_get_current_buf()
   if not review_entry(review_buf) then
-    vim.notify(
+    notifications.notify(
       "Open eerst een krantversiebuffer met :Krantversies.",
       vim.log.levels.ERROR
     )
@@ -906,7 +915,7 @@ end
 function M.send_block_reason(source_buf)
   for _, review_buf in pairs(review_buffers[source_buf] or {}) do
     if vim.api.nvim_buf_is_valid(review_buf) then
-      if (tonumber(vim.b[review_buf].pending_jobs) or 0) > 0 then
+      if require('buffer_jobs').count(review_buf) > 0 then
         return "Een krantversie wordt nog door AI bijgewerkt. Wacht op het resultaat en sla eventuele wijzigingen op."
       end
       if vim.b[review_buf].edition_requires_review == true then
