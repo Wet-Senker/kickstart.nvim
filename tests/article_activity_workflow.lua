@@ -25,7 +25,7 @@ local function start()
   original_send(source)
   assert(vim.b[source].metadata_merge_pending == true, 'metadata-opdracht niet gestart')
   assert(next(activity.snapshot(source).tasks), 'lopende opdracht niet geregistreerd')
-  if calls == 1 then assert(activity.statusline(source):find('Bezig', 1, true), 'lopende opdracht onzichtbaar') end
+  if calls == 1 then assert(activity.statusline(source) == '', 'lopende opdracht staat dubbel in de statusbalk') end
 end
 local function finish(result)
   callback(result)
@@ -37,7 +37,8 @@ assert(calls == 1, 'fout startte extra subprocessen')
 assert(activity.statusline(source):find('Fout', 1, true), 'procesfout werd als succes getoond')
 local entries = activity.snapshot(source).entries
 assert(entries[#entries].message:find('Metadata samenvoegen mislukt', 1, true), 'menselijke foutdiagnose ontbreekt')
-assert(vim.deep_equal(content, vim.api.nvim_buf_get_lines(source, 0, -1, false)), 'fout wijzigde het artikel')
+assert(vim.deep_equal(content, require('article_notices').content_lines(vim.api.nvim_buf_get_lines(source, 0, -1, false))),
+  'fout wijzigde het artikel')
 assert(not vim.inspect(activity.snapshot(other)):find('onbekende CLI-optie', 1, true), 'fout verscheen bij ander artikel')
 
 -- Een nieuwere bewerking blijft intact en het succes van het subprocess mag

@@ -8,6 +8,7 @@ local python = commands.bin 'python'
 local module = 'texttools.agenda_page_cli'
 local active_prepare = {}
 local active_send = {}
+local active_measure = {}
 
 -- Krantlijst uit één bron (Python's PUBLICATIONS), niet meer hardgecodeerd.
 local editions_source = require('editions')
@@ -122,6 +123,7 @@ local function help_entry(buf)
       {
         heading = 'Andere hoofdopties',
         lines = {
+          '<leader>km / :AgendaPaginaOmvang  Tel alinea’s en schat hoeveel punten niet passen.',
           ':AgendaPaginaControleren  Voer de technische controle los uit.',
           ':AgendaPaginaPreview      Bekijk de Pubble-blokken.',
         },
@@ -177,6 +179,63 @@ local function decode_validation(stdout)
   return decoded
 end
 
+-- Read-only telling door dezelfde kern als de Pubble-export. Geen AI en geen
+-- inhoudswijzigingen; één bronversie per resultaat, zonder meldingsregels.
+function M.measure(buf, options)
+  buf = buf or vim.api.nvim_get_current_buf()
+  options = options or {}
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  register_help(buf)
+  local tick = vim.api.nvim_buf_get_changedtick(buf)
+  local function fingerprint()
+    return vim.fn.sha256(table.concat(require('article_notices').content_lines(
+      vim.api.nvim_buf_get_lines(buf, 0, -1, false)), '\n'))
+  end
+  local source = fingerprint()
+  if options.automatic and vim.b[buf].agenda_page_measure_fingerprint == source then return end
+  if active_measure[buf] and active_measure[buf].source == source then return end
+  local request = { tick = tick, source = source }
+  active_measure[buf] = request
+  local log = require 'workflow_log'
+  local trace = log.start(buf, 'Agenda · Omvang')
+  local function finish(result)
+    if request.finished then return end
+    request.finished = true
+    log.finish(trace, result.code == 0 and 'succeeded' or 'failed', { exit_code = result.code })
+    notifications.schedule(function()
+      if active_measure[buf] ~= request then return end
+      active_measure[buf] = nil
+      if not vim.api.nvim_buf_is_valid(buf) then return end
+      if fingerprint() ~= source then
+        if not options.automatic then
+          workflow('Agenda gewijzigd tijdens het tellen; druk opnieuw <leader>km.',
+            vim.log.levels.INFO, { buf = buf })
+        end
+        return
+      end
+      local ok, data = pcall(vim.json.decode, result.stdout or '')
+      if result.code ~= 0 or not ok or type(data) ~= 'table' or data.version ~= 1
+          or type(data.paragraphs) ~= 'number' or type(data.items) ~= 'number'
+          or type(data.capacity) ~= 'number' or type(data.over_by) ~= 'number'
+          or type(data.remove_items_estimate) ~= 'number' or type(data.message) ~= 'string' then
+        workflow('Agendatelling mislukt; probeer opnieuw met <leader>km. '
+          .. vim.trim(result.stderr or ''), vim.log.levels.WARN,
+          { buf = buf, action = 'Agenda · Omvang' })
+        return
+      end
+      vim.b[buf].agenda_page_measure_tick = tick
+      vim.b[buf].agenda_page_measure_fingerprint = source
+      vim.b[buf].agenda_page_capacity = data
+      workflow(data.message, data.over_by > 0 and vim.log.levels.WARN or vim.log.levels.INFO,
+        { buf = buf, action = 'Agenda · Omvang', resolved = true,
+          kind = data.over_by == 0 and 'success' or nil })
+    end)
+  end
+  local started, err = pcall(notifications.system, command 'measure',
+    log.with_environment({ text = true, stdin = buffer_text(buf), timeout = 5000 }, trace), finish)
+  if not started then finish { code = 1, stderr = tostring(err) } end
+end
+
 local function duplicate_candidate_line(candidate)
   return string.format(
     '%s: %s ↔ %s (%s, %d%%)',
@@ -230,7 +289,7 @@ function M.prepare(buf)
   buf = buf or vim.api.nvim_get_current_buf()
   register_help(buf)
   if active_prepare[buf] then
-    workflow('De voorbereiding van deze agendapagina draait al.', vim.log.levels.INFO)
+    workflow('De voorbereiding van deze agendapagina draait al.', vim.log.levels.INFO, { kind = 'progress' })
     return
   end
   if vim.trim(buffer_text(buf)) == '' then
@@ -239,6 +298,7 @@ function M.prepare(buf)
   end
   if M.is_prepared(buf) then
     workflow('Deze agendapagina is al voorbereid. Controleer de tekst en verzend met <leader>aw.', vim.log.levels.INFO)
+    M.measure(buf)
     return
   end
 
@@ -249,6 +309,7 @@ function M.prepare(buf)
   vim.b[buf].agenda_page_flow = true
   vim.b[buf].article_recognition_done = true
   vim.b[buf].calendar_autodetect_done = true
+  M.measure(buf, { automatic = true })
 
   local original = buffer_text(buf)
   local changedtick = vim.api.nvim_buf_get_changedtick(buf)
@@ -273,7 +334,8 @@ function M.prepare(buf)
       end
       replace_buffer(buf, result.stdout or '')
       workflow('Agendapagina voorbereid. Controleer de teksten en velden; verzend daarna met <leader>aw.', vim.log.levels.INFO,
-        { buf = buf, attention = true })
+        { buf = buf })
+      M.measure(buf, { automatic = true })
     end)
   end)
   active_prepare[buf] = process
@@ -324,7 +386,7 @@ function M.send(buf)
   buf = buf or vim.api.nvim_get_current_buf()
   register_help(buf)
   if active_send[buf] then
-    workflow('De verzending van deze agendapagina loopt al.', vim.log.levels.INFO)
+    workflow('De verzending van deze agendapagina loopt al.', vim.log.levels.INFO, { kind = 'progress' })
     return
   end
   if not M.is_prepared(buf) then
@@ -436,6 +498,9 @@ function M.setup()
   vim.api.nvim_create_user_command('AgendaPaginaControleren', function() M.validate() end, {
     desc = 'Voorbereide agendapagina controleren',
   })
+  vim.api.nvim_create_user_command('AgendaPaginaOmvang', function() M.measure() end, {
+    desc = 'Agendablokken tellen en globale verwijderinschatting tonen (zonder AI)',
+  })
   vim.api.nvim_create_user_command('AgendaPaginaPreview', function() M.preview() end, {
     desc = 'Pubble-blokken van de agendapagina bekijken',
   })
@@ -444,6 +509,9 @@ function M.setup()
   })
   vim.keymap.set('n', '<leader>ka', M.prepare, {
     desc = '[K]rant [a]gendapagina (print) voorbereiden',
+  })
+  vim.keymap.set('n', '<leader>km', M.measure, {
+    desc = '[K]rant agendapagina [m]eten (zonder AI)',
   })
 end
 

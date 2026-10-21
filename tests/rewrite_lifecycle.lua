@@ -10,6 +10,10 @@ end
 
 local ai = require 'ai_text'
 local original_system = vim.system
+local original_duplicate_runner = ai._duplicate_stage_runner
+ai._duplicate_stage_runner = function(_, done)
+  done(true, { performed = true, candidates = {} })
+end
 local rewrite_callback
 local function is_rewrite(command)
   return command[2] == 'journalistiek_schrijven' or command[2] == 'krantversie'
@@ -319,5 +323,6 @@ vim.api.nvim_buf_delete(target, { force = true })
 ai._edition_mode_choice_async = original_choice
 ai._edition_variant_runner = original_variant_runner
 ai.tussenkopjes_streamer = original_structure
+ai._duplicate_stage_runner = original_duplicate_runner
 vim.system = original_system
 print 'rewrite lifecycle: OK'

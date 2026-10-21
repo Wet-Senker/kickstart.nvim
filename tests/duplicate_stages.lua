@@ -90,59 +90,25 @@ local cancelled = buffer()
 ai._check_duplicate_stage(cancelled, { 'B', 'D' }, 'importeren', function(ok) approved = ok end)
 pending(false, success)
 settled(cancelled)
-assert(not approved and not ai._duplicate_check_is_current(cancelled), 'annuleren werd onthouden als goedkeuring')
+assert(approved and not ai._duplicate_check_is_current(cancelled), 'sluiten blokkeerde bewerken of gold als publicatietoestemming')
 
--- Een handmatige kalenderstart tijdens de controle wordt uitgesteld. Alleen
--- doorgaan na de doubluremelding hervat hem; annuleren maakt geen AI-kosten.
+-- Automatische kalenderverzoeken blijven achter de webcontrole wachten;
+-- expliciet ac heeft zijn eigen contracttest en wordt niet meer tegengehouden.
 local original_resume = ai._resume_deferred_calendar
 local resumed = 0
-ai._resume_deferred_calendar = function(target)
-  assert(vim.api.nvim_buf_is_valid(target), 'ongeldige buffer hervat')
-  resumed = resumed + 1
-end
+ai._resume_deferred_calendar = function() resumed = resumed + 1 end
 local waiting_calendar = buffer()
 ai._check_duplicate_stage(waiting_calendar, { 'B', 'D' }, 'importeren', function(ok) approved = ok end)
-vim.api.nvim_set_current_buf(waiting_calendar)
-ai.articlemeta_calendar_buffer()
-assert(vim.b[waiting_calendar].calendar_ai_waiting_for_duplicate == true, 'kalender-AI wacht niet op doublurebesluit')
-assert(vim.b[waiting_calendar].calendar_ai_running ~= true, 'kalender-AI startte tijdens doublurecontrole')
+vim.b[waiting_calendar].calendar_ai_waiting_for_duplicate = true
 pending(true, success)
 settled(waiting_calendar)
-assert(resumed == 1, 'goedgekeurde doublurecontrole hervatte kalender-AI niet')
-
+assert(resumed == 1, 'automatische kalenderanalyse werd niet na de webcontrole hervat')
 local abandoned_calendar = buffer()
 ai._check_duplicate_stage(abandoned_calendar, { 'B', 'D' }, 'importeren', function(ok) approved = ok end)
-vim.api.nvim_set_current_buf(abandoned_calendar)
-ai.articlemeta_calendar_buffer()
 pending(false, success)
 settled(abandoned_calendar)
-assert(resumed == 1, 'geannuleerde doublurecontrole startte alsnog kalender-AI')
-assert(vim.b[abandoned_calendar].calendar_ai_waiting_for_duplicate ~= true, 'geannuleerd kalenderverzoek bleef hangen')
-assert(calendar_resolutions == 2 and agenda_checks == 2, 'onafhankelijke controles niet afgerond')
--- Een falende agenda-/editiecontrole moet dezelfde poort ook vrijgeven.
-for _, failure in ipairs({ 'edities', 'agenda' }) do
-  local resolver = ai._calendar_edition_resolver
-  local candidates = ai._agenda_duplicate_candidates
-  if failure == 'edities' then
-    ai._calendar_edition_resolver = function(_, _, done)
-      vim.schedule(function() done(nil) end)
-    end
-  else
-    ai._agenda_duplicate_candidates = function(_, _, done)
-      vim.schedule(function() done(nil) end)
-    end
-  end
-  local failed_check = buffer()
-  ai._check_duplicate_stage(failed_check, { 'B', 'D' }, 'importeren', function(ok) approved = ok end)
-  vim.api.nvim_set_current_buf(failed_check)
-  ai.articlemeta_calendar_buffer()
-  pending(true, success)
-  settled(failed_check)
-  assert(approved, failure .. '-fout blokkeerde artikelgoedkeuring')
-  ai._calendar_edition_resolver = resolver
-  ai._agenda_duplicate_candidates = candidates
-end
-assert(resumed == 3, 'foutpad hervatte kalender niet precies eenmaal')
+assert(approved and not ai._duplicate_check_is_current(abandoned_calendar),
+  'sluiten blokkeerde bewerken of werd als publicatietoestemming onthouden')
 ai._resume_deferred_calendar = original_resume
 
 local removed = buffer()
@@ -180,17 +146,16 @@ pending(false, {
   candidates = { { key = 'join:899', headline = 'Batavia aan land' } },
 })
 settled(with_candidates)
-assert(not approved, 'geannuleerde doublure gold als goedkeuring')
+assert(approved and not ai._duplicate_check_is_current(with_candidates), 'sluiten blokkeerde bewerken of gaf publicatietoestemming')
 assert(#ai._ignored_duplicate_keys(with_candidates) == 0,
   'annuleren onthield de kandidaat ten onrechte als genegeerd')
-assert(#cancel_calls == 1 and cancel_calls[1] == with_candidates,
-  'geannuleerde doublure met kandidaten brak de andere AI-taken niet af')
+assert(#cancel_calls == 0, 'sluiten bij bewerken stopte onafhankelijke AI-taken')
 
 local empty_cancel = buffer()
 ai._check_duplicate_stage(empty_cancel, { 'B', 'D' }, 'herschrijven', function(ok) approved = ok end)
 pending(false, { version = 1, performed = true, candidates = {} })
 settled(empty_cancel)
-assert(#cancel_calls == 1, 'annulering zonder kandidaten brak ten onrechte AI-taken af')
+assert(#cancel_calls == 0, 'annulering zonder kandidaten brak ten onrechte AI-taken af')
 
 -- Doorgaan met een getoonde kandidaat onthoudt diens stabiele sleutel. Na een
 -- inhoudswijziging draait de controle opnieuw, maar de oude kandidaat gaat als

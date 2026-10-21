@@ -32,7 +32,16 @@ local function run_case(stage)
     newer = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   end
   require('publication_dates').review = function(_, _, _, _, done)
-    if stage == 'preparation' then change() end
+    if stage == 'preparation' or stage == 'preparation_approval' then change() end
+    if stage == 'approval' or stage == 'preparation_approval' then
+      local revisions = require('buffer_revision')
+      local before = revisions.capture(buf)
+      vim.api.nvim_buf_set_lines(buf, 0, 0, false,
+        { '---', 'editorial:', '  date_approval: {plan_sha256: test}', '---', '' })
+      if newer then newer = vim.api.nvim_buf_get_lines(buf, 0, -1, false) end
+      done('ready', { before = before, after = revisions.capture(buf) })
+      return
+    end
     done('ready')
   end
   local export_done
@@ -62,6 +71,9 @@ local function run_case(stage)
   ai.pubble_send(buf)
   assert(#calls == 1 and callback, 'send niet eenmaal gestart')
   if stage == 'sending' then change() end
+  if stage == 'notice' then
+    vim.api.nvim_buf_set_lines(buf, 3, 3, false, { 'Melding: Facebook-tekst toegevoegd.' })
+  end
   callback({ code = 0, signal = 0, stderr = '', stdout = 'PUBBLE_RESULT_JSON: '
     .. vim.json.encode({ mode = 'published', outcome = 'success', phases = {
       { name = 'web', status = 'succeeded' },
@@ -71,7 +83,7 @@ local function run_case(stage)
   export_done(nil)
   assert(vim.wait(1000, function() return vim.b[buf].publication_in_progress == false end))
   assert(#calls == 2 and hooks == 1, 'extra calls of ontbrekende succes-hook')
-  if stage then
+  if stage and stage ~= 'approval' and stage ~= 'notice' then
     assert(vim.deep_equal(vim.api.nvim_buf_get_lines(buf, 0, -1, false), newer),
       'nieuwere tekst/agenda/controleregels gewijzigd: ' .. stage)
     assert(vim.bo[buf].modified and vim.bo[buf].modifiable and not vim.bo[buf].readonly)
@@ -89,6 +101,9 @@ local function run_case(stage)
   vim.system = old_system
 end
 run_case(nil)
+run_case('approval')
+run_case('notice')
+run_case('preparation_approval')
 run_case('preparation')
 run_case('sending')
 run_case('export')

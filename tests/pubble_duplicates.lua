@@ -40,9 +40,7 @@ assert(not text:find('3 september 2026 om 10.42 uur', 1, true), 'overzicht toont
 assert(text:find('19 september 2026 om 09.00 uur', 1, true), 'overzicht toont de publicatiedatum niet')
 assert(text:find('20 september 2026 om 09.00 uur', 1, true), 'overzicht toont de publicatiedatum per krant niet')
 assert(text:find('piet.deboer', 1, true), 'overzicht toont de auteur niet')
--- Kop van 7 woorden wordt op 6 afgekapt: 'onderhoud' valt weg, met …-markering.
-assert(text:find('Batavia gaat aan land voor groot…', 1, true), 'lange kop werd niet ingekort')
-assert(not text:find('groot onderhoud', 1, true), 'lange kop werd niet afgekapt op zes woorden')
+assert(text:find('Batavia gaat aan land voor groot onderhoud', 1, true), 'het overzicht verloor een deel van de kop')
 
 -- Dialoogbreedte volgt de inhoud (niet het aantal artikelen): ondergrens 64,
 -- anders de langste regel + marge, begrensd door de schermbreedte.

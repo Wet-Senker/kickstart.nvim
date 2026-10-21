@@ -56,6 +56,9 @@ calendar:
   calendar_body: De band speelt.
 ---
 ]] }, tick)
+assert(vim.wait(1500, function()
+  return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n'):find('## Kalender', 1, true)
+end))
 text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
 assert(text:find('## Kalender', 1, true) < text:find('## Niet voor publicatie', 1, true),
   'agenda-aanhechting verplaatste het naslagblok niet naar onderaan')

@@ -121,11 +121,42 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 
 ## Leaders
 
+Het invoerscherm **Mogelijke doublures** zet het nieuwe bericht apart en toont
+bestaande treffers met Agenda/Web, krantnaam en uitgelijnde Europese datum.
+Web en agenda worden vóór de beoordeling samen opgehaald en in één overzicht
+getoond. Bij import/herschrijven betekent `n`: meteen verder bewerken zonder
+agendabericht, zonder tweede webbevestiging. Dit is geen akkoord voor webpublicatie.
+Bij definitief verzenden haalt `n` alleen de agendatreffers weg; eventuele
+webtreffers blijven beoordeling vragen. Een fout in één controle verbergt de andere treffers niet.
+Enter/dubbelklik bekijkt alleen tekst/details in NVIM; `o` opent de geselecteerde
+treffer in Pubble. `n` bij een agendacontrole slaat agenda-aanmaak voor het hele
+artikel over, maar laat web/krant doorgaan. Het verwijdert niets uit Pubble.
+Bij import/herschrijven sluit `q` de agenda-keuze: bewerken gaat verder, zonder
+automatisch kalenderblok of toestemming. `v` bereidt bewust toch een agenda voor.
+Bij verzending stopt `q` alleen die verzendpoging; `v` bevestigt dan publicatie
+ondanks de mogelijke doublure. `<leader>ac` maakt altijd een werkblok, ook na
+weigeren/verwijderen of bij ontbrekende gegevens. Dat is geen publicatietoestemming.
+Een actuele controle wordt hergebruikt. Veranderen later de tekst, editie of
+kalendergegevens, dan kan opnieuw controle nodig zijn; een nauwkeuriger
+kalendervoorstel kan ook nog nieuwe treffers opleveren. Dit is geen tweede
+losse controle op dezelfde ongewijzigde invoer.
+Een keuzevenster verbergt Fidget-regels tijdelijk, zonder hun resterende
+achtseconden-termijn te wissen of opnieuw te starten.
+
+De schrijfroute gebruikt sinds 21 oktober het omkeerbare profiel
+`eenvoudig-20261021` in de gedeelde Python-kern: korte schrijfopdracht plus
+krant-/provinciecontext, zonder extra classificatiecall. De oude route blijft
+beschikbaar. Terugschakelen voor volgende opdrachten in deze sessie:
+`:let $TEXTTOOLS_WRITING_PROFILE = 'behoudplan-20261021'`; weer nieuw:
+`:let $TEXTTOOLS_WRITING_PROFILE = 'eenvoudig-20261021'`. Wacht eerst lopend
+schrijfwerk af. De terugweg verandert geen bestaande artikeltekst of publicatie.
+Details: [schrijfprofielen](/Users/nickdevries/workspace/texttools/docs/schrijfprofielen.md).
+
 | Leader | Actie |
 |---|---|
 | `<leader>z` | Rustige Zen-weergave met een bredere tekstkolom, zonder regelnummers, tekens in de marge of zichtbare witruimte. Markdown loopt alleen visueel om bij woordgrenzen; het bestand krijgt geen extra regeleinden. |
 | `<leader>ar` | Journalistiek herschrijven en krantgericht maken met AI. De bestaande prompt behoudt een al goede body en redigeert een ruwe bron; geen extra redactie-keuze. Bij meerdere bestemmingen volgt bij onderscheidende gebiedssignalen Gerichte varianten / Eén algemene versie met advies. Iedere unieke tekst komt direct uit het origineel; kranten met dezelfde tekst delen een reviewbuffer. Geen tussenrewrite of automatische streamer. Bevestigde 112-/agendacontext geeft natuurlijke zoekintentie in dezelfde call. Bestemmingen, bron en redactionele staart blijven beschermd. |
-| `<leader>ac` | Kalendermetadata + bewerkbare `## Kalender` sectie. Tijdens een doublurecontrole wordt deze actie eenmaal uitgesteld en alleen na doorgaan hervat. Een herkend maar onvolledig item zet ontbrekende velden klaar als bijvoorbeeld `Datum:` en `Tijd:`, met apart `<!-- Ontbreekt: … -->` inclusief formaat (`Datum: YYYY-MM-DD`, `Tijd: HH:MM`). |
+| `<leader>ac` | Expliciet een bewerkbaar `## Kalender`-werkblok voorbereiden, ook na weigeren/verwijderen of bij weinig gegevens. Automatische doublure-/herkenningskeuzes blokkeren deze opdracht niet. Ontbrekende velden blijven leeg; AI probeert beschikbare gegevens aan te vullen. Publicatie controleert afzonderlijk op doublures en volledigheid. |
 | `<leader>kA` | Plaats vanuit een gewone artikelbuffer uitsluitend het gecontroleerde `## Kalender`-item. Krant, websiteartikel, social en Teams worden niet verstuurd. De actie controleert eerst op doublures en schrijft ontvangen agenda-ID's direct terug, zodat opnieuw drukken geen dubbel item maakt. In een voorstel uit een bestaand websiteartikel blijft dezelfde leader dat item aan het bronartikel koppelen. |
 | *onderdeel van `<leader>ar`* | **Plaatsencontrole.** Wijzen plaatsen in de tekst naar kranten die nog niet gekozen zijn, dan volgt eenmalig de vraag of die mee moeten. Die vraag komt alleen wanneer de controle bij import niet heeft plaatsgevonden — een zelf getypte of geplakte buffer komt niet langs de importroute — of wanneer de tekst sindsdien naar andere kranten is gaan wijzen. Een provincie is context en levert geen voorstel op. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
@@ -146,14 +177,15 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 | `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen in Kampen en Kamper Kiek. |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten voor Raadspraat en Ondernemen in Kampen. |
 | `<leader>ka` | Ruwe papieren agendapagina structureren en gewone items redigeren; daarna zelf de tekst controleren. |
+| `<leader>km` / `:AgendaPaginaOmvang` | Tel de actuele agendablokken tegen ongeveer 166 alinea’s en schat hoeveel agendapunten nog weg moeten. Alleen-lezen, zonder AI. |
 | `<leader>kg` | Agenda-onlinemenu. Bij **Websiteartikelen zonder agenda-item zoeken** maakt Enter een bewerkbaar voorstel, opent `o` het bronartikel en markeert `x` een artikel duurzaam als geen agenda nodig. Afwijzingen synchroniseren via de gedeelde Texttools-map. |
-| `<leader>kd` | Actieve webartikelen van alle kranten of één gekozen krant intern op doublures controleren. Kijkt standaard veertien dagen terug, vergelijkt alleen berichten die maximaal zeven dagen uiteen staan en opent kandidaten geordend in de browser. Sites worden nooit onderling vergeleken; agenda-schaduwartikelen tellen niet mee. |
+| `<leader>kd` | Actieve webartikelen van alle kranten of één gekozen krant intern op doublures controleren. Kijkt standaard veertien dagen terug en vergelijkt berichten die maximaal zeven dagen uiteen staan. Geen automatische browseropening: `o` opent alle artikelen van de geselecteerde doubluregroep, ook drie of meer; andere groepen blijven dicht. `m` markeert het geselecteerde paar als geen doublure en `r` toont/verbergt eerdere beoordelingen. Sites worden nooit onderling vergeleken; agenda-schaduwartikelen tellen niet mee. |
 | `<leader>kv` / `:Meestgelezen` | Haalt voor één krant tien meest bekeken kandidaten uit de afgelopen zeven voltooide dagen op. Iedere keuzeregel toont kop, woorden, hits en Facebookreacties; technische dossiers zijn ingeklapt (`zo` opent, `zc` sluit). Verwijder regels met `dd`, laat maximaal vijf staan en zet eventueel `LOS:` voor een zelfstandig reactieartikel vanaf 41 reacties én met toegevoegde reactietekst. De artikelvolgorde volgt de kijkcijfers. Druk opnieuw `<leader>kv`; daarna openen gewone artikelbuffers. Vanaf 15 reacties wordt Meta eerst geprobeerd en anders de handmatige link-/plakroute aangeboden. Zonder reactietekst wordt niets over reacties geschreven. |
 | buffer-lokaal `<leader>kf` / `:MeestgelezenFotos` | Downloadt direct voor alle overgebleven keuzeregels precies één hoofdfoto naar `Bureaublad/meestgelezen`; er volgt geen tweede keuzemenu en volledige galerijen worden niet opgehaald. |
 | `<leader>kh` / `:ContextHelp` | Toont dynamische hulp voor de huidige workflowfase: status, aanbevolen vervolgstap, andere hoofdopties en het gevolg daarvan. Werkt onder meer bij krantversies, publicatiereview/-herstel, agenda, rubriekexport, doublurecontrole en Meestgelezen. Zonder herkende context verwijst de melding naar de algemene `<leader>ah`-hulp. |
 | `<leader>aq` | Annuleer alle actieve editor-AI-taken van de huidige buffer. |
 | `:AICancel` | Zelfde expliciete annulering als `<leader>aq`. |
-| `<leader>kl` / `:TexttoolsActiviteit` | Toon of sluit de activiteitenstrook onder het artikel, ook tijdens werk. |
+| `<leader>kl` / `:TexttoolsActiviteit` | Open of sluit de meldingenhistorie op afroep. Aandachtmeldingen staan bij de controleregels boven het artikel. |
 | `:TexttoolsActiviteit!` | Wissel tussen de kleine strook en het uitgebreide artikel-logboek. |
 | `:TexttoolsLog` | Toon de veilige tijdlijn van het huidige artikel: handelingen, duur, uitkomst en een eventueel onafgesloten proces. |
 | `:TexttoolsLog!` | Toon de laatst gelogde Texttools-workflow, ongeacht de huidige buffer. |
@@ -170,29 +202,73 @@ zichzelf niet voldoende. Vaste rubriektitels en bewuste eigen werktitels blijven
 behouden. Nieuwe analyse wordt vóór de eerste CMS-create opgeslagen en bij een
 ongewijzigde herpoging hergebruikt. De bewerkdatum blijft lokaal bepaald.
 
-De **activiteitenstrook** staat in een apart, ondoorzichtig paneel met een vaste
-hoogte van twee tekstregels, plus een proceskop en een bedieningsbalk. De strook
-groeit niet wanneer er taken starten of stoppen. De proceskop blijft zichtbaar
-tijdens teruglezen en bundelt gelijke taken. Bij onvoldoende breedte geeft
-`+N` het aantal overige soorten taken aan. Onder de kop staat het laatste
-relevante resultaat of een aandachtmelding. Lange tekst wordt afgebroken;
-een afgekorte samenvatting eindigt op `…`. De volledige uitleg staat in het
-uitklapbare logboek. Interne stappen zoals metadata bewaren staan alleen daar.
+Meldingen hebben drie vaste bestemmingen:
+
+De audit, het meldingenbeleid en de afweging rond een kort log onder de
+artikeltekst staan in [NOTIFICATIES.md](NOTIFICATIES.md).
+
+- **Lopend werk:** ondoorzichtige Fidget-meldingen met dezelfde bewegende stippen
+  vóór iedere lopende taak. Elke actieve soort taak staat op één regel;
+  gelijke taken per artikel zijn gebundeld.
+  Maximaal vijf regels zijn tegelijk zichtbaar. Taken van een ander artikel
+  krijgen de bronnaam. Een bevestigde uitkomst blijft nog acht seconden staan:
+  `✓ Artikel herschreven`, `✗ Herschrijven mislukt` of `– Herschrijven niet toegepast`.
+  Alleen een werkelijk toegepast resultaat krijgt een vinkje; een procesexit
+  zonder bevestiging krijgt geen aparte voltooiingsmelding en blijft technisch gelogd. De meldingen nemen
+  geen focus; tijdens een keuzescherm wijken ook deze afgeronde regels.
+- **Meldingen:** waarschuwingen, fouten en niet-zichtbare bewerkingsinformatie staan als
+  echte `Melding:`-regels bij `e:`, `c:` en de overige instellingen, direct boven
+  `=== ARTIKEL ===` (ook boven `=== AGENDAPAGINA ===`). Selecteer/kopieer ze
+  normaal. Alle artikelgegevens blijven bij elkaar; een witregel scheidt ze
+  van het aaneengesloten meldingenblok, met weer een witregel vóór het artikel.
+  Verwijder meldingen met `dd`. Ze staan in werkbestand en undo, maar nooit in
+  AI-invoer of publicatie. Verwijderen verbergt alleen de regel, niet de
+  onderliggende controle. Alleen een werkelijk probleem krijgt `LET OP`, met
+  de vervolgstap. Succesvol aangemaakte agenda-/socialteksten staan al zichtbaar
+  in het document en krijgen geen extra meldingsregel. Wel staat er welke
+  redigeermethode is gebruikt (`ar`, `an` of `ap`). De geschiedenis van alle uitkomsten staat
+  achter `<leader>kl`; die opent standaard uitgebreid en uitsluitend op afroep.
+  Technische diagnose blijft via `l` / `:TexttoolsLog` bereikbaar.
+- **Beslissingen:** de centrale menulaag. Workflowkeuzelijsten gebruiken één
+  native vormgeving; alleen echte keuzes onderbreken het werk. Een advies zoals
+  “verwijder ongeveer twintig agendapunten” blijft bij het artikel, zonder popup.
+
+Lange samenvattingen eindigen zo nodig op `…`; het uitgeklapte logboek toont
+de volledige resultaattekst. Tijdens een zwevend menu wijken de taakmeldingen,
+terwijl de registratie van het achtergrondwerk doorloopt.
+Waarschuwingen openen geen apart venster en nemen de cursor niet over.
+Een automatische melding wordt pas ingevoegd nadat geregistreerd achtergrondwerk
+klaar is en er geen keuzescherm actief is. Read-only reviews en bronnen zonder
+artikelgrens houden de virtuele fallback, zonder bestandsmutatie. Gewone
+Texttools-resultaten blijven in de historie, nooit als Fidget-resultaattoast.
+
+Importadvies over meerdere plaatskoppen staat ook in dit logboek, zonder losse
+Apple-/macOS-melding. De gedeelde Python-inspectie zondert agendaverzamelingen
+uit. Het advies controleert alleen de actuele importtekst en splitst niets
+automatisch.
 
 Ga met `<C-j>` of de muis naar het paneel. `e` opent het uitgebreide logboek
 (nogmaals `e` maakt het compact), `l` opent de technische tijdlijn en `q` sluit
-echt, ook tijdens werk. Dan staat de taakstatus in de gewone editorstatusbalk;
-met een zichtbare strook wordt die informatie niet dubbel getoond. De bestaande
-toets `a` markeert aandachtmeldingen als gelezen, niet als opgelost.
+echt, ook tijdens werk. De taakmeldingen blijven staan; taken worden niet
+ook in de logboekkop of statusbalk herhaald. De bestaande
+toets `a` markeert meldingen in de historie als gelezen, niet als opgelost;
+een niet verwijderde meldingsregel van een onopgelost aandachtspunt blijft staan.
+De algemene statusbalktekst `Aandacht nodig` wordt niet meer apart getoond.
 Een bevestigde geslaagde herhaling ruimt uitsluitend de melding van dezelfde
 actie op. Een oud resultaat kan geen nieuwere fout wissen. Meldingen zonder
 actiekoppeling worden niet door willekeurige successen gewist. De geschiedenis
 blijft beschikbaar. Keuzevensters en bestaande publicatiecontroles blijven leidend.
 
+Datumgoedkeuring en alleen een gewijzigde `Melding:`-regel veroorzaken geen
+herstelconflict. Werkelijke tekst-, foto- of agendawijzigingen blijven beschermd.
+Een herstelbestand houdt ook de geplande lezersnieuwsexport vast. Achtergronden
+en het ongewijzigde regionaliseringsonderzoek staan in
+[ONDERZOEK_IJSSELDELTA.md](ONDERZOEK_IJSSELDELTA.md).
+
 Bij teruglezen blijft dezelfde melding onder de cursor, ook wanneer het logboek
-zijn limiet bereikt. De zichtbaarheid en compacte/uitgebreide voorkeur blijven
-lokaal bewaard. Een nieuwe fout kan een gesloten strook opnieuw tonen zonder
-focusovername. Andere editor-/pluginmeldingen behouden hun eigen kanaal.
+zijn limiet bereikt. De compacte/uitgebreide voorkeur blijft lokaal bewaard;
+na een herstart blijft de historie dicht totdat je haar opvraagt. Andere
+editor-/pluginmeldingen behouden hun eigen kanaal.
 
 De geschiedenis volgt het bronartikel, ook vanuit foto-, archief- en
 krantreviewbuffers. Ze bewaart maximaal honderd meldingen per open artikel in
@@ -267,12 +343,18 @@ om een verder goede body alsnog volledig te herschrijven.
 
 Voor een complete papieren agendapagina plak je alle dagen en activiteiten en
 gebruik je eenmaal `<leader>ka`. Gewone items worden per activiteit geredigeerd;
-`>>>titel<<<` en de bijbehorende premiumbody worden nooit herschreven. Alleen
-ontbrekende datum, tijd of locatie mag AI als metadata uitlezen. Controleer de
+`>>>titel<<<` is premium: de kop blijft exact staan, de body krijgt een aparte,
+behoudende journalistieke AI-taalcorrectie. Geen samenvatting of vrije
+herschrijving; bestaande tijden, locaties en adressen blijven intact, ook in
+de body. Alleen ontbrekende praktische velden mogen worden aangevuld.
+De kern controleert concrete waarden/citaten en herkenbare locaties/adressen;
+premium wordt nooit ingekort tot `Zie hierboven.` Controleer de
 zichtbare datum, titel, tijd, locatie en body (`hele dag` mag). Voor de
 printbody geldt geen technische lengtegrens; gewone tekst wordt wel compact
 geredigeerd. Gewone koppen worden zoveel mogelijk 3–4 woorden en zijn maximaal 5
-woorden. Een betrouwbaar herkend los slotblok wordt automatisch als complete
+woorden. De Pubble-uitvoer verdeelt gewone koppen over maximaal twee regels
+van 27 tekens en houdt herkenbare woordgroepen en naamverbindingen bijeen waar
+dat past. Een betrouwbaar herkend los slotblok wordt automatisch als complete
 activiteit opgebouwd en onder zijn primaire datum gezet. Een volledig gewoon
 item met een ondubbelzinnige andere primaire datum verhuist ook; secundaire
 data in de body niet. Alles blijft zichtbaar ter controle. Druk daarna
@@ -280,6 +362,14 @@ data in de body niet. Alles blijft zichtbaar ter controle. Druk daarna
 draait automatisch vóór de print-only verzending. Dit maakt uitsluitend het
 printconcept `!agendapagina`; `ONTBREEKT` blokkeert verzending. Losse controle
 en blokpreview blijven alleen als technische `:AgendaPagina…`-opdrachten beschikbaar.
+Bij import en na voorbereiding verschijnt een omvangmelding in het artikel-logboek:
+het aantal alinea’s/blokken, het aantal agendapunten en boven de richtgrens van
+166 een schatting van het aantal nog te verwijderen punten. Tel na je eigen
+wijzigingen opnieuw met `<leader>km` of `:AgendaPaginaOmvang`; opslaan is niet nodig.
+De telling volgt de Pubble-opmaak: datumkoppen plus titel, tijd/plaats en tekst
+per punt, met één scheidingsblok tussen punten. Ruwe importcijfers zijn voorlopig.
+Dit is een globale blokschatting, geen voorspelling van teksthoogte; er wordt
+niets automatisch verwijderd en de meting is geen verzendblokkade.
 Sterk gelijkende items op dezelfde dag verschijnen vóór verzending als
 mogelijke doublures; kies na controle `Toch verzenden` of veilig `Annuleren`.
 Na de gecontroleerde Pubble-opslag verschijnt de directe krantartikellink in
@@ -497,12 +587,18 @@ voorbereiding opnieuw.
 **Kalenderdetectie** — scoort tekst op datum/tijd/deelname-signalen. Bij score
 ≥ 8 wordt `articlemeta --calendar` gestart en een bewerkbare `## Kalender`-
 sectie toegevoegd. Wil je het agenda-item niet, verwijder dan het volledige
-blok vanaf `## Kalender`. Bij `<leader>aw` wordt dat als `agenda: nee`
+blok vanaf `## Kalender`. De voorbereidingskeuze wordt in het werkbestand
+bewaard: ook na heropenen maken `<leader>ar` en `<leader>aw` een bewust verwijderd
+blok niet opnieuw. Bij de volgende artikelactie wordt `agenda: nee`
 vastgelegd en de tijdelijke kalendercache gewist; de vroegere aparte
 hoofdletter-C-weigeractie is daarom vervallen. Was er nog nooit een
 Kalenderblok en ziet de
 laatste lokale controle bij verzenden alsnog een sterke kandidaat, dan vraagt
 Neovim eerst. Ja maakt en toont het blok; nee verzendt alleen web en print.
+Herkent `<leader>ar` pas later een geschikte activiteit en is er nooit een blok
+gemaakt of afgewezen, dan mag het alsnog automatisch voorbereiden, na de
+agenda-doublurecontrole. `<leader>ac` kan iedere eerdere automatische keuze
+overrulen, maar ontbrekende verplichte gegevens blijven publicatie blokkeren.
 
 Bij `<leader>aw` en alleen-agenda `<leader>kA` worden agenda-items met een
 enkelvoudige plaats buiten de gezamenlijke plaatsenlijst overgeslagen, met
@@ -816,14 +912,20 @@ stappenplan staat in `INSTALLATIE_NIEUWE_MAC.md` in de texttools-repository.
 
 ### Vragen en krantversies
 
-Handmatig geopende keuzelijsten gebruiken Telescope: typ een deel van de
-gewenste optie om fuzzy te zoeken en kies met Enter. Escape annuleert zo'n menu.
-Automatische importvragen (agenda, 112, rubriek en persoonskeuze) blijven in de
-stabiele native vraagweergave en vereisen een expliciet antwoord: Escape en
-Ctrl-C zijn daar geen annulering. Invoervelden gebruiken eveneens de centrale
-overlay boven de tekst. Zonder beschikbare Telescope-provider vallen handmatige
-keuzelijsten automatisch terug op die overlay; gebruik daar pijltjes of `j`/`k`,
-Enter of nummers 1–9. Lange uitleg kan met Ctrl-U/Ctrl-D worden gescrold.
+Workflowkeuzelijsten gebruiken dezelfde native overlay: kies met pijltjes,
+`j`/`k`, Enter of nummers 1–9. Escape annuleert een handmatig geopend menu.
+Telescope blijft beschikbaar voor echte zoekschermen zoals het archief,
+maar bepaalt niet langer de vormgeving van workflowbeslissingen.
+Verplichte asynchrone overlays vereisen een expliciet antwoord: Escape, Ctrl-C
+of `q` bij een keuzelijst stelt de vraag uit. De handeling wacht dan op je
+antwoord; `:TexttoolsVraag` of `v` in het logboek hervat haar met behoud van
+invoer en selectie. Uitstellen is nooit toestemming of afwijzing. Invoervelden
+gebruiken eveneens de centrale overlay boven de tekst. Escape gaat daar alleen
+naar Normal, ook bij herhaald drukken; Ctrl-C annuleert of stelt verplichte
+invoer uit. Escape stopt geen lopende achtergrondprocessen. Ook oude ja/nee-
+en persoonskeuzes gebruiken nu die overlay via asynchrone UI-acties, zonder
+blokkerende wachtlus. Alleen headless tests behouden de native antwoordinjectie.
+Lange uitleg kan met Ctrl-U/Ctrl-D worden gescrold.
 De handmatige tekstversiekeuze van `<leader>ar` blijft asynchroon: de editor
 wacht niet in een geneste invoerlus en Escape annuleert de rewrite veilig.
 

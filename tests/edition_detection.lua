@@ -65,7 +65,7 @@ assert(vim.b[imported].edition_recognition_done == true, 'eenmalige importmarker
 assert(vim.wait(5000, function() return ai._duplicate_check_is_current(imported) end, 20),
   'multi-editie-import werd niet gecontroleerd')
 assert(#duplicate_runs == 1, 'multi-editie-import moet precies één doublurecontrole starten')
-assert(duplicate_runs[1].command[#duplicate_runs[1].command] == 'B,SW,ST,K', 'verkeerde edities bij importcontrole')
+assert(duplicate_runs[1].command[5] == 'B,SW,ST,K', 'verkeerde edities bij importcontrole')
 
 local explicit = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(explicit, 0, -1, false, overijssel_lines { 'e: SW', '' })
@@ -76,7 +76,7 @@ assert(
 )
 vim.wait(5000, function() return #duplicate_runs == 2 end, 20)
 assert(#duplicate_runs == 2, 'één expliciete andere krant moet naar de doublurecontrole')
-assert(duplicate_runs[2].command[#duplicate_runs[2].command] == 'SW', 'andere krant is verkeerd doorgegeven')
+assert(duplicate_runs[2].command[5] == 'SW', 'andere krant is verkeerd doorgegeven')
 
 local explicit_multi = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(explicit_multi, 0, -1, false, lelystad_lines { 'e: B, D', '' })
@@ -111,7 +111,7 @@ assert(
   'late resolutie overschreef eigen keuze'
 )
 assert(#duplicate_runs == 4, 'actuele editie ging niet naar het gedeelde beleid')
-assert(duplicate_runs[4].command[#duplicate_runs[4].command] == 'B', 'verouderde multi-detectie is doorgegeven')
+assert(duplicate_runs[4].command[5] == 'B', 'verouderde multi-detectie is doorgegeven')
 
 local suggested = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(suggested, 0, -1, false, kampen_lines { 'e: B, SUGGESTIE, D', '' })
@@ -119,7 +119,7 @@ local suggestion_done = false
 ai._edition_autodetect(suggested, buffer_text(suggested), function() suggestion_done = true end)
 assert(vim.wait(5000, function() return suggestion_done end, 20), 'suggestiecontrole rondde niet af')
 assert(#duplicate_runs == 5, 'definitieve editie is niet beoordeeld')
-assert(duplicate_runs[5].command[#duplicate_runs[5].command] == 'B', 'onbevestigde suggesties tellen als edities')
+assert(duplicate_runs[5].command[5] == 'B', 'onbevestigde suggesties tellen als edities')
 
 local no_dateline = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(no_dateline, 0, -1, false, {
@@ -147,7 +147,7 @@ local local_place_text = buffer_text(local_place)
 assert(local_place_text:find('e: B\n', 1, true) == 1, 'Kampen legde editie De Brug niet vast')
 assert(local_place_text:find('KAMPEN - De landelijke concertreeks', 1, true),
   'Kampen werd niet als dateline voor de intro gezet')
-assert(#duplicate_runs == 7 and duplicate_runs[7].command[#duplicate_runs[7].command] == 'B',
+assert(#duplicate_runs == 7 and duplicate_runs[7].command[5] == 'B',
   'lokale plaatsdetectie gebruikte niet de vastgelegde editie')
 
 -- Een uit Word/Pandoc afkomstige Markdown-kop met `##` is artikelinhoud, geen
@@ -167,7 +167,7 @@ assert(vim.wait(5000, function() return markdown_heading_done end, 20),
   'import met Markdown-kop rondde editieherkenning niet af')
 assert(buffer_text(markdown_heading):find('e: B\n', 1, true) == 1,
   'Markdown-kop liet de Kampen-dateline ten onrechte verdwijnen')
-assert(#duplicate_runs == 8 and duplicate_runs[8].command[#duplicate_runs[8].command] == 'B',
+assert(#duplicate_runs == 8 and duplicate_runs[8].command[5] == 'B',
   'import met Markdown-kop gebruikte niet de herkende editie')
 
 local empty = vim.api.nvim_create_buf(false, true)
@@ -289,8 +289,10 @@ held_duplicate_callback(false, {
   performed = true,
   candidates = { { headline = 'Bestaande versie' } },
 })
-vim.wait(100, function() return calendar_starts > 1 end, 20)
-assert(calendar_starts == 1, 'afgewezen doublure startte alsnog kalender-AI')
+assert(vim.wait(1000, function() return calendar_starts == 2 end, 20),
+  'vroeg sluiten van webcontrole blokkeerde verdere artikelbewerking')
+assert(not ai._duplicate_check_is_current(rejected_calendar_event),
+  'vroeg sluiten gaf onterecht publicatietoestemming')
 ai._duplicate_stage_runner = normal_test_runner
 ai._start_calendar_analysis = original_calendar_start
 

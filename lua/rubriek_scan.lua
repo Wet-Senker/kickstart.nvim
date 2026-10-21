@@ -225,8 +225,10 @@ end
 function M.run(edition, options)
   edition = edition or 'all'
   options = options or {}
-  notifications.workflow('Webartikelen · rubrieken scannen…', vim.log.levels.INFO)
-  notifications.system(command(edition, options.include_reviewed), { text = true }, function(process)
+  notifications.workflow('Webartikelen · rubrieken scannen…', vim.log.levels.INFO, { kind = 'progress' })
+  notifications.system(command(edition, options.include_reviewed), {
+    text = true, texttools_activity = { action = 'Webartikelen · Rubrieken scannen' },
+  }, function(process)
     notifications.schedule(function()
       if process.code ~= 0 then
         notifications.notify(vim.trim(process.stderr or '') ~= '' and vim.trim(process.stderr)

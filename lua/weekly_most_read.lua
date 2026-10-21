@@ -200,18 +200,18 @@ end
 
 function M.prepare(edition)
   local cmd = vim.list_extend(vim.deepcopy(command), { 'prepare', '--edition', edition })
-  workflow('Meestgelezen · artikelen en cijfers ophalen…', vim.log.levels.INFO)
+  workflow('Meestgelezen · artikelen en cijfers ophalen…', vim.log.levels.INFO, { kind = 'progress' })
   notifications.system(cmd, { text = true, texttools_activity = { action = 'Meestgelezen ophalen' } }, function(result)
     notifications.schedule(function()
       local data = decode(result, 'Meestgelezen weekoverzicht voorbereiden mislukt.')
       if not data or type(data.document) ~= 'string' then return end
       local buf = open_editable('Meestgelezen review ' .. edition, data.document, true)
       context_help.register(buf, function(target) return help_entry(target) end)
-      vim.keymap.set('n', '<leader>kv', function() M.generate(buf) end, {
+      require("user_dialog").keymap('n', '<leader>kv', function() M.generate(buf) end, {
         buffer = buf,
         desc = '[K]rant [v]eelgelezen review verwerken',
       })
-      vim.keymap.set('n', '<leader>kf', function() M.photos(buf) end, {
+      require("user_dialog").keymap('n', '<leader>kf', function() M.photos(buf) end, {
         buffer = buf,
         desc = '[K]rant meestgelezen [f]oto downloaden',
       })
@@ -251,7 +251,7 @@ function M.generate(buf)
       return
     end
   end
-  workflow('Meestgelezen · gecontroleerde tekst schrijven…', vim.log.levels.INFO)
+  workflow('Meestgelezen · gecontroleerde tekst schrijven…', vim.log.levels.INFO, { kind = 'progress' })
   local cmd = vim.list_extend(vim.deepcopy(command), { 'generate' })
   notifications.system(cmd, { text = true, stdin = text, texttools_activity = { action = 'Meestgelezen schrijven', buf = buf } }, function(result)
     notifications.schedule(function()
@@ -301,7 +301,7 @@ function M.photos(buf)
     vim.fn.expand('~/Desktop/meestgelezen'),
   }
   local download_cmd = vim.list_extend(vim.deepcopy(command), args)
-  workflow("Meestgelezen · alle beschikbare hoofdfoto's downloaden…", vim.log.levels.INFO)
+  workflow("Meestgelezen · alle beschikbare hoofdfoto's downloaden…", vim.log.levels.INFO, { kind = 'progress' })
   notifications.system(download_cmd, { text = true, stdin = text, texttools_activity = { action = 'Meestgelezen foto’s ophalen', buf = buf } }, function(result)
     notifications.schedule(function()
       local downloaded = decode(result, "Hoofdfoto's downloaden mislukt.")
@@ -341,13 +341,13 @@ end
 function M.setup()
   if M._setup_done then return end
   M._setup_done = true
-  vim.api.nvim_create_user_command('Meestgelezen', function() M.run() end, {
+  require("user_dialog").command('Meestgelezen', function() M.run() end, {
     desc = 'Meestgelezen weekoverzicht voorbereiden of genereren',
   })
-  vim.api.nvim_create_user_command('MeestgelezenFotos', function() M.photos() end, {
+  require("user_dialog").command('MeestgelezenFotos', function() M.photos() end, {
     desc = "Eén hoofdfoto per artikel uit de huidige meestgelezen-review downloaden",
   })
-  vim.keymap.set('n', '<leader>kv', M.run, {
+  require("user_dialog").keymap('n', '<leader>kv', M.run, {
     desc = '[K]rant [v]eelgelezen weekoverzicht',
   })
 end

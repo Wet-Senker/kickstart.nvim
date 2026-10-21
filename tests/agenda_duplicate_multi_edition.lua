@@ -24,7 +24,8 @@ local function check(codes)
   end)
   assert(vim.wait(10000, function() return finished end), 'Agendacontrole bleef hangen')
   assert(next(activity.snapshot(buf).tasks) == nil, 'Afgeronde controle bleef actief')
-  assert(vim.deep_equal(vim.api.nvim_buf_get_lines(buf, 0, -1, false), lines),
+  assert(vim.deep_equal(require('article_notices').content_lines(vim.api.nvim_buf_get_lines(buf, 0, -1, false)),
+    require('article_notices').content_lines(lines)),
     'De controle wijzigde het artikel')
 end
 

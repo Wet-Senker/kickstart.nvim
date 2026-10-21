@@ -96,7 +96,12 @@ end
 function M.finish(token, outcome, detail)
   if type(token) ~= 'table' or token.finished then return end
   token.finished = true
-  activity.finish(token.buf, token.action_id)
+  -- De procescallback plant vaak eerst de daadwerkelijke bufferbewerking.
+  -- Laat die uitkomst vóór de visuele voltooiing registreren. Exitcode 0 is
+  -- op zichzelf geen bewijs dat het resultaat is toegepast.
+  vim.schedule(function()
+    activity.finish(token.buf, token.action_id, outcome == 'cancelled' and 'cancelled' or nil)
+  end)
   append {
     ts = timestamp(),
     kind = 'workflow',

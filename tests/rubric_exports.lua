@@ -95,7 +95,7 @@ assert(
 assert(not kiek_text:find('prio: 1', 1, true), 'z-rubriek Kamper Kiek mag geen prio-controlregel krijgen (buiten de weekplanning)')
 assert(kiek_text:find('\ne: B\n', 1, true), 'Kamper Kiek kreeg niet automatisch editie B')
 assert(kiek_text:find('=== ARTIKEL ===', 1, true), 'Kamper Kiek verloor de artikelgrens')
-assert(kiek_text:find('De Kamper Kiek op de wîêk', 1, true), 'vaste Kamper-Kiekkop ontbreekt')
+assert(kiek_text:find('De Kamper Kiek op de Wîêk', 1, true), 'vaste Kamper-Kiekkop ontbreekt')
 assert(
   kiek_text:find('In De Brug kijkt burgemeester Sander de Rouwe wekelijks in fotovorm terug', 1, true),
   'vaste Kamper-Kiekintro ontbreekt'

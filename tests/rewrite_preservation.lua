@@ -2,6 +2,9 @@ package.preload['fidget.progress'] = function()
   return { handle = { create = function() return { finish = function() end } end } }
 end
 
+-- Deze regressie toetst expliciet de intact gehouden terugvalroute.
+vim.env.TEXTTOOLS_WRITING_PROFILE = 'behoudplan-20261021'
+
 local ai = require 'ai_text'
 local dialog = require 'user_dialog'
 local original_system = vim.system

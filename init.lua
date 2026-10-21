@@ -390,14 +390,8 @@ require('catppuccin').setup {
   -- cursor location to LINE:COLUMN
   ---@diagnostic disable-next-line: duplicate-set-field
   statusline.section_location = function() return '%2l:%-2v' end
-  local filename = statusline.section_filename
-  statusline.section_filename = function(args)
-    local win = vim.g.statusline_winid or vim.api.nvim_get_current_win()
-    local buf = vim.api.nvim_win_get_buf(win)
-    local activity_ui = require 'article_activity'
-    local activity = not activity_ui.panel_visible(buf) and activity_ui.statusline(buf) or ''
-    return filename(args) .. (activity ~= '' and (' │ ' .. activity) or '')
-  end
+  -- Aandacht hoort met uitleg boven de artikelgrens, niet nogmaals als
+  -- onherleidbaar "Aandacht nodig" in bron- en krantversiestatusbalken.
 
   -- ... and there is more!
   --  Check out: https://github.com/nvim-mini/mini.nvim
@@ -462,12 +456,9 @@ do
 
   -- Enable Telescope extensions if they are installed
   pcall(require('telescope').load_extension, 'fzf')
-  local ui_select_loaded = pcall(require('telescope').load_extension, 'ui-select')
-  require('user_dialog').setup {
-    -- Preserve Telescope's provider before user_dialog takes ownership of
-    -- vim.ui.select. It is used only for manually opened, annuleerbare menus.
-    manual_select = ui_select_loaded and vim.ui.select or nil,
-  }
+  -- Workflowkeuzes gebruiken één leesbaar native menu; Telescope blijft voor
+  -- echte zoekschermen, niet als tweede vormgeving voor dezelfde beslissingen.
+  require('user_dialog').setup()
   pcall(require('telescope').load_extension, 'file_browser')
 
   -- Fuzzy-browse folders (by name, not path) and move/rename/delete files
@@ -597,7 +588,31 @@ do
   -- Useful status updates for LSP.
   vim.pack.add { gh 'j-hui/fidget.nvim' }
   require('fidget').setup {
-    notification = { window = { winblend = 0, normal_hl = 'NormalFloat', border = 'rounded', max_width = 72, max_height = 6 } },
+    progress = {
+      display = {
+        progress_icon = { 'dots' },
+        overrides = {
+          texttools_tasks = {
+            name = require('task_display').group_name,
+            icon = require('task_display').icon,
+            render_limit = 5,
+            ttl = require('task_display').done_ttl,
+            skip_history = true,
+          },
+        },
+      },
+    },
+    notification = {
+      window = {
+        -- Normal heeft altijd de editorachtergrond; samen met winblend 0 kan
+        -- artikeltekst nooit door de taakmeldingen heen schijnen.
+        winblend = 0,
+        normal_hl = 'Normal',
+        border = 'rounded',
+        max_width = 72,
+        max_height = 6,
+      },
+    },
   }
   require('article_activity').setup()
 
@@ -1026,7 +1041,7 @@ vim.api.nvim_create_autocmd('BufReadCmd', {
     local buf = args.buf
     if result.code ~= 0 or vim.trim(result.stdout or '') == '' then
       local hint = ext == 'pdf' and ' (mogelijk een gescande pdf zonder tekstlaag — daar heb je OCR voor nodig)' or ''
-      vim.notify('Kon ' .. vim.fn.fnamemodify(path, ':t') .. ' niet omzetten naar tekst' .. hint, vim.log.levels.ERROR)
+      require('texttools_notify').notify('Kon ' .. vim.fn.fnamemodify(path, ':t') .. ' niet omzetten naar tekst' .. hint, vim.log.levels.ERROR, { buf = buf })
       vim.bo[buf].buftype = 'nofile'
       return
     end

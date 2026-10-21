@@ -153,7 +153,7 @@ function M.search(buf)
     return
   end
   if vim.b[buf].archive_context_running == true then
-    workflow('De archiefzoeker loopt al.', vim.log.levels.INFO)
+    workflow('De archiefzoeker loopt al.', vim.log.levels.INFO, { kind = 'progress' })
     return
   end
 
@@ -169,7 +169,7 @@ function M.search(buf)
   workflow(
     offset == 0 and 'Archief · eerdere berichten zoeken…'
       or string.format('Archief · verhalen %d en verder ophalen…', offset + 1),
-    vim.log.levels.INFO
+    vim.log.levels.INFO, { kind = 'progress' }
   )
   notifications.system(
     { command, file, '--offset', tostring(offset), '--json' },
@@ -238,7 +238,7 @@ function M.summarise(buf)
     return
   end
 
-  workflow('Archief · achtergrondtekst schrijven…', vim.log.levels.INFO)
+  workflow('Archief · achtergrondtekst schrijven…', vim.log.levels.INFO, { kind = 'progress' })
   notifications.system(
     { command, article_file, '--summarise', review_file, '--json' },
     { text = true, texttools_activity = { action = 'Archief samenvatten', buf = source } },

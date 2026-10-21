@@ -64,7 +64,9 @@ ai._duplicate_stage_runner = function() error('bewuste startfout') end
 local approved
 ai._check_duplicate_stage(buf, { 'B' }, 'importeren', function(ok) approved = ok end)
 drain()
-assert(approved == false and jobs.count(buf) == 0 and not vim.b[buf].pubble_duplicate_check_running,
+assert(approved == true and jobs.count(buf) == 0 and not vim.b[buf].pubble_duplicate_check_running,
   'mislukte doublurestart hield de poort gesloten')
+assert(not vim.b[buf].pubble_duplicate_checked_body,
+  'doorgaan met bewerken gaf bij een mislukte controle publicatietoestemming')
 vim.system = old_system
 print('buffer jobs: OK')

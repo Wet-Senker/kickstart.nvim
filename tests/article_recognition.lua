@@ -158,7 +158,7 @@ ai_text._duplicate_stage_runner = function(command, callback)
   if expect_formatted_duplicate then
     local compared = table.concat(vim.fn.readfile(command[2]), '\n')
     assert(
-      compared:find('De Kamper Kiek op de wîêk', 1, true)
+      compared:find('De Kamper Kiek op de Wîêk', 1, true)
         and compared:find('newspaper:\n  working_title: "z - KAMPER KIEK"', 1, true),
       'doublurecontrole startte voordat de rubriekopmaak was toegepast'
     )
@@ -227,7 +227,7 @@ assert(
   output:find('newspaper:\n  working_title: "z - KAMPER KIEK"', 1, true),
   'automatische Kamper Kiek kreeg niet de vaste z-werktitel'
 )
-assert(output:find('De Kamper Kiek op de wîêk', 1, true), 'automatisch template ontbreekt')
+assert(output:find('De Kamper Kiek op de Wîêk', 1, true), 'automatisch template ontbreekt')
 assert(output:find('\ne: B\n', 1, true), 'automatische Kamper Kiek kreeg niet editie B')
 assert(output:find('\n1. Eerste punt.\n2. Tweede punt.\n3. Derde punt.', 1, true), 'automatische nummering klopt niet')
 assert(vim.b[buf].recognized_rubric == 'kamper_kiek', 'herkende rubriek is niet in de bufferstatus opgeslagen')
@@ -262,12 +262,12 @@ ai_text._article_autodetect(legacy_kiek)
 assert(
   vim.wait(5000, function()
     local current = table.concat(vim.api.nvim_buf_get_lines(legacy_kiek, 0, -1, false), '\n')
-    return current:find('e: B\n', 1, true) == 1
+    return current:find('\ne: B\n', 1, true) ~= nil
   end, 20),
   'bestaande Kamper Kiek zonder editie werd niet tijdig gemigreerd'
 )
 assert(
-  table.concat(vim.api.nvim_buf_get_lines(legacy_kiek, 0, -1, false), '\n'):find('e: B\n', 1, true) == 1,
+  table.concat(vim.api.nvim_buf_get_lines(legacy_kiek, 0, -1, false), '\n'):find('\ne: B\n', 1, true) ~= nil,
   'bestaande Kamper Kiek zonder editie werd niet naar B gemigreerd'
 )
 

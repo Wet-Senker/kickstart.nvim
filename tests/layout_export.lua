@@ -1,4 +1,6 @@
 local layout_export = require('layout_export')
+assert(not layout_export.valid_plan({ dir = '/tmp', txt_name = '../artikel.txt' }), 'ongeldig herstelplan geaccepteerd')
+assert(not layout_export.valid_plan({ dir = 'relatief', txt_name = 'artikel.txt' }), 'relatieve herstelmap geaccepteerd')
 
 local tmp = vim.fn.tempname()
 local layout_dir = tmp .. '/vormgeving'

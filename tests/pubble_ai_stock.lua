@@ -24,9 +24,9 @@ browser.open_urls = function(urls)
   return true
 end
 
-local function reply(data)
+local function reply(data, code, stderr)
   data.version = data.version or 1
-  requests[#requests].callback({ code = 0, stdout = vim.json.encode(data), stderr = '' })
+  requests[#requests].callback({ code = code or 0, stdout = vim.json.encode(data), stderr = stderr or '' })
   vim.wait(30, function() return false end, 5)
 end
 
@@ -98,7 +98,17 @@ assert(diagnostics[#diagnostics].detail.status == 'saved')
 assert(diagnostics[#diagnostics].detail.location_id == 24)
 assert(diagnostics[#diagnostics].detail.keyword_count == 3)
 assert(requests[#requests].cmd[4] == 'ai-import-finalize', 'originelen alleen na opgeslagen import wegzetten')
-reply({ moved_count = 2 })
+local activity = require 'article_activity'
+activity.setup { preferences = vim.fn.tempname() .. '/activity.json' }
+dialog.select = function() error('gewone importwaarschuwing opende een Begrepen-dialoog') end
+local other = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_set_current_buf(other)
+reply({}, 1, 'Bewuste verplaatsfout')
+local entries = activity.snapshot(source).entries
+assert(entries[#entries].message:find('Inbox-originelen konden niet volledig worden weggezet', 1, true),
+  'importwaarschuwing ontbreekt in het bronlogboek')
+assert(entries[#entries].level == vim.log.levels.WARN, 'gedeeltelijke opruiming is geen waarschuwing')
+assert(not activity.snapshot(other), 'importwaarschuwing kwam bij het nieuwe artikel')
 
 vim.fn.delete(path)
 print('pubble AI stock: OK')

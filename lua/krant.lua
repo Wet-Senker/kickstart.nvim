@@ -11,7 +11,7 @@ local editions = require('editions')
 local layout_export = require('layout_export')
 local notifications = require('texttools_notify')
 local ARTICLE_BOUNDARY = '=== ARTIKEL ==='
-local KAMPER_KIEK_TITLE = 'De Kamper Kiek op de wîêk'
+local KAMPER_KIEK_TITLE = 'De Kamper Kiek op de Wîêk'
 local KAMPER_KIEK_INTRO = 'In De Brug kijkt burgemeester Sander de Rouwe wekelijks in fotovorm terug op de afgelopen week.'
 
 -- ============================================================
@@ -682,7 +682,7 @@ end
 local function selection_is_current(buf, tick)
   if not vim.api.nvim_buf_is_valid(buf) then return false end
   if vim.api.nvim_buf_get_changedtick(buf) ~= tick then
-    notifications.notify('Artikel gewijzigd tijdens persoonskeuze; template niet toegepast.', vim.log.levels.WARN)
+    notifications.notify('Artikel gewijzigd tijdens persoonskeuze; template niet toegepast. Kies het template opnieuw via <leader>kt.', vim.log.levels.WARN)
     return false
   end
   return true
@@ -1465,7 +1465,7 @@ local function rubric_edition_for(rubric_id)
 end
 M._rubric_edition_for = rubric_edition_for
 
-function M.ensure_detected_rubric_edition(rubric_id, target_buf)
+function M.ensure_detected_rubric_edition(rubric_id, target_buf, restore_template)
   local edition = rubric_edition_for(rubric_id)
   if not edition then return false end
   target_buf = target_buf or vim.api.nvim_get_current_buf()
@@ -1473,13 +1473,49 @@ function M.ensure_detected_rubric_edition(rubric_id, target_buf)
   local frontmatter = visible_frontmatter(lines)
   local header, article = split_visible_article(lines)
   local updated_header = with_default_edition(header, edition)
-  if #updated_header == #header then return false end
+  if not restore_template and #updated_header == #header then return false end
+  local template
+  if restore_template then
+    for _, candidate in ipairs(M.templates) do
+      if candidate.id == rubric_id then template = candidate; break end
+    end
+  end
+  -- Heropenen van reeds getemplate kopij mag de eerder gekozen vorm niet
+  -- opnieuw om de body wikkelen. Herstel uitsluitend ontbrekende bestaande
+  -- templatevelden uit dezelfde definitie als apply(), geen tweede tabel.
+  if template then
+    local has_title, has_rubric = false, false
+    for _, line in ipairs(frontmatter) do
+      if line:match('^%s+working_title:%s*%S') then has_title = true end
+    end
+    for _, line in ipairs(updated_header) do
+      if line:lower():match('^%s*rubriek%s*:') or line:lower():match('^%s*r%s*:') then has_rubric = true end
+    end
+    if not has_title and template.working_title then
+      frontmatter = upsert_newspaper_frontmatter(frontmatter,
+        with_rubriek_disambiguator(template.working_title, frontmatter), 1)
+    end
+    if template.column and not has_rubric then table.insert(updated_header, 1, 'rubriek: column') end
+    vim.b[target_buf].krant_template = template.name
+    if not template.no_export and not layout_export.pending(target_buf) then
+      local slug = template.name:lower():gsub('[^%a%d]+', '_'):gsub('^_+', ''):gsub('_+$', '')
+      prepare_layout_export(target_buf, {
+        dir = M.config.desktop .. '/' .. publication_week() .. '_lezersnieuws',
+        txt_name = '1.' .. slug .. '.txt', label = template.name,
+      })
+    end
+  end
   local updated = {}
   for _, line in ipairs(frontmatter) do table.insert(updated, line) end
   if #frontmatter > 0 then table.insert(updated, '') end
   append_visible_article(updated, updated_header, article)
+  if vim.deep_equal(updated, lines) then return false end
   vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, updated)
   return true
+end
+
+function M.ensure_detected_rubric_state(rubric_id, target_buf)
+  return M.ensure_detected_rubric_edition(rubric_id, target_buf, true)
 end
 
 function M.menu()

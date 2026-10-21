@@ -36,7 +36,7 @@ end
 local function run(series, args)
   local output = vim.fn.system(vim.list_extend({ texttools_commands.bin(series .. '-reminder') }, args))
   if vim.v.shell_error ~= 0 then
-    vim.notify(vim.trim(output), vim.log.levels.ERROR)
+    notifications.notify(vim.trim(output), vim.log.levels.ERROR)
     return nil
   end
   return output
@@ -73,7 +73,7 @@ local function mail_from_buffer(buf)
 end
 
 M._sent_confirm = function(label)
-  return vim.fn.confirm('Reminder voor ' .. label .. ' verstuurd?', '&Ja\n&Nee', 2)
+  return require('user_dialog').confirm('Reminder voor ' .. label .. ' verstuurd?', '&Ja\n&Nee', 2)
 end
 
 local function confirm_sent_on_return(item)
@@ -82,7 +82,7 @@ local function confirm_sent_on_return(item)
     group = group,
     once = true,
     callback = function()
-      vim.defer_fn(function()
+      require('texttools_notify').defer_fn(function()
         if M._sent_confirm(item.label) == 1 then mark(item, true) end
       end, 150)
     end,
@@ -94,7 +94,7 @@ M._confirm_sent_on_return = confirm_sent_on_return
 local function open_in_mail(item, buf)
   local message, error_message = mail_from_buffer(buf)
   if not message then
-    vim.notify(error_message, vim.log.levels.ERROR)
+    notifications.notify(error_message, vim.log.levels.ERROR, { buf = buf })
     return
   end
 
@@ -102,7 +102,7 @@ local function open_in_mail(item, buf)
     'osascript', mail_script, message.recipient, message.subject, message.body,
   })
   if vim.v.shell_error ~= 0 then
-    vim.notify('Apple Mail kon niet worden geopend: ' .. vim.trim(output), vim.log.levels.ERROR)
+    notifications.notify('Apple Mail kon niet worden geopend: ' .. vim.trim(output), vim.log.levels.ERROR, { buf = buf })
     return
   end
 
@@ -117,7 +117,7 @@ end
 local function copy_mail(item, buf)
   local message, error_message = mail_from_buffer(buf)
   if not message then
-    vim.notify(error_message, vim.log.levels.ERROR)
+    notifications.notify(error_message, vim.log.levels.ERROR, { buf = buf })
     return
   end
 
@@ -185,17 +185,17 @@ local function open_preview(item)
     }
   end)
 
-  vim.keymap.set('n', 'c', function() copy_mail(item, buf) end,
+  require("user_dialog").keymap('n', 'c', function() copy_mail(item, buf) end,
     { buffer = buf, silent = true, desc = 'Kopieer volledige mail' })
-  vim.keymap.set('n', '<leader>aw', function() open_in_mail(item, buf) end,
+  require("user_dialog").keymap('n', '<leader>aw', function() open_in_mail(item, buf) end,
     { buffer = buf, silent = true, desc = 'Open concept in Apple Mail' })
   if markable(item) then
-    vim.keymap.set('n', 's', function() mark(item, not is_sent(item)) end,
+    require("user_dialog").keymap('n', 's', function() mark(item, not is_sent(item)) end,
       { buffer = buf, silent = true, desc = 'Corrigeer verzendstatus handmatig' })
   end
-  vim.keymap.set('n', 'q', '<cmd>close<cr>',
+  require("user_dialog").keymap('n', 'q', '<cmd>close<cr>',
     { buffer = buf, silent = true, desc = 'Sluiten' })
-  vim.keymap.set('n', '?', function() context_help.show(buf) end,
+  require("user_dialog").keymap('n', '?', function() context_help.show(buf) end,
     { buffer = buf, silent = true, desc = 'Toon toetsen' })
 
   local hint = '<leader>aw = Apple Mail  •  c = volledige mail kopiëren  •  ? = hulp  •  q = sluiten'
@@ -210,7 +210,7 @@ local function fetch_rotation(series)
   if not output then return nil end
   local ok, items = pcall(vim.json.decode, output)
   if not ok or type(items) ~= 'table' then
-    vim.notify('De planning kon niet worden gelezen.', vim.log.levels.ERROR)
+    notifications.notify('De planning kon niet worden gelezen.', vim.log.levels.ERROR)
     return nil
   end
   return items
@@ -298,13 +298,13 @@ function M.overview(series, items)
 
     local ok, mail = pcall(vim.json.decode, output)
     if not ok or type(mail) ~= 'table' or type(mail.body) ~= 'string' then
-      vim.notify('Het overzicht kon niet worden gelezen.', vim.log.levels.ERROR)
+      notifications.notify('Het overzicht kon niet worden gelezen.', vim.log.levels.ERROR)
       return
     end
 
     -- Waarschuwing bóven de tekst, niet erin: de mail moet schoon blijven.
     for _, warning in ipairs(mail.warnings or {}) do
-      vim.notify('LET OP — ' .. warning, vim.log.levels.WARN)
+      notifications.notify(warning, vim.log.levels.WARN)
     end
 
     open_preview({
@@ -359,12 +359,12 @@ function M.menu()
   end)
 end
 
-vim.api.nvim_create_user_command('RubriekPlanning', M.menu, {
+require("user_dialog").command('RubriekPlanning', M.menu, {
   desc = 'Planning en reminders voor Raadspraat en Ondernemen in Kampen',
   force = true,
 })
 
-vim.keymap.set('n', '<leader>kp', M.menu, {
+require("user_dialog").keymap('n', '<leader>kp', M.menu, {
   desc = '[K]rant [P]lanning rubrieken',
 })
 

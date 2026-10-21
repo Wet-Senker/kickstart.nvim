@@ -4,7 +4,7 @@ local M = {}
 
 local commands = require 'texttools_commands'
 local notifications = require 'texttools_notify'
-local browser = require 'ordered_browser'
+local pair_view = require 'duplicate_pair_view'
 local context_help = require 'context_help'
 
 local python = commands.bin 'python'
@@ -54,15 +54,17 @@ function M._render(result)
         site.publication or site.edition, site.article_count or 0, #pairs,
         #pairs > 0 and ':' or '.'))
       for _, pair in ipairs(pairs) do
+        local group = site.groups and pair.group_id and site.groups[pair.group_id]
         table.insert(lines, string.format('  %s%s; %d dag(en) uiteen (%d%%)',
           pair.reviewed and '[gecontroleerd] ' or '',
           sanitize(pair.reason), pair.days_apart or 0, pair.score or 0))
+        if group then lines[#lines] = lines[#lines] .. (' · groep %d: %d artikelen'):format(group.id, group.article_count) end
         -- Ook de redenregel hoort bij het paar, zodat 'm' overal in het blok werkt.
-        ranges[#lines] = { pair = pair }
+        ranges[#lines] = { pair = pair, group = group }
         for _, article in ipairs({ pair.left, pair.right }) do
           table.insert(lines, string.format('    • %s (%s)',
             sanitize(article.headline), article.display_date_label or '?'))
-          ranges[#lines] = { article = article, pair = pair }
+          ranges[#lines] = { article = article, pair = pair, group = group }
         end
       end
       if (site.reviewed_hidden_count or 0) > 0 then
@@ -80,7 +82,7 @@ function M._render(result)
     table.insert(lines, '')
   end
   table.insert(lines,
-    'Enter = tekst in nvim  •  o = in browser  •  m = paar markeren (geen doublure)  •  '
+    'Enter = tekst in nvim  •  o = in browser (hele doubluregroep)  •  m = paar markeren (geen doublure)  •  '
     .. 'r = gecontroleerde tonen/verbergen  •  q = sluiten')
   return lines, ranges
 end
@@ -101,27 +103,31 @@ local function mark_keys(keys, on_done)
     notifications.notify('Geen kandidaatpaar om te markeren.', vim.log.levels.INFO)
     return
   end
-  notifications.system(mark_command(), {
-    text = true,
-    stdin = vim.json.encode { review_keys = keys },
-  }, function(process)
+  local function handle(process)
     notifications.schedule(function()
       if process.code ~= 0 then
         notifications.notify(vim.trim(process.stderr or '') ~= '' and vim.trim(process.stderr)
           or 'Markeren als gecontroleerd mislukt.', vim.log.levels.ERROR)
+        if on_done then on_done(false) end
         return
       end
       local ok, response = pcall(vim.json.decode, vim.trim(process.stdout or ''))
-      if not ok or type(response) ~= 'table' then
-        notifications.notify('Onleesbaar antwoord bij het markeren.', vim.log.levels.ERROR)
+      if not ok or type(response) ~= 'table' or response.schema_version ~= 1
+          or response.marked_count ~= #keys then
+        notifications.notify('Markering niet bevestigd; probeer m opnieuw.', vim.log.levels.ERROR)
+        if on_done then on_done(false) end
         return
       end
       notifications.workflow(string.format(
         '%d kandidaatpaar(en) gemarkeerd als gecontroleerd.', response.marked_count or #keys),
         vim.log.levels.INFO, { ttl = 10 })
-      if on_done then on_done() end
+      if on_done then on_done(true) end
     end)
-  end)
+  end
+  local started, err = pcall(notifications.system, mark_command(), {
+    text = true, stdin = vim.json.encode { review_keys = keys },
+  }, handle)
+  if not started then handle { code = 1, stderr = tostring(err) } end
 end
 
 -- Toon één webartikel als losse, sluitbare buffer onder het overzicht. Zo kun
@@ -157,6 +163,7 @@ end
 local function show_report(result, edition, include_reviewed)
   local buf = vim.api.nvim_create_buf(false, true)
   local lines, ranges = M._render(result)
+  local marking = {}
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].filetype = 'markdown'
   vim.bo[buf].modifiable = false
@@ -170,7 +177,7 @@ local function show_report(result, edition, include_reviewed)
         heading = 'Beoordelen',
         lines = {
           'Enter  Bekijk een artikeltekst in Neovim.',
-          'o      Open het artikel in Pubble.',
+          'o      Open alle artikelen van de geselecteerde doubluregroep in Pubble.',
         },
       },
       {
@@ -199,6 +206,7 @@ local function show_report(result, edition, include_reviewed)
   end
 
   local function redraw()
+    if not vim.api.nvim_buf_is_valid(buf) then return end
     lines, ranges = M._render(result)
     vim.bo[buf].modifiable = true
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -207,12 +215,12 @@ local function show_report(result, edition, include_reviewed)
 
   vim.keymap.set('n', 'o', function()
     local entry = entry_at_cursor()
-    if not entry or not entry.article or not entry.article.editor_url then
-      notifications.notify('Zet de cursor op een titelregel.', vim.log.levels.INFO)
+    if not entry or not entry.pair then
+      notifications.notify('Zet de cursor op een regel van het kandidaatpaar.', vim.log.levels.INFO)
       return
     end
-    browser.open_urls { tostring(entry.article.editor_url) }
-  end, { buffer = buf, silent = true, desc = 'Artikel in browser openen' })
+    pair_view.open(entry.pair, entry.group)
+  end, { buffer = buf, silent = true, desc = 'Hele doubluregroep in browser openen' })
 
   vim.keymap.set('n', '<CR>', function()
     local entry = entry_at_cursor()
@@ -229,7 +237,12 @@ local function show_report(result, edition, include_reviewed)
       notifications.notify('Zet de cursor op een regel van het kandidaatpaar.', vim.log.levels.INFO)
       return
     end
-    mark_keys({ entry.pair.review_key }, function()
+    local key = entry.pair.review_key
+    if marking[key] or entry.pair.reviewed then return end
+    marking[key] = true
+    mark_keys({ key }, function(ok)
+      marking[key] = nil
+      if not ok then return end
       entry.pair.reviewed = true
       redraw()
     end)
@@ -251,8 +264,10 @@ end
 function M.run(edition, options)
   edition = edition or 'all'
   options = options or {}
-  notifications.workflow('Webartikelen · doublures zoeken…', vim.log.levels.INFO)
-  notifications.system(command(edition, options.include_reviewed), { text = true }, function(process)
+  notifications.workflow('Webartikelen · doublures zoeken…', vim.log.levels.INFO, { kind = 'progress' })
+  notifications.system(command(edition, options.include_reviewed), {
+    text = true, texttools_activity = { action = 'Webartikelen · Doublures zoeken' },
+  }, function(process)
     notifications.schedule(function()
       if process.code ~= 0 then
         notifications.notify(vim.trim(process.stderr or '') ~= '' and vim.trim(process.stderr)
@@ -265,16 +280,7 @@ function M.run(edition, options)
         return
       end
       show_report(result, edition, options.include_reviewed == true)
-      -- De artikelen worden niet meer automatisch in de browser gegooid; open ze
-      -- gericht per stuk met `o` in het overzicht. Alleen op expliciet verzoek
-      -- (open_browser == true) gaat de hele lichting geordend open.
-      if options.open_browser == true then
-        local urls = {}
-        for _, site in ipairs(result.sites or {}) do
-          vim.list_extend(urls, site.open_urls or {})
-        end
-        browser.open_urls(urls)
-      end
+      -- Ook oude aanroepers met open_browser=true openen nooit de hele lichting.
       notifications.workflow('Webdoublurecontrole klaar: overzicht geopend.',
         vim.log.levels.INFO, { ttl = 10 })
     end)

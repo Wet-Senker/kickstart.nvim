@@ -24,6 +24,7 @@ local function run_case(edit_stage)
     '', 'Kop', '', 'KAMPEN - Nieuws zonder evenementdatum.',
   }
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, original)
+  require('layout_export').prepare(buf, { dir = directory .. '/lezersnieuws', txt_name = 'column.txt' })
   vim.b[buf].publication_review_state = {
     editions = codes, display_dates = {}, skip_newspaper_editions = codes,
   }
@@ -76,14 +77,18 @@ local function run_case(edit_stage)
     local saved = vim.json.decode(table.concat(vim.fn.readfile(marker), '\n'))
     assert(saved.version == 1 and saved.recovery_name == vim.fn.fnamemodify(file, ':t'),
       'herstelverwijzing mist bestand of versie')
+    assert(saved.layout_export.txt_name == 'column.txt', 'uitvoerplan is niet duurzaam bewaard')
     -- Simuleer nieuwe buffersessie: geen b:-state, nog steeds geen directe send.
     vim.b[buf].failed_send_conflict = nil
     vim.b[buf].failed_send_file = nil
+    vim.b[buf].gn_export = nil
     require('user_dialog').confirm = function() return 2 end
     assert(recovery.review_conflict(buf), 'heropenen omzeilde de ID-state')
     require('user_dialog').confirm = function() return 1 end
     assert(recovery.review_conflict(buf), 'review startte een verzending')
     local target = vim.api.nvim_get_current_buf()
+    assert(require('layout_export').pending(target).txt_name == 'column.txt',
+      'hervatten na herstart verloor de lezersnieuwsexport')
     assert(not recovery.review_conflict(target), 'herstelbuffer erft bronblokkade')
     recovery.complete(target)
     vim.b[buf].failed_send_conflict = nil

@@ -34,7 +34,7 @@ ai._agenda_duplicate_candidates = function(_buf, _codes, done) done(data) end
 
 -- Zonder editie is er niets te vergelijken: doorlopen zonder vraag.
 local asked = false
-ai._agenda_duplicate_confirm = function() asked = true return true end
+ai._agenda_duplicate_confirm = function(_, _, done) asked = true; done(true) end
 local doorgelopen = false
 ai._check_agenda_duplicates(buf, {}, function(ok) doorgelopen = ok end)
 assert(doorgelopen == true, 'zonder editie moet de flow gewoon doorlopen')
@@ -42,7 +42,7 @@ assert(asked == false, 'er is gevraagd terwijl er geen editie was')
 
 -- Met een gelijkend item en "nee": geen agenda-item, artikel gaat door.
 vim.b[buf].agenda_duplicate_check_done = nil
-ai._agenda_duplicate_confirm = function() return false end
+ai._agenda_duplicate_confirm = function(_, _, done) done(false) end
 local vervolgd = false
 ai._check_agenda_duplicates(buf, { 'B' }, function(ok) vervolgd = ok end)
 
@@ -59,11 +59,12 @@ ai._agenda_duplicate_candidates = function(_buf, _codes, done) done(data) end
 -- Escape (confirm geeft 0, hier nil) is geen weigering: niets wordt vastgelegd.
 local buf2 = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(buf2, 0, -1, false, { 'e: B', '', '=== ARTIKEL ===', '', 'Kop', '', 'KAMPEN - Op 8 juli.' })
-ai._agenda_duplicate_confirm = function() return nil end
+ai._agenda_duplicate_confirm = function(_, _, done) done(nil) end
 local na_escape = false
 ai._check_agenda_duplicates(buf2, { 'B' }, function(ok) na_escape = ok end)
 local tekst2 = table.concat(vim.api.nvim_buf_get_lines(buf2, 0, -1, false), '\n')
-assert(na_escape == true, 'de flow moet ook na Escape doorlopen')
+assert(na_escape == true and vim.b[buf2].agenda_review_cancelled == true,
+  'sluiten moet bewerken laten doorgaan zonder automatische agenda-aanmaak')
 assert(not tekst2:find('agenda: nee', 1, true), 'Escape mag geen weigering vastleggen')
 
 -- De cache hoort bij de exacte inhoud. Ongewijzigde tekst wordt niet opnieuw
@@ -92,7 +93,7 @@ ai._agenda_duplicate_candidates = function(_buf, _codes, done)
   kandidaat_calls = kandidaat_calls + 1
   done(data)
 end
-ai._agenda_duplicate_confirm = function() return true end
+ai._agenda_duplicate_confirm = function(_, _, done) done(true) end
 ai._check_agenda_duplicates(buf4, { 'B' }, function() end)
 ai._check_agenda_duplicates(buf4, { 'B' }, function() end)
 assert(kandidaat_calls == 1, 'dezelfde geaccepteerde kandidaat is opnieuw gelezen')
@@ -100,8 +101,21 @@ vim.api.nvim_buf_set_lines(buf4, -1, -1, false, { 'Extra informatie.' })
 ai._check_agenda_duplicates(buf4, { 'B' }, function() end)
 assert(kandidaat_calls == 2, 'gewijzigde inhoud gebruikte een oude toestemming')
 
--- Handmatige <leader>ac start resolver en kalender-AI parallel. Het resultaat
--- blijft tegengehouden totdat de agenda-doublurecontrole klaar is.
+-- Een open of afgebroken vraag is nog geen cache-hit. Ook na het ophalen blijft
+-- de bronrevisie de grens: een laat "nee" mag geen nieuwe tekst wijzigen.
+local late_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(late_buf, 0, -1, false, { 'e: B', '', '=== ARTIKEL ===', '', 'Open dag' })
+local answer, late_result
+ai._agenda_duplicate_confirm = function(_, _, done) answer = done end
+ai._check_agenda_duplicates(late_buf, { 'B' }, function(value) late_result = value end)
+assert(answer and late_result == nil, 'agenda-controle wacht niet op beoordeling')
+assert(vim.b[late_buf].agenda_duplicate_checked_fingerprint == nil, 'onbeantwoorde vraag telde als afgerond')
+vim.api.nvim_buf_set_lines(late_buf, -1, -1, false, { 'Nieuwere tekst' })
+answer(false)
+assert(late_result == false, 'verouderd antwoord werd geaccepteerd')
+assert(not table.concat(vim.api.nvim_buf_get_lines(late_buf, 0, -1, false), '\n'):find('agenda: nee', 1, true))
+
+-- Handmatige ac is een expliciete werkopdracht, zonder automatische blokkade.
 local manual_buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(manual_buf)
 vim.api.nvim_buf_set_lines(manual_buf, 0, -1, false, {
@@ -127,15 +141,9 @@ ai._check_agenda_duplicates = function(check_buf, codes, done)
   agenda_done = done
 end
 ai.articlemeta_calendar_buffer()
-assert(ai_started == true, 'kalender-AI startte niet direct')
-assert(type(resolver_done) == 'function', 'editieresolver startte niet parallel')
-assert(vim.b[manual_buf].manual_calendar_duplicate_pending == true,
-  'handmatige kalenderroute wacht niet op de doublurecontrole')
-resolver_done({ editions = { 'B' } })
-assert(type(agenda_done) == 'function', 'agenda-doublurecontrole startte niet')
-agenda_done(true)
-assert(vim.b[manual_buf].manual_calendar_duplicate_pending == false,
-  'kalenderroute bleef na de doublurecontrole geblokkeerd')
+assert(vim.wait(1500, function() return ai_started end), 'expliciete kalenderanalyse startte niet')
+assert(resolver_done == nil and agenda_done == nil, 'ac bleef aan automatische doublurekeuzes hangen')
+assert(ai._has_calendar_section(vim.api.nvim_buf_get_lines(manual_buf, 0, -1, false)), 'ac maakte geen invulbaar werkblok')
 ai._start_calendar_analysis = start_original
 ai._calendar_edition_resolver = resolver_original
 ai._check_agenda_duplicates = check_original

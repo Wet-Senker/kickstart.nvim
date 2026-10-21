@@ -23,7 +23,8 @@ local function count()
   return total
 end
 require('archive_context').search(buf)
-assert(activity.statusline(buf):find('Archief zoeken', 1, true), 'echte archiefactie meldde geen lopende taken')
+local _, current_task = next(activity.snapshot(buf).tasks)
+assert(current_task and current_task.action == 'Archief zoeken', 'echte archiefactie meldde geen lopende taken')
 assert(count() == 1, 'archiefactie niet exact eenmaal geregistreerd')
 callbacks[1] { code = 1, stderr = 'Zoeken mislukt' }
 settled()

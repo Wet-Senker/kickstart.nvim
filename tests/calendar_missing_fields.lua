@@ -53,4 +53,20 @@ local complete = table.concat(assert(ai._build_calendar_section_lines({
 assert(complete:find("Datum: 2026-10-17\nTijd: 10:00\nLocatie: Bovenkerk", 1, true),
   "bekende velden zijn veranderd")
 assert(not complete:find("<!-- Ontbreekt:", 1, true), "compleet item kreeg ontbreektmelding")
+local message, level = ai._calendar_notice({
+  '---', 'calendar:', '  calendar_ready: true', '  missing_event_fields: []', '---',
+})
+assert(message == 'Kalendergegevens toegevoegd.' and level == vim.log.levels.INFO,
+  'lege ontbreektlijst kreeg een waarschuwing')
+message, level = ai._calendar_notice({
+  '---', 'calendar:', '  calendar_ready: false', '  missing_event_fields:', '  - event_date', '---',
+})
+assert(message == 'Kalendergegevens toegevoegd. LET OP: Datum ontbreekt. Vul aan bij ## Kalender.')
+assert(level == vim.log.levels.WARN)
+message = ai._calendar_notice({
+  '---', 'calendar:', '  mode: multiple', '  items:',
+  '  - item_key: first', '    missing_event_fields: []',
+  '  - item_key: second', '    missing_event_fields:', '    - date', '    - start_time', '---',
+})
+assert(message:find('Agenda-item 2: Datum, Tijd ontbreken.', 1, true), 'meervoudige ontbreektmelding is niet concreet')
 print("calendar missing fields: OK")

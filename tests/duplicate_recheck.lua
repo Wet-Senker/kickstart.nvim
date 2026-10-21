@@ -9,7 +9,7 @@ local repo_root = vim.fn.fnamemodify(test_file, ':h:h')
 local ai_text_source = table.concat(vim.fn.readfile(repo_root .. '/lua/ai_text.lua'), '\n')
 
 assert(
-  ai_text_source:find('vim.keymap.set("n", "<leader>ad"', 1, true),
+  ai_text_source:find('require("user_dialog").keymap("n", "<leader>ad"', 1, true),
   'geen registratie van <leader>ad in ai_text.lua'
 )
 assert(type(ai.recheck_duplicates) == 'function', 'recheck_duplicates ontbreekt')

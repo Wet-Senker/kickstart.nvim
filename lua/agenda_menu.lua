@@ -213,6 +213,7 @@ function M._render_pairs(decoded)
     string.format('Eigen doublures (%s..%s)', decoded.van or '?', decoded.tot or '?'),
     string.rep('=', 40), '',
   }
+  local ranges = {}
   for _, e in ipairs(decoded.edities or {}) do
     if e.fout and e.fout ~= vim.NIL then
       table.insert(lines, string.format('Editie %s: NIET gelezen — %s', e.editie, e.fout))
@@ -221,15 +222,24 @@ function M._render_pairs(decoded)
       table.insert(lines, string.format('Editie %s: %d item(s), %d mogelijke doublure(s)%s',
         e.editie, e.aantal_items or 0, #paren, #paren > 0 and ':' or '.'))
       for _, p in ipairs(paren) do
+        local group = e.groups and p.group_id and e.groups[p.group_id]
+        local first = #lines + 1
         table.insert(lines, string.format('  %s (%s) ↔ %s — %s (%d%%)',
           p.left.title, p.left.date or '?', p.right.title, p.reason, p.score or 0))
+        if p.reviewed then lines[#lines] = '  ✓ Geen doublure — ' .. lines[#lines] end
+        if group then lines[#lines] = lines[#lines] .. (' · groep %d: %d artikelen'):format(group.id, group.article_count) end
         table.insert(lines, '      ' .. tostring(p.left.editor_url))
         table.insert(lines, '      ' .. tostring(p.right.editor_url))
+        for row = first, #lines do ranges[row] = { pair = p, group = group } end
+      end
+      if (e.reviewed_hidden_count or 0) > 0 then
+        table.insert(lines, ('  %d eerder beoordeelde paren verborgen.'):format(e.reviewed_hidden_count))
       end
     end
     table.insert(lines, '')
   end
-  return lines
+  table.insert(lines, 'o: hele doubluregroep in Pubble · m: geen doublure (dit paar) · r: beoordeelde tonen/verbergen · q: sluiten')
+  return lines, ranges
 end
 
 function M._render_website_candidates(decoded)
@@ -263,7 +273,16 @@ function M._render_website_candidates(decoded)
 end
 
 local function run(cmd, stdin, on_json, on_error)
-  notifications.system(cmd, { text = true, stdin = stdin }, function(result)
+  -- Alleen UI-labels; selectie/validatie/publicatie blijven bij Python.
+  local labels = {
+    import = 'Agenda verwerken', ['eigen-doublures'] = 'Agenda · Doublures zoeken',
+    ['website-scan'] = 'Agenda · Websiteartikelen controleren',
+    ['website-voorstel'] = 'Agenda · Voorstel maken', ['website-afwijzen'] = 'Agenda · Afwijzing opslaan',
+    ['website-plaatsen'] = 'Agenda · Item plaatsen', ['artikel-plaatsen'] = 'Agenda · Item plaatsen',
+    weekendbericht = 'Agenda · Weekendbericht maken',
+  }
+  notifications.system(cmd, { text = true, stdin = stdin,
+    texttools_activity = { action = labels[cmd[5]] or ('Agenda · ' .. tostring(cmd[5] or 'Verwerken')) } }, function(result)
     notifications.schedule(function()
       if result.code ~= 0 then
         notifications.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr)
@@ -303,7 +322,7 @@ function M.import_check(opts)
   end
   local cmd = command('import', '--editie', opts.editie or 'B', '--normaliseer')
   local changedtick = vim.api.nvim_buf_get_changedtick(buf)
-  workflow('Agenda · verwerken (herschrijven, controleren, ontdubbelen)…', vim.log.levels.INFO)
+  workflow('Agenda · verwerken (herschrijven, controleren, ontdubbelen)…', vim.log.levels.INFO, { kind = 'progress' })
   run(cmd, text, function(decoded)
     -- Werk de buffer bij met de herschreven agenda-teksten, mits de buffer intussen
     -- niet is gewijzigd (anders zou een late callback jouw bewerking overschrijven).
@@ -315,7 +334,7 @@ function M.import_check(opts)
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
         vim.bo[buf].modified = true
       else
-        notifications.notify('Buffer veranderde tijdens verwerken; herschreven tekst niet toegepast.',
+        notifications.notify('Buffer veranderde tijdens verwerken; herschreven tekst niet toegepast. Start de bewerking opnieuw via :Agenda.',
           vim.log.levels.WARN)
       end
     end
@@ -323,31 +342,64 @@ function M.import_check(opts)
   end)
 end
 
-function M.eigen_doublures()
+function M.eigen_doublures(include_reviewed)
   -- Alle eigen sites in één run (per site, niet kruislings).
-  workflow('Agenda · eigen doublures zoeken (alle sites)…', vim.log.levels.INFO)
-  run(command('eigen-doublures'), nil, function(decoded)
-    open_scratch('Eigen doublures', M._render_pairs(decoded))
-    local urls = {}
-    for _, e in ipairs(decoded.edities or {}) do
-      for _, p in ipairs(e.paren or {}) do
-        for _, side in ipairs { p.left, p.right } do
-          if side.editor_url and not vim.tbl_contains(urls, side.editor_url) then
-            table.insert(urls, side.editor_url)
-          end
-        end
+  workflow('Agenda · eigen doublures zoeken (alle sites)…', vim.log.levels.INFO, { kind = 'progress' })
+  local cmd = command('eigen-doublures')
+  if include_reviewed then table.insert(cmd, '--include-reviewed') end
+  run(cmd, nil, function(decoded)
+    local lines, ranges = M._render_pairs(decoded)
+    local buf = open_scratch('Eigen doublures', lines)
+    local win = vim.api.nvim_get_current_win()
+    local pending = {}
+    local function selected()
+      return ranges[vim.api.nvim_win_get_cursor(win)[1]]
+    end
+    context_help.register(buf, {
+      title = 'Eigen agendadoublures',
+      sections = { { heading = 'Per paar beoordelen', lines = {
+        'o  Open alle items van de geselecteerde doubluregroep in Pubble.',
+        'm  Bewaar: geen doublure. Er wordt niets in Pubble gewijzigd.',
+        'r  Toon/verberg eerder beoordeelde paren; gewijzigde items komen vanzelf terug.',
+        'q  Sluit dit overzicht.',
+      } } },
+    })
+    require("user_dialog").keymap('n', 'o', function()
+      local entry = selected()
+      if entry then require('duplicate_pair_view').open(entry.pair, entry.group) end
+    end, { buffer = buf, desc = 'Hele doubluregroep in Pubble openen' })
+    require("user_dialog").keymap('n', 'm', function()
+      local entry = selected()
+      local pair = entry and entry.pair
+      if not pair then return end
+      if not pair.review_key then
+        notifications.notify('Python-kern mist paarsleutels. Werk Texttools bij en voer de controle opnieuw uit.', vim.log.levels.WARN)
+        return
       end
-    end
-    browser.open_urls(urls)
-    if #urls > 0 then
-      workflow(#urls .. ' item(s) in de browser geopend; bekijk en verwijder zelf in Pubble.',
-        vim.log.levels.INFO, { ttl = 10 })
-    end
+      if pending[pair.review_key] or pair.reviewed then return end
+      pending[pair.review_key] = true
+      require('duplicate_review').mark_agenda(pair.review_key, function(ok)
+        pending[pair.review_key] = nil
+        if not ok then return end
+        pair.reviewed = true
+        if not vim.api.nvim_buf_is_valid(buf) then return end
+        lines, ranges = M._render_pairs(decoded)
+        vim.bo[buf].modifiable = true
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, sanitize_lines(lines))
+        vim.bo[buf].modifiable = false
+      end)
+    end, { buffer = buf, desc = 'Paar markeren als geen doublure' })
+    require("user_dialog").keymap('n', 'r', function()
+      vim.api.nvim_buf_delete(buf, { force = true })
+      M.eigen_doublures(not include_reviewed)
+    end, { buffer = buf, desc = 'Beoordeelde paren tonen/verbergen' })
+    require("user_dialog").keymap('n', 'q', function() vim.api.nvim_buf_delete(buf, { force = true }) end,
+      { buffer = buf, desc = 'Overzicht sluiten' })
   end)
 end
 
 function M.website_voorstel(candidate)
-  workflow('Agenda · voorstel uit webartikel maken…', vim.log.levels.INFO)
+  workflow('Agenda · voorstel uit webartikel maken…', vim.log.levels.INFO, { kind = 'progress' })
   run(command('website-voorstel', '--editie', candidate.edition,
     '--artikel-id', tostring(candidate.article_id)), nil, function(decoded)
     local document = decoded.document
@@ -358,7 +410,7 @@ function M.website_voorstel(candidate)
     local buf = open_editable('Agenda aanvullen ' .. tostring(candidate.article_id), document)
     vim.b[buf].website_agenda_proposal = true
     context_help.register(buf, function(target) return website_proposal_help(target) end)
-    vim.keymap.set('n', '<leader>kA', function() M.website_plaatsen(buf) end, {
+    require("user_dialog").keymap('n', '<leader>kA', function() M.website_plaatsen(buf) end, {
       buffer = buf,
       desc = '[K]rant ontbrekende [A]genda-item plaatsen',
     })
@@ -368,7 +420,7 @@ function M.website_voorstel(candidate)
 end
 
 function M.website_scan()
-  workflow('Agenda · recente websiteartikelen controleren…', vim.log.levels.INFO)
+  workflow('Agenda · recente websiteartikelen controleren…', vim.log.levels.INFO, { kind = 'progress' })
   run(command('website-scan', '--editie', 'all'), nil, function(decoded)
     local lines, by_line = M._render_website_candidates(decoded)
     local buf = open_scratch('Website zonder agenda', lines)
@@ -376,7 +428,7 @@ function M.website_scan()
     local function selected()
       return by_line[vim.api.nvim_win_get_cursor(0)[1]]
     end
-    vim.keymap.set('n', '<CR>', function()
+    require("user_dialog").keymap('n', '<CR>', function()
       local candidate = selected()
       if candidate then
         M.website_voorstel(candidate)
@@ -384,11 +436,11 @@ function M.website_scan()
         notifications.notify('Zet de cursor op een artikelregel.', vim.log.levels.INFO)
       end
     end, { buffer = buf, desc = 'Agenda-voorstel voor webartikel maken' })
-    vim.keymap.set('n', 'o', function()
+    require("user_dialog").keymap('n', 'o', function()
       local candidate = selected()
       if candidate and candidate.editor_url then browser.open_urls { candidate.editor_url } end
     end, { buffer = buf, desc = 'Webartikel in Pubble openen' })
-    vim.keymap.set('n', 'x', function()
+    require("user_dialog").keymap('n', 'x', function()
       local line = vim.api.nvim_win_get_cursor(0)[1]
       local candidate = by_line[line]
       if not candidate then
@@ -402,7 +454,7 @@ function M.website_scan()
         2
       )
       if answer ~= 1 then return end
-      workflow('Agenda · afwijzing opslaan…', vim.log.levels.INFO)
+      workflow('Agenda · afwijzing opslaan…', vim.log.levels.INFO, { kind = 'progress' })
       run(command('website-afwijzen', '--editie', candidate.edition,
         '--artikel-id', tostring(candidate.article_id),
         '--titel', tostring(candidate.headline or '')), nil, function(decoded_reject)
@@ -429,7 +481,7 @@ function M.website_plaatsen(buf)
   if not vim.api.nvim_buf_is_valid(buf) then return end
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
   local changedtick = vim.api.nvim_buf_get_changedtick(buf)
-  workflow('Agenda · gecontroleerd item plaatsen…', vim.log.levels.INFO)
+  workflow('Agenda · gecontroleerd item plaatsen…', vim.log.levels.INFO, { kind = 'progress' })
   run(command('website-plaatsen'), text, function(decoded)
     vim.b[buf].website_agenda_status = decoded.status
     vim.b[buf].website_agenda_reason = decoded.reason
@@ -496,7 +548,7 @@ function M.artikel_plaatsen(buf)
     or command('artikel-plaatsen')
   local was_modifiable = vim.bo[buf].modifiable
   vim.bo[buf].modifiable = false
-  workflow('Agenda · alleen kalenderitem plaatsen…', vim.log.levels.INFO)
+  workflow('Agenda · alleen kalenderitem plaatsen…', vim.log.levels.INFO, { kind = 'progress' })
 
   local function unlock()
     if vim.api.nvim_buf_is_valid(buf) then vim.bo[buf].modifiable = was_modifiable end
@@ -553,7 +605,7 @@ function M.weekendbericht()
     format_item = function(item) return item.label end,
   }, function(choice)
     if not choice then return end
-    workflow('Agenda · weekendbericht maken…', vim.log.levels.INFO)
+    workflow('Agenda · weekendbericht maken…', vim.log.levels.INFO, { kind = 'progress' })
     run(command('weekendbericht', '--editie', choice.code), nil, function(decoded)
       local results = decoded.results or {}
       -- Vaste plaatsingstijd (vrijdag 15:00 of "direct" als dat al geweest is)
@@ -724,9 +776,10 @@ function M.prepare_weekend_batch_send(buf, on_ready)
   end
 
   batch.preparing = true
-  workflow('Weekendbuffers samenvoegen voor één veilige publicatierun…', vim.log.levels.INFO)
+  workflow('Weekendbuffers samenvoegen voor één veilige publicatierun…', vim.log.levels.INFO, { kind = 'progress' })
   local payload = vim.json.encode { now = batch.now, messages = messages }
-  notifications.system(command('weekendbundel'), { text = true, stdin = payload }, function(result)
+  notifications.system(command('weekendbundel'), { text = true, stdin = payload,
+    texttools_activity = { action = 'Agenda · Weekendbuffers samenvoegen' } }, function(result)
     notifications.schedule(function()
       batch.preparing = false
       if result.code ~= 0 then
@@ -808,16 +861,16 @@ end
 function M.setup()
   if M._setup_done then return end
   M._setup_done = true
-  vim.api.nvim_create_user_command('Agenda', function() M.menu() end, {
+  require("user_dialog").command('Agenda', function() M.menu() end, {
     desc = 'Agenda-importmenu (bronnen, import, eigen doublures)',
   })
-  vim.keymap.set('n', '<leader>kg', M.menu, {
+  require("user_dialog").keymap('n', '<leader>kg', M.menu, {
     desc = '[K]rant a[g]enda online (bronnen, import, doublures)',
   })
-  vim.keymap.set('n', '<leader>kw', M.weekendbericht, {
+  require("user_dialog").keymap('n', '<leader>kw', M.weekendbericht, {
     desc = '[K]rant [w]eekendbericht uit agenda',
   })
-  vim.keymap.set('n', '<leader>kA', M.artikel_plaatsen, {
+  require("user_dialog").keymap('n', '<leader>kA', M.artikel_plaatsen, {
     desc = '[K]rant alleen [A]genda-item uit huidige buffer plaatsen',
   })
 end

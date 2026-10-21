@@ -477,15 +477,15 @@ local function configure_review_buffer(review_buf)
     callback = function() remove_review_reference(review_buf) end,
   })
 
-  vim.keymap.set("n", "<leader>aG", function() M.approve(review_buf) end, {
+  require("user_dialog").keymap("n", "<leader>aG", function() M.approve(review_buf) end, {
     buffer = review_buf,
     desc = "Huidige krantversie opslaan en goedkeuren",
   })
-  vim.keymap.set("n", "<leader>aV", function() M.show(review_buf) end, {
+  require("user_dialog").keymap("n", "<leader>aV", function() M.show(review_buf) end, {
     buffer = review_buf,
     desc = "Overzicht van krantversies openen",
   })
-  vim.keymap.set("n", "<leader>aw", function()
+  require("user_dialog").keymap("n", "<leader>aw", function()
     local source = source_buffer(review_buf)
     local reason = source and M.send_block_reason(source)
     if reason then
@@ -954,13 +954,13 @@ end
 
 function M.setup(options)
   config = options or {}
-  vim.api.nvim_create_user_command("Krantversies", function()
+  require("user_dialog").command("Krantversies", function()
     M.show(vim.api.nvim_get_current_buf())
   end, { desc = "Krantversies en reviewstatus openen", force = true })
-  vim.api.nvim_create_user_command("KrantversieGoedkeuren", function()
+  require("user_dialog").command("KrantversieGoedkeuren", function()
     M.approve(vim.api.nvim_get_current_buf())
   end, { desc = "Huidige krantversie opslaan en goedkeuren", force = true })
-  vim.keymap.set("n", "<leader>aV", function()
+  require("user_dialog").keymap("n", "<leader>aV", function()
     M.show(vim.api.nvim_get_current_buf())
   end, { desc = "Krantversies en reviewstatus openen" })
   return M

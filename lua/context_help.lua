@@ -34,7 +34,7 @@ local function resolve_entry(buf)
   if type(registered) == 'function' then
     local ok, result = pcall(registered, buf)
     if not ok then
-      vim.notify('Contextuele hulp kon niet worden opgebouwd: ' .. tostring(result), vim.log.levels.ERROR)
+      require('texttools_notify').notify('Contextuele hulp kon niet worden opgebouwd: ' .. tostring(result), vim.log.levels.ERROR, { buf = buf })
       return nil, true
     end
     return normalize_entry(result)
@@ -74,9 +74,9 @@ function M.show(buf)
   local entry, provider_failed = resolve_entry(buf)
   if not entry then
     if provider_failed then return nil end
-    vim.notify(
+    require('texttools_notify').notify(
       'Voor dit scherm is geen contextuele hulp geregistreerd. Gebruik <leader>ah voor de algemene artikelhulp.',
-      vim.log.levels.INFO
+      vim.log.levels.INFO, { buf = buf }
     )
     return nil
   end
@@ -105,6 +105,8 @@ function M.show(buf)
     title_pos = 'center',
   })
   vim.wo[win].wrap = true
+  vim.wo[win].winblend = 0
+  vim.wo[win].winhighlight = 'Normal:Normal,FloatBorder:FloatBorder'
   vim.wo[win].linebreak = true
   local close = function()
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end

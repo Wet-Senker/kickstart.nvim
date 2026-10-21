@@ -3,9 +3,19 @@ local notifications = require('texttools_notify')
 
 local ARTICLE_BOUNDARY = '=== ARTIKEL ==='
 
+function M.valid_plan(plan)
+  local function filename(value)
+    return type(value) == 'string' and value ~= '' and value ~= '.' and value ~= '..'
+      and vim.fn.fnamemodify(value, ':t') == value and not value:find('\\', 1, true)
+  end
+  return type(plan) == 'table' and type(plan.dir) == 'string' and plan.dir:sub(1, 1) == '/'
+    and filename(plan.txt_name) and plan.txt_name:match('%.txt$') ~= nil
+    and (plan.img_name == nil or filename(plan.img_name))
+end
+
 local function plan_for(buf)
   local plan = vim.b[buf].gn_export
-  if type(plan) ~= 'table' or type(plan.dir) ~= 'string' or type(plan.txt_name) ~= 'string' then
+  if not M.valid_plan(plan) then
     return nil
   end
   return plan

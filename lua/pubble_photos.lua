@@ -183,9 +183,20 @@ local function choose(s, photo, confirmed)
   end
   local credit = photo.credit ~= '' and photo.credit or '(leeg — aanvullen in c:)'
   local caption = photo.caption ~= '' and photo.caption or '(leeg — aanvullen in b:)'
-  if not confirmed and dialog.confirm('Deze foto gebruiken? Controleer context en gebruiksrechten.\n\n'
-      .. photo.source_title .. '\nCredit: ' .. credit .. '\nBijschrift: ' .. caption,
-      '&Ja\n&Nee', 2) ~= 1 then return end
+  if not confirmed then
+    local tick = vim.api.nvim_buf_get_changedtick(s.source)
+    dialog.confirm_async('Deze foto gebruiken? Controleer context en gebruiksrechten.\n\n'
+        .. photo.source_title .. '\nCredit: ' .. credit .. '\nBijschrift: ' .. caption,
+        '&Ja\n&Nee', 2, false, function(answer)
+          if answer ~= 1 or not current(s) then return end
+          if vim.api.nvim_buf_get_changedtick(s.source) ~= tick then
+            notify('Artikel gewijzigd tijdens de fotobevestiging. Kies de foto opnieuw.', vim.log.levels.WARN, { buf = s.source })
+            return
+          end
+          choose(s, photo, true)
+        end, { source_buf = s.source })
+    return
+  end
   stop_browser(s)
   run(s, { 'select' }, vim.json.encode({ markdown = text(s.source), photo = photo }), function(data)
     if type(data.markdown) ~= 'string' then return end
@@ -386,7 +397,8 @@ ai_import = function(s, automatic)
           image_count = data.image_count, keyword_count = type(data.keywords) == 'table' and #data.keywords or 0,
         })
         if not saved then
-          dialog.select({ 'Begrepen' }, { native = true, prompt = "Foto's staan in de buffer, maar opslaan mislukte.\nSla het artikel op met :w vóór <leader>aw. Inbox-originelen blijven staan." }, function() end)
+          notify("Foto's staan in de buffer, maar opslaan mislukte.\nSla het artikel op met :w vóór <leader>aw. Inbox-originelen blijven staan.",
+            vim.log.levels.ERROR, { buf = source, attention = true })
           return
         end
         notify(tostring(data.image_count or #snapshot.files) .. ' AI-stockfoto(' .. (#snapshot.files == 1 and '' or "'s")
@@ -397,8 +409,9 @@ ai_import = function(s, automatic)
           local cmd = { commands.bin('python'), '-m', 'texttools.pubble_photo_cli', 'ai-import-finalize' }
           local ok = pcall(notifications.system, cmd, { text = true, stdin = vim.json.encode({ article_path = article_path, batch_id = data.batch_id }) }, notifications.schedule_wrap(function(result)
             if result.code ~= 0 then
-              dialog.select({ 'Begrepen' }, { native = true, prompt = 'Stockkopieën zijn geïmporteerd, maar Inbox-originelen konden niet volledig worden weggezet.\n'
-                .. vim.trim(result.stderr or '') .. "\nDe foto's blijven herstelbaar; controleer de Inbox vóór een volgend artikel." }, function() end)
+              notify('Stockkopieën zijn geïmporteerd, maar Inbox-originelen konden niet volledig worden weggezet.\n'
+                .. vim.trim(result.stderr or '') .. "\nDe foto's blijven herstelbaar; controleer de Inbox vóór een volgend artikel.",
+                vim.log.levels.WARN, { buf = source, attention = true })
             end
           end))
           if not ok then notify('Import gelukt, maar Inbox-originelen zijn nog niet weggezet.', vim.log.levels.WARN, { ttl = 15 }) end
@@ -529,7 +542,7 @@ search = function(s, query, offset)
     end
     input = vim.json.encode(payload)
   else s.query = query end
-  notify('Pubble-foto’s zoeken…', vim.log.levels.INFO)
+  notify('Pubble-foto’s zoeken…', vim.log.levels.INFO, { kind = 'progress' })
   run(s, args, input, function(data)
     if offset == 0 then s.expanded = {} end
     render(s, data)

@@ -4,10 +4,13 @@ local notifications = require('texttools_notify')
 local commands = require('texttools_commands')
 local requests = {}
 local workflow = require('workflow_log')
+local revisions = require('buffer_revision')
 
 function M.review(buf, file, editions, dates, done)
   if not vim.api.nvim_buf_is_valid(buf) then return end
   local tick = vim.api.nvim_buf_get_changedtick(buf)
+  local before = revisions.capture(buf)
+  local transition
   local request = {}
   requests[buf] = request
   vim.b[buf].publication_date_review_pending = true
@@ -25,7 +28,7 @@ function M.review(buf, file, editions, dates, done)
     requests[buf] = nil
     if vim.api.nvim_buf_is_valid(buf) then vim.b[buf].publication_date_review_pending = nil end
     workflow.finish(trace, action == 'ready' and 'succeeded' or 'cancelled', { reason = action })
-    done(action)
+    done(action, transition)
   end
   local function run(approve)
     local cmd = { commands.bin('python'), '-m', 'texttools.publication_dates_cli',
@@ -54,6 +57,7 @@ function M.review(buf, file, editions, dates, done)
           -- De Python-actie voegt alleen de bron-/datumgebonden goedkeuring toe.
           vim.fn.writefile(vim.split(review.markdown, '\n', { plain = true }), file)
           vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(review.editor_markdown, '\n', { plain = true }))
+          transition = { before = before, after = revisions.capture(buf) }
           notifications.workflow('Tekst- en datumcontrole afgerond: je bevestiging is opgeslagen.', vim.log.levels.INFO,
             { buf = buf, kind = 'success' })
           finish('ready')

@@ -6,7 +6,7 @@ local file = tmp .. '/article.md'
 vim.fn.writefile({ '=== ARTIKEL ===', '', 'Kop', '', 'Het duo brengt vandaag muziek uit.' }, file)
 local buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(file))
-local requests, menus, results, warnings = {}, {}, {}, {}
+local requests, menus, results, warnings, transitions = {}, {}, {}, {}, {}
 vim.system = function(cmd, opts, done)
   assert(cmd[3] == 'texttools.publication_dates_cli', 'onverwachte actie')
   requests[#requests + 1] = { cmd = cmd, opts = opts, done = done }
@@ -22,7 +22,10 @@ local function reply(index, value)
   vim.wait(20, function() return false end, 5)
 end
 local function check()
-  dates.review(buf, file, { 'B' }, { B = '2026-10-09:0' }, function(action) results[#results + 1] = action end)
+  dates.review(buf, file, { 'B' }, { B = '2026-10-09:0' }, function(action, transition)
+    results[#results + 1] = action
+    transitions[#results] = transition
+  end)
 end
 local issue = { edition = 'B', message = 'Tekst spreekt over vandaag.' }
 check()
@@ -34,6 +37,8 @@ assert(requests[2].cmd[#requests[2].cmd] == '--approve', 'goedkeuring moet door 
 local editor = '---\neditorial:\n  date_approval: {plan_sha256: test}\n---\n\n=== ARTIKEL ===\n\nKop\n\nHet duo brengt vandaag muziek uit.'
 reply(2, { version = 1, ready = true, approved = true, can_confirm = true, markdown = editor, editor_markdown = editor })
 assert(results[#results] == 'ready' and not vim.b[buf].publication_date_review_pending)
+assert(transitions[1] and require('buffer_revision').matches(buf, transitions[1].after),
+  'automatische goedkeuring mist expliciete revisietransitie')
 assert(table.concat(vim.fn.readfile(file), '\n'):find('date_approval', 1, true))
 
 check()

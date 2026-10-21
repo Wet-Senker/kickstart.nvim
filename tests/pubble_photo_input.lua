@@ -38,7 +38,7 @@ assert(not vim.bo[buf].buflisted)
 assert(#requests == 1, 'opening input must not search')
 key('<Esc>', 'i')
 assert(vim.api.nvim_win_is_valid(win), 'Escape must enter Normal, not cancel')
-assert(vim.fn.maparg('<Esc>', 'n') == '')
+assert(vim.fn.maparg('<Esc>', 'n') == '<Nop>', 'herhaalde Escape mag invoer niet annuleren')
 -- Native motions/operators edit only the query, with ordinary Vim undo.
 vim.cmd('normal! gg0dwiHonden ')
 assert(vim.api.nvim_get_current_line() == 'Honden milligerplas')

@@ -9,6 +9,8 @@ package.loaded['user_dialog'] = {
     return 2  -- "Alleen website voor deze editie(s)"
   end,
   select = function() end,
+  keymap = vim.keymap.set,
+  command = vim.api.nvim_create_user_command,
 }
 
 local ai = require('ai_text')

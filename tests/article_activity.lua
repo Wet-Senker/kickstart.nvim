@@ -1,3 +1,29 @@
+local displayed, handle_serial = {}, 0
+package.preload['fidget.progress'] = function()
+  return {
+    handle = {
+      create = function(spec)
+        handle_serial = handle_serial + 1
+        local handle = vim.deepcopy(spec)
+        handle.token = 'activity-task-' .. handle_serial
+        function handle:report(update)
+          for key, value in pairs(update) do self[key] = value end
+        end
+        function handle:finish() self.done = true end
+        displayed[handle.token] = handle
+        return handle
+      end,
+    },
+  }
+end
+package.preload['fidget.notification'] = function()
+  return {
+    remove = function(_, token) displayed[token] = nil; return true end,
+    clear = function()
+      for token in pairs(displayed) do displayed[token] = nil end
+    end,
+  }
+end
 local activity = require 'article_activity'
 local notifications = require 'texttools_notify'
 local log = require 'workflow_log'
@@ -16,8 +42,23 @@ local function panel()
     if vim.bo[vim.api.nvim_win_get_buf(win)].filetype == 'texttools_activity' then return win end
   end
 end
+local function tasks_text()
+  local rows = {}
+  for _, handle in pairs(displayed) do
+    if not handle.done then rows[#rows + 1] = handle.title end
+  end
+  table.sort(rows)
+  return table.concat(rows, '\n')
+end
+local function tasks_present()
+  for _, handle in pairs(displayed) do if not handle.done then return true end end
+  return false
+end
 local function wait_for(predicate, message) assert(vim.wait(1000, predicate, 10), message) end
-local function text(win) return table.concat(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false), '\n') end
+local function text(win)
+  if not win or not vim.api.nvim_win_is_valid(win) then return '' end
+  return table.concat(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false), '\n')
+end
 local function key(win, lhs)
   vim.api.nvim_win_call(win, function() vim.fn.maparg(lhs, 'n', false, true).callback() end)
 end
@@ -31,9 +72,12 @@ local editor = vim.api.nvim_get_current_win()
 local original = vim.api.nvim_buf_get_lines(a, 0, -1, false)
 local tick = vim.api.nvim_buf_get_changedtick(a)
 vim.api.nvim_win_set_cursor(editor, { 3, 4 })
+pause()
+assert(not panel(), 'logboek opende zonder verzoek')
+activity.toggle()
 wait_for(panel, 'strook ontbreekt')
 assert(vim.api.nvim_get_current_win() == editor and vim.api.nvim_win_get_cursor(editor)[2] == 4, 'focus/cursor verplaatst')
-assert(vim.api.nvim_win_get_height(panel()) == 2, 'compacte strook is niet twee regels hoog')
+assert(vim.api.nvim_win_get_height(panel()) > 2, 'logboek opent niet met de volledige geschiedenis')
 assert(vim.wo[panel()].winblend == 0 and vim.wo[panel()].wrap, 'strook is transparant of breekt tekst niet af')
 assert(vim.bo[vim.api.nvim_win_get_buf(panel())].buftype == 'nofile', 'strook staat in artikelbestand')
 assert(activity.panel_visible(a), 'zichtbare strook krijgt dubbele statusbalk')
@@ -42,16 +86,17 @@ local tasks = {}
 for index = 1, 4 do
   tasks[index] = log.start(a, 'AI · Taak ' .. index)
 end
-wait_for(function() return vim.wo[panel()].winbar:find('Bezig:', 1, true) end, 'vaste proceskop ontbreekt')
-assert(vim.api.nvim_win_get_height(panel()) == 2, 'processtart veranderde artikelruimte')
+wait_for(tasks_present, 'Fidget-taakmelding ontbreekt')
+assert(vim.api.nvim_win_get_height(panel()) > 2, 'processtart veranderde de logboekstand')
 for index = 1, 8 do
   notifications.workflow('Mijlpaal ' .. index, nil, { buf = a })
 end
 wait_for(function() return text(panel()):find('Mijlpaal 8', 1, true) end, 'laatste resultaat ontbreekt')
-assert(vim.wo[panel()].winbar:find('Taak 1', 1, true), 'resultaat verdrong actieve taak')
+assert(tasks_text():find('Taak 1', 1, true), 'resultaat verdrong actieve taak')
+assert(not vim.wo[panel()].winbar:find('Taak', 1, true), 'logboek dupliceert de actieve taken')
 key(panel(), 'q')
 wait_for(function() return not panel() end, 'q sluit tijdens werk niet echt')
-assert(activity.statusline(a):find('4 taken', 1, true), 'verborgen strook verloor processtatus')
+assert(tasks_present() and activity.statusline(a) == '', 'taakmelding verdween of statusbalk dupliceerde haar')
 pause()
 assert(not panel(), 'actieve taak heropende gesloten strook')
 activity.toggle()
@@ -59,7 +104,7 @@ wait_for(panel, 'strook heropende niet')
 for _, task in ipairs(tasks) do
   log.finish(task, 'succeeded')
 end
-wait_for(function() return not vim.wo[panel()].winbar:find('Bezig:', 1, true) end, 'afgelopen taak bleef staan')
+wait_for(function() return not tasks_present() end, 'afgelopen taak bleef staan')
 assert(not text(panel()):find('geslaagd', 1, true), 'exitcode werd als geaccepteerd resultaat getoond')
 
 notifications.workflow('Technisch detail', nil, { buf = a, kind = 'success', detail = true })
@@ -68,8 +113,9 @@ assert(text(panel()):find('Mijlpaal 8', 1, true), 'technisch detail verdrong res
 assert(vim.api.nvim_buf_get_changedtick(a) == tick and vim.deep_equal(original, vim.api.nvim_buf_get_lines(a, 0, -1, false)), 'artikeltekst gewijzigd')
 
 -- Leespositie en actieve kop blijven onafhankelijk, ook bij afkappen op 100.
-activity.expand()
+activity.toggle(); pause(); activity.toggle()
 wait_for(function() return text(panel()):find('Mijlpaal 1', 1, true) end, 'geschiedenis ontbreekt')
+assert(not text(panel()):find('Technisch detail', 1, true), 'technische tussenstap vervuilt resultatenlog')
 local pane = panel()
 for index = 1, 100 do
   notifications.workflow('Begrensd ' .. index, nil, { buf = a })
@@ -83,7 +129,7 @@ local first = log.start(a, 'AI · Herschrijven')
 notifications.workflow('Nieuwe gebeurtenis', nil, { buf = a })
 wait_for(function() return text(pane):find('Nieuwe gebeurtenis', 1, true) end, 'nieuw resultaat ontbreekt')
 assert(vim.api.nvim_get_current_line() == read_line, 'begrensde geschiedenis verschoof tijdens teruglezen')
-assert(vim.wo[pane].winbar:find('Herschrijven', 1, true), 'scrollen verborg lopende taak')
+assert(tasks_present() and tasks_text():find('Artikel herschrijven', 1, true), 'scrollen verborg lopende taak')
 assert(vim.api.nvim_get_current_win() == pane, 'verversen nam focus over')
 assert(#activity.snapshot(a).entries == 100, 'sessiegeheugen onbegrensd')
 log.finish(first, 'succeeded')
@@ -128,13 +174,18 @@ assert(not pcall(notifications.bind(b, function() error 'testfout' end)))
 notifications.notify('Huidige bron B', vim.log.levels.INFO)
 assert(activity.snapshot(b).entries[#activity.snapshot(b).entries].message == 'Huidige bron B', 'callbackcontext lekte')
 
--- Fout mag heropenen; gelezen is niet hetzelfde als domeinherstel.
+-- Een fout verschijnt boven het artikel; het logboek blijft op afroep.
 wait_for(panel, 'paneel B ontbreekt')
 activity.toggle()
 wait_for(function() return not panel() end, 'sluiten mislukt')
 assert(vim.json.decode(table.concat(vim.fn.readfile(preferences), '\n')).visible == false, 'voorkeur niet bewaard')
 notifications.workflow('Upload mislukt.', vim.log.levels.ERROR, { buf = b })
-wait_for(panel, 'nieuwe fout niet zichtbaar')
+pause()
+assert(not panel(), 'nieuwe fout opende alsnog het logboek')
+assert(table.concat(vim.api.nvim_buf_get_lines(b, 0, -1, false), '\n'):find('Melding: FOUT: Upload mislukt.', 1, true),
+  'nieuwe fout ontbreekt boven het artikel')
+activity.toggle()
+wait_for(panel, 'logboek opende niet op verzoek')
 assert(vim.api.nvim_get_current_win() == editor, 'fout nam focus over')
 key(panel(), 'a')
 assert(not activity.snapshot(b).attention and next(activity.snapshot(b).issues), 'gelezen werd als opgelost verwijderd')
@@ -143,7 +194,8 @@ vim.cmd 'tabnew'
 local c = article 'Derde artikel'
 vim.api.nvim_set_current_buf(c)
 -- Handmatig openen is nodig: de opgeslagen voorkeur was verborgen.
-activity.toggle()
+pause()
+if not panel() then activity.toggle() end
 wait_for(panel, 'nieuwe tab kreeg geen paneel')
 assert(panel() ~= b_panel, 'tabs delen venster')
 notifications.workflow('Alleen voor B', nil, { buf = b })

@@ -30,7 +30,7 @@ function M.list()
   if cache then return cache end
   local decoded, err = fetch()
   if not decoded then
-    vim.notify(
+    require('texttools_notify').notify(
       'Editielijst ophalen mislukt: ' .. (err or '?') .. '. Draait de texttools-venv?',
       vim.log.levels.ERROR
     )

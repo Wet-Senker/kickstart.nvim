@@ -3,6 +3,7 @@ local M = {}
 local commands = require('texttools_commands')
 local dialog = require('user_dialog')
 local workflow = require('workflow_log')
+local notifications = require('texttools_notify')
 local busy, notices_busy, timer, initialized = false, false, nil, false
 
 local function call(args, done)
@@ -11,10 +12,10 @@ local function call(args, done)
   local trace = workflow.start(nil, 'Teams · ' .. args[1], { command = 'teams-config' })
   local function fail(message)
     workflow.finish(trace, 'failed')
-    vim.notify(message, vim.log.levels.ERROR)
+    notifications.notify(message, vim.log.levels.ERROR)
     done(nil)
   end
-  local ok = pcall(vim.system, cmd, { text = true, timeout = 10000 }, vim.schedule_wrap(function(result)
+  local ok = pcall(vim.system, cmd, { text = true, timeout = 10000 }, notifications.schedule_wrap(function(result)
     local decoded, data = pcall(vim.json.decode, result.stdout or '')
     if result.code ~= 0 or not decoded or type(data) ~= 'table' or data.version ~= 1 then
       fail('Teams-instelling controleren/bijwerken mislukt: ' .. vim.trim(result.stderr or 'ongeldig antwoord'))
@@ -39,7 +40,7 @@ local function label(config, address)
 end
 
 function M.open()
-  if busy then vim.notify('Beantwoord eerst het openstaande Teams-menu.'); return end
+  if busy then notifications.notify('Beantwoord eerst het openstaande Teams-menu.'); return end
   busy = true
   local function finish() busy = false end
   M._call({ 'show' }, function(config)
@@ -57,7 +58,7 @@ function M.open()
       local function saved(data)
         finish()
         if data then
-          vim.notify('Teams-instelling opgeslagen.', vim.log.levels.INFO)
+          notifications.notify('Teams-instelling opgeslagen.', vim.log.levels.INFO)
           if initialized then M.check() end
         end
       end
@@ -137,7 +138,7 @@ function M.check()
           workflow.decision(nil, 'Teams · Herstelvoorstel', choice and choice:find('Akkoord', 1, true) and 'restore' or 'retain', { item.edition })
           if choice and choice:find('Akkoord', 1, true) then
             M._call({ 'restore-coverage', item.edition, '--coverage-id', item.id }, function(config)
-              if config then vim.notify('Vorige Teams-instelling hersteld voor ' .. item.krant .. '.') end
+              if config then notifications.notify('Vorige Teams-instelling hersteld voor ' .. item.krant .. '.') end
             end)
           end
         end)
@@ -146,7 +147,7 @@ function M.check()
       end
     end
     if #indefinite > 0 then
-      vim.notify('Teams-waarneming voor onbepaalde tijd actief:\n' .. table.concat(indefinite, '\n') .. '\nAanpassen via :TeamsRedactie.', vim.log.levels.INFO)
+      notifications.notify('Teams-waarneming voor onbepaalde tijd actief:\n' .. table.concat(indefinite, '\n') .. '\nAanpassen via :TeamsRedactie.', vim.log.levels.INFO)
     end
   end)
 end

@@ -43,8 +43,9 @@ assert(vim.b[buf].pending_calendar_meta_lines ~= nil, 'geaccepteerd kalenderresu
 vim.api.nvim_buf_set_lines(buf, -1, -1, false, { 'Herschreven body.' })
 require('buffer_jobs').finish(pending_job)
 ai._apply_pending_calendar_section(buf)
+assert(vim.wait(1500, function() return ai._has_calendar_section(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) end))
 local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-assert(lines[1] == 'Nieuwe kop', 'kalender overschreef de bewerkte kop')
+assert(ai._editorial_body_text(lines):find('Nieuwe kop', 1, true), 'kalender overschreef de bewerkte kop')
 assert(ai._has_calendar_section(lines), 'uitgesteld kalenderblok is niet aangehecht na de herschrijving')
 assert(vim.b[buf].pending_calendar_meta_lines == nil, 'bewaard resultaat is niet opgeruimd na toepassen')
 
@@ -56,8 +57,9 @@ local tick2 = vim.api.nvim_buf_get_changedtick(buf2)
 vim.b[buf2].pending_jobs = 0
 vim.api.nvim_buf_set_lines(buf2, 2, 3, false, { 'Body gewijzigd.' })
 ai._apply_articlemeta_calendar_result(buf2, calendar_result(), tick2)
+assert(vim.wait(1500, function() return ai._has_calendar_section(vim.api.nvim_buf_get_lines(buf2, 0, -1, false)) end))
 local lines2 = vim.api.nvim_buf_get_lines(buf2, 0, -1, false)
-assert(lines2[3] == 'Body gewijzigd.', 'directe aanhechting overschreef de bewerkte body')
+assert(ai._editorial_body_text(lines2):find('Body gewijzigd.', 1, true), 'directe aanhechting overschreef de bewerkte body')
 assert(ai._has_calendar_section(lines2),
   'kalender werd niet direct aangehecht toen er geen taak liep')
 
@@ -67,6 +69,7 @@ vim.api.nvim_set_current_buf(buf3)
 vim.api.nvim_buf_set_lines(buf3, 0, -1, false, { 'Kop', '', 'Body.' })
 local tick3 = vim.api.nvim_buf_get_changedtick(buf3)
 ai._apply_articlemeta_calendar_result(buf3, calendar_result(), tick3)
+assert(vim.wait(1500, function() return ai._has_calendar_section(vim.api.nvim_buf_get_lines(buf3, 0, -1, false)) end))
 assert(ai._has_calendar_section(vim.api.nvim_buf_get_lines(buf3, 0, -1, false)),
   'happy path hechtte de kalender niet direct aan')
 

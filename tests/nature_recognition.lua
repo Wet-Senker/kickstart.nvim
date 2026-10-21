@@ -61,6 +61,19 @@ ai._article_autodetect(reopened)
 await(function() return vim.b[reopened].recognized_rubric == 'natuurvereniging' end)
 assert(content(reopened) == before and asks == 1, 'heropening paste template opnieuw toe')
 assert(calendar_calls == 0, 'bestaande column startte onnodig kalender-AI')
+assert(require('layout_export').pending(reopened), 'heropening verloor de lezersnieuwsopdracht')
+
+-- Opnieuw geplakte getemplate tekst kan de technische kop missen. De body
+-- wordt niet nogmaals gewikkeld; ontbrekende templatevelden herstellen wel.
+local body = ai._editorial_body_text(vim.api.nvim_buf_get_lines(accepted, 0, -1, false))
+local pasted = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(pasted, 0, -1, false, vim.split('=== ARTIKEL ===\n\n' .. body, '\n'))
+ai._article_autodetect(pasted)
+await(function() return vim.b[pasted].recognized_rubric == 'natuurvereniging' end)
+assert(content(pasted):find('z - NATUURVERENIGING', 1, true), 'herkende column verloor de z-werktitel')
+assert(require('layout_export').pending(pasted), 'geplakte column mist lezersnieuwsexport')
+assert(ai._editorial_body_text(vim.api.nvim_buf_get_lines(pasted, 0, -1, false)) == body,
+  'metadataherstel wijzigde de columntekst')
 
 -- Afwijzen/annuleren past niets toe, ook bij een herhaalde importcallback.
 ai._rubric_confirm = function() asks = asks + 1; return nil end

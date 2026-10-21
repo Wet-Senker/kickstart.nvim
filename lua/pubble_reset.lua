@@ -187,7 +187,7 @@ function M.reset(target_buf)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
   if active[buf] then
-    workflow('Er loopt al een reset voor deze buffer.', vim.log.levels.INFO)
+    workflow('Er loopt al een reset voor deze buffer.', vim.log.levels.INFO, { kind = 'progress' })
     return
   end
   if vim.b[buf].publication_in_progress then
@@ -239,10 +239,10 @@ end
 function M.setup()
   if M._setup_done then return end
   M._setup_done = true
-  vim.api.nvim_create_user_command('PubbleReset', function() M.reset() end, {
+  require("user_dialog").command('PubbleReset', function() M.reset() end, {
     desc = 'Mislukte Pubble-verzending terugzetten (webartikelen offline, tekst terug)',
   })
-  vim.keymap.set('n', '<leader>aX', M.reset, {
+  require("user_dialog").keymap('n', '<leader>aX', M.reset, {
     desc = 'Pubble-verzending terugzetten (reset)',
   })
 end

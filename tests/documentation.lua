@@ -3,6 +3,8 @@ local repo_root = vim.fn.fnamemodify(test_file, ":h:h")
 
 local function read(relative_path)
   return table.concat(vim.fn.readfile(repo_root .. "/" .. relative_path), "\n")
+    :gsub('require%("user_dialog"%).keymap%(', 'vim.keymap.set(')
+    :gsub('require%("user_dialog"%).command%(', 'vim.api.nvim_create_user_command(')
 end
 
 local documentation = read("README.md") .. "\n" .. read("texttools-cheatsheet.md")
@@ -40,6 +42,7 @@ local documented_mappings = {
   { key = "<leader>kt", source = init, registration = "vim.keymap.set('n', '<leader>kt'" },
   { key = "<leader>kp", source = reminders, registration = "vim.keymap.set('n', '<leader>kp'" },
   { key = "<leader>ka", source = agenda_page, registration = "vim.keymap.set('n', '<leader>ka'" },
+  { key = "<leader>km", source = agenda_page, registration = "vim.keymap.set('n', '<leader>km'" },
   { key = "<leader>kd", source = site_duplicates, registration = "vim.keymap.set('n', '<leader>kd'" },
   { key = "<leader>kv", source = weekly_most_read, registration = "vim.keymap.set('n', '<leader>kv'" },
   { key = "<leader>kf", source = weekly_most_read, registration = "vim.keymap.set('n', '<leader>kf'" },
