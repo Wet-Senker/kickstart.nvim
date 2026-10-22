@@ -1008,6 +1008,7 @@ end
 -- screen; no hard line breaks are inserted in the document.
 local prose_editor = require 'prose_editor'
 prose_editor.setup()
+require('article_metadata_fold').setup()
 
 -- Auto-convert non-plain-text documents (mail attachments: docx, rtf, odt, pdf)
 -- to markdown/text as soon as you open them, e.g. `:e briefing.docx`.

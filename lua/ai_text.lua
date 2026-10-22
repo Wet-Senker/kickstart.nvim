@@ -5462,6 +5462,9 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
   if publication_recovery.review_conflict(buf) then return end
+  -- Deze review bezit de voortzetting. Ook een automatisch hervat
+  -- verzendverzoek mag haar niet inhalen wanneer haar laatste taak afmeldt.
+  if vim.b[buf].calendar_send_review_pending then return end
   if not calendar_reconciled and vim.bo[buf].modifiable and not vim.bo[buf].readonly
       and M._calendar_transition_needed(buf) and not vim.b[buf].publication_in_progress then
     M._calendar_transition(buf, 'reconcile', { seen = vim.b[buf].calendar_section_seen == true }, function(data)
@@ -5617,27 +5620,47 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
   -- de actuele tekst en q uitsluitend deze verzendpoging stopt.
   if not agenda_reviewed and has_calendar_section(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
       and vim.b[buf].skip_calendar_once ~= true then
-    if vim.b[buf].calendar_send_review_pending then return end
     vim.b[buf].calendar_send_review_pending = true
     local review_revision = require('buffer_revision').capture(buf)
     M._calendar_edition_resolver(buf, table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n'), function(resolved)
       if not vim.api.nvim_buf_is_valid(buf) then return end
       if not require('buffer_revision').matches(buf, review_revision) then
         vim.b[buf].calendar_send_review_pending = false
+        vim.b[buf].send_requested = false
         notify_workflow('Artikel gewijzigd tijdens het bepalen van de doublurebestemming. Controleer e: en probeer opnieuw met <leader>aw.',
           vim.log.levels.WARN, { buf = buf })
         return
       end
       if not resolved or type(resolved.editions) ~= 'table' or #resolved.editions == 0 then
         vim.b[buf].calendar_send_review_pending = false
+        vim.b[buf].send_requested = false
         notify_workflow('Agenda-bestemming kon niet worden bepaald. Controleer e: en probeer opnieuw met <leader>aw.',
           vim.log.levels.WARN, { buf = buf })
         return
       end
       check_duplicate_stage(buf, resolved.editions, 'verzenden', function(approved)
         if not vim.api.nvim_buf_is_valid(buf) then return end
-        vim.b[buf].calendar_send_review_pending = false
-        if approved then M.pubble_send(buf, true, true) end
+        if not approved then
+          vim.b[buf].calendar_send_review_pending = false
+          return
+        end
+        local approved_revision = require('buffer_revision').capture(buf)
+        -- Resolver en doublurecontrole melden hun taak via de eventqueue af.
+        -- Hervat pas daarachter, anders wacht aw op zijn eigen afgeronde taak
+        -- en gaat het reviewakkoord bij de algemene idle-herstart verloren.
+        -- Houd de reviewpoort dicht tot deze voortzetting hem overneemt; n
+        -- kan het Kalenderblok inmiddels bewust hebben verwijderd.
+        notifications.schedule(function()
+          if not vim.api.nvim_buf_is_valid(buf) then return end
+          vim.b[buf].calendar_send_review_pending = false
+          if not require('buffer_revision').matches(buf, approved_revision) then
+            vim.b[buf].send_requested = false
+            notify_workflow('Artikel gewijzigd na de doublurecontrole. Controleer de tekst en probeer opnieuw met <leader>aw.',
+              vim.log.levels.WARN, { buf = buf })
+            return
+          end
+          M.pubble_send(buf, true, true)
+        end)
       end, nil, true)
     end)
     return

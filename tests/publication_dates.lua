@@ -62,5 +62,30 @@ check()
 requests[6].done({ code = 1, stderr = 'fout' })
 assert(vim.wait(1000, function() return not vim.b[buf].publication_date_review_pending end, 5))
 assert(results[#results] == 'cancel' and warnings[#warnings]:find('niets verzonden', 1, true))
+
+-- Geen vrije stderr, exceptionecho of procesfout als gebruikersannulering.
+check()
+requests[#requests].done({ code = 1, stdout = vim.json.encode {
+  version = 1, ready = false, error_code = 'invalid_display_dates',
+}, stderr = 'GEHEIM: artikeltekst en token' })
+assert(vim.wait(1000, function() return not vim.b[buf].publication_date_review_pending end, 5))
+assert(warnings[#warnings]:find('publicatiedatums zijn ongeldig', 1, true))
+assert(not warnings[#warnings]:find('GEHEIM', 1, true))
+local entries = vim.fn.readfile(require('workflow_log').log_path())
+local last = vim.json.decode(entries[#entries])
+assert(last.outcome == 'failed' and last.detail.exit_code == 1)
+assert(vim.json.decode(entries[#entries - 1]).reason == 'invalid_display_dates')
+for _, value in ipairs({ { code = 0, stdout = 'GEHEIM' },
+    { code = 0, stdout = '{"version":1}' }, { code = 124, stderr = 'GEHEIM' } }) do
+  check()
+  requests[#requests].done(value)
+  assert(vim.wait(1000, function() return not vim.b[buf].publication_date_review_pending end, 5))
+  assert(results[#results] == 'cancel' and not warnings[#warnings]:find('GEHEIM', 1, true))
+end
+local before_start = #requests
+vim.system = function() error('GEHEIME exception') end
+check()
+assert(#requests == before_start and not vim.b[buf].publication_date_review_pending)
+assert(warnings[#warnings]:find('kon niet starten', 1, true) and not warnings[#warnings]:find('GEHEIM', 1, true))
 vim.fn.delete(tmp, 'rf')
 print('publication dates: OK')

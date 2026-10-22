@@ -121,6 +121,23 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 
 ## Leaders
 
+Het technische YAML-blok boven een artikel of agendapagina is standaard
+ingeklapt tot **Technische gegevens**. Zet de cursor op die regel en druk `zo`
+om het te bekijken; `zc` klapt het weer dicht. Dit werkt ook als metadata later
+op de achtergrond wordt toegevoegd. `e:`, `wijk:`, fotoregels, meldingen en het
+leesbare `## Kalender` blijven zichtbaar. Het bestand bevat nog steeds alle
+gegevens: inklappen verandert niets aan opslaan, verzenden of herstel.
+Een bewust geopende vouw blijft tijdens gewone tekstbewerking open.
+
+**Direct plaatsen en datumcontrole:** een lege planning wordt nu als lege
+datummapping doorgegeven, ook bij hervatten met `<leader>aw` na een krantreview
+of `needs_date_review`. Een technische fout in die overdracht is geen
+inhoudelijke datumwaarschuwing en geen gebruikersannulering: je ziet een veilige
+oorzaak en `:TexttoolsLog` toont de foutcode/processtatus. Echte waarschuwingen
+over verlopen aankondigingen en `vandaag`/`morgen` blijven beoordeling vragen.
+Na deze update: bewaar de open artikelen en herstart NeoVim; de tijdelijke
+Lua-workaround is dan niet meer nodig. Er wordt niets automatisch gepubliceerd.
+
 Het invoerscherm **Mogelijke doublures** zet het nieuwe bericht apart en toont
 bestaande treffers met Agenda/Web, krantnaam en uitgelijnde Europese datum.
 Web en agenda worden vóór de beoordeling samen opgehaald en in één overzicht
@@ -427,6 +444,13 @@ direct in. De zichtbare regel wint van oude technische metadata en blijft na
 verzending behouden. De veilige diagnose staat in `:TexttoolsLog`.
 Controleer een gekozen wijk opnieuw als je later de artikellocatie wijzigt.
 
+De controle leest de hele artikelbody, zonder te stoppen na drie straten of een
+horizontale scheidingslijn. Een hobbymarkt is geen straatnaam; nul adresmatches
+mogen één duidelijke wijknaam niet afkeuren. Bij een echte twijfel staan de
+gevonden wijken bovenaan met bewijscontext. Het online zoekbudget is begrensd;
+nog niet gecontroleerde adressen blijven zichtbaar en eigen cachetreffers
+verderop blijven meetellen. Gebruik `wijk: auto` om een oude keuze te herzien.
+
 Vindt de eerste importinspectie het losse woord `embargo` in de oorspronkelijke
 artikelbody, dan verschijnt direct een waarschuwing en de bovenstaande
 `EMBARGO:`-regel. Een expliciete datum en tijd uit dezelfde zin verschijnen als
@@ -631,6 +655,14 @@ keuze is gemaakt. Deelacties zoals tekstcheck, een geselecteerde passage,
 streamer, socialtekst of chatantwoord starten deze volledige nacontrole niet.
 Een ontbrekende streamer wordt nooit automatisch gemaakt; gebruik daarvoor
 bewust `<leader>at`.
+
+Je kunt ook eerst herschrijven en daarna de `e:`-regel aanpassen of een editie
+toevoegen. `<leader>aw` beoordeelt de actuele bestemmingen. Bij een voorbereid
+Kalenderblok wordt de verzendcontrole eenmaal afgerond vóór de verzending
+doorgaat; een al afgeronde controletaak veroorzaakt geen lus in ‘Edities bepalen’.
+Een wijziging tijdens of vlak na de beoordeling stopt die poging veilig en
+vraagt opnieuw `<leader>aw`. Herstart NeoVim om deze clientcorrectie te laden;
+bewaar eerst je nog niet opgeslagen tekst.
 
 Het weeknummer in een gegenereerde Pubble-werktitel is de uiterste bruikbare
 krant. Na die krant kan het artikel weg; een hoger nummer kan worden

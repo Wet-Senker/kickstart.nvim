@@ -121,8 +121,37 @@ assert(vim.wait(1000, function() return result ~= nil end), 'bevestigde wijk wer
 assert(result == 'restart', 'bevestigde wijk herstart de verzendroute niet')
 lines = vim.api.nvim_buf_get_lines(suggested_buf, 0, -1, false)
 assert(lines[3] == 'wijk: Holtenbroek', 'bevestigde wijk werd niet zichtbaar vastgelegd')
-dialog.select = old_select
 vim.api.nvim_buf_delete(suggested_buf, { force = true })
+
+-- Bij een echt conflict staan de gevonden wijken boven de algemene lijst,
+-- met de bewijscontext van beide locaties (niet alleen de eerste treffer).
+local conflict_buf = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_buf_set_lines(conflict_buf, 0, -1, false, {
+  'e: SW', '', '=== ARTIKEL ===', '', 'Kop', '', 'Nieuws uit twee wijken.',
+})
+result, select_done = nil, nil
+wijk.ensure(conflict_buf, '/tmp/conflict.md', {
+  editions = { 'B', 'SW' }, swollenaer_wijk_check = true,
+}, function(value) result = value end)
+pending({ code = 0, stdout = vim.json.encode({
+  status = 'needs_choice', request_mode = 'automatic',
+  candidate_wijken = { 'Holtenbroek', 'Zwolle-Zuid' },
+  selection_note = 'Meerdere wijken gevonden: Holtenbroek, Zwolle-Zuid. Kies de juiste webwijk.',
+  evidence = { 'Wijknaam Zwolle-Zuid: Koningskerk in Zwolle-Zuid.',
+    'Straat Händellaan — Holtenbroek: Bewoners van de Händellaan.' },
+  choices = { { name = 'Aa-landen' }, { name = 'Holtenbroek' }, { name = 'Zwolle-Zuid' } },
+}) })
+assert(vim.wait(1000, function() return select_done ~= nil end))
+assert(selected_options[1] == 'Holtenbroek' and selected_options[2] == 'Zwolle-Zuid'
+  and selected_options[3] == 'Heel Zwolle', 'gevonden wijken staan niet bovenaan')
+assert(selected_opts.prompt:find('Koningskerk in Zwolle-Zuid.', 1, true))
+assert(selected_opts.prompt:find('Bewoners van de Händellaan.', 1, true))
+select_done('Zwolle-Zuid')
+assert(vim.wait(1000, function() return result ~= nil end))
+assert(result == 'restart')
+assert(vim.api.nvim_buf_get_lines(conflict_buf, 2, 3, false)[1] == 'wijk: Zwolle-Zuid')
+vim.api.nvim_buf_delete(conflict_buf, { force = true })
+dialog.select = old_select
 
 workflow_log.diagnostic = old_diagnostic
 vim.system = old_system

@@ -162,6 +162,7 @@ function M.ensure(buf, article_path, resolved, callback)
         end
       end
       add_option(result.suggested)
+      for _, name in ipairs(result.candidate_wijken or {}) do add_option(name) end
       add_option('Heel Zwolle')
       for _, choice in ipairs(result.choices or {}) do
         add_option(choice.name)
@@ -178,7 +179,14 @@ function M.ensure(buf, article_path, resolved, callback)
         prompt = 'Wijk gevonden: ' .. result.suggested .. '. Klopt dit voor het webartikel?'
       end
       if type(result.evidence) == 'table' and result.evidence[1] then
-        prompt = prompt .. '\nGevonden: ' .. result.evidence[1]
+        local evidence = {}
+        for index = 1, math.min(6, #result.evidence) do
+          table.insert(evidence, result.evidence[index])
+        end
+        prompt = prompt .. '\nGevonden locaties:\n' .. table.concat(evidence, '\n')
+        if #result.evidence > #evidence then
+          prompt = prompt .. '\n… en ' .. (#result.evidence - #evidence) .. ' andere locatievermeldingen.'
+        end
       end
       require('user_dialog').select(options, { prompt = prompt, required = true }, function(choice)
         if not choice then

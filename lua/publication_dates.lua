@@ -5,6 +5,18 @@ local commands = require('texttools_commands')
 local requests = {}
 local workflow = require('workflow_log')
 local revisions = require('buffer_revision')
+local failure_messages = {
+  invalid_documents = 'De artikelteksten zijn ongeldig doorgegeven.',
+  invalid_display_dates = 'De publicatiedatums zijn ongeldig doorgegeven.',
+  invalid_editions = 'De editie ontbreekt of is ongeldig.',
+  date_review_failed = 'De artikel- of datumgegevens konden niet worden gecontroleerd.',
+  confirmation_not_allowed = 'Pas eerst de aankondigingszin of de publicatiedatum aan.',
+  invalid_response = 'De controle gaf geen geldig antwoord.',
+  invalid_approval = 'De controle gaf geen geldige bevestiging terug.',
+  process_failed = 'Het controleproces is gestopt.',
+  process_timeout = 'Het controleproces reageerde niet binnen 10 seconden.',
+  process_start_failed = 'Het controleproces kon niet starten.',
+}
 
 function M.review(buf, file, editions, dates, done)
   if not vim.api.nvim_buf_is_valid(buf) then return end
@@ -23,16 +35,35 @@ function M.review(buf, file, editions, dates, done)
     return vim.api.nvim_buf_is_valid(buf) and requests[buf] == request
       and vim.api.nvim_buf_get_changedtick(buf) == tick
   end
-  local function finish(action)
+  local function finish(action, failure, result)
     if requests[buf] ~= request then return end
     requests[buf] = nil
     if vim.api.nvim_buf_is_valid(buf) then vim.b[buf].publication_date_review_pending = nil end
-    workflow.finish(trace, action == 'ready' and 'succeeded' or 'cancelled', { reason = action })
+    if failure then
+      workflow.diagnostic(buf, 'Publicatie · Datumcontrolefout', { reason = failure, status = 'failed' })
+    end
+    workflow.finish(trace, failure and 'failed' or (action == 'ready' and 'succeeded' or 'cancelled'), {
+      reason = failure or action,
+      exit_code = result and result.code,
+      signal = result and result.signal,
+    })
     done(action, transition)
   end
+  local function fail(reason, result)
+    notifications.notify('Datumcontrole mislukt: ' .. failure_messages[reason]
+      .. ' Er is niets verzonden. Bekijk :TexttoolsLog.', vim.log.levels.ERROR, { buf = buf })
+    finish('cancel', reason, result)
+  end
   local function run(approve)
+    -- Leeg betekent direct plaatsen. Lua {} wordt standaard JSON [], terwijl
+    -- de gedeelde controle een datummapping {} verwacht. Niet de validatie
+    -- versoepelen: alleen de lege clientrepresentatie expliciet maken.
+    local date_values = dates
+    if dates == nil or (type(dates) == 'table' and next(dates) == nil) then
+      date_values = vim.empty_dict()
+    end
     local cmd = { commands.bin('python'), '-m', 'texttools.publication_dates_cli',
-      '--editions', table.concat(editions, ','), '--display-dates', vim.json.encode(dates), '--documents' }
+      '--editions', table.concat(editions, ','), '--display-dates', vim.json.encode(date_values), '--documents' }
     if approve then table.insert(cmd, '--approve') end
     local opts = workflow.with_environment({ text = true, stdin = vim.json.encode(documents), timeout = 10000 }, trace)
     local started = pcall(notifications.system, cmd, opts,
@@ -45,14 +76,20 @@ function M.review(buf, file, editions, dates, done)
           return
         end
         local ok, review = pcall(vim.json.decode, result.stdout or '')
-        if result.code ~= 0 or not ok or type(review) ~= 'table' or review.version ~= 1 then
-          notifications.notify('Datumcontrole mislukt; er is niets verzonden.', vim.log.levels.ERROR)
-          finish('cancel')
+        if result.code ~= 0 or not ok or type(review) ~= 'table' or review.version ~= 1
+            or type(review.ready) ~= 'boolean' or review.error_code ~= nil then
+          local reason = result.code == 124 and 'process_timeout'
+            or (result.code ~= 0 and 'process_failed' or 'invalid_response')
+          if ok and type(review) == 'table' and review.version == 1
+              and type(review.error_code) == 'string' and failure_messages[review.error_code] then
+            reason = review.error_code
+          end
+          fail(reason, result)
           return
         end
         if approve then
           if not review.ready or type(review.markdown) ~= 'string' or type(review.editor_markdown) ~= 'string' then
-            finish('cancel'); return
+            fail('invalid_approval', result); return
           end
           -- De Python-actie voegt alleen de bron-/datumgebonden goedkeuring toe.
           vim.fn.writefile(vim.split(review.markdown, '\n', { plain = true }), file)
@@ -96,8 +133,7 @@ function M.review(buf, file, editions, dates, done)
         end
       end))
     if not started then
-      notifications.notify('Datumcontrole kon niet starten; er is niets verzonden.', vim.log.levels.ERROR)
-      finish('cancel')
+      fail('process_start_failed')
     end
   end
   run(false)
