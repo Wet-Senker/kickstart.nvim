@@ -4,6 +4,52 @@ local M = { namespace = vim.api.nvim_create_namespace 'texttools_article_notices
 local marks, attached = {}, {}
 local literal = {}
 
+local function setup_styles()
+  for name, source in pairs { TexttoolsNotice = 'Comment', TexttoolsNoticeWarning = 'WarningMsg', TexttoolsNoticeError = 'ErrorMsg' } do
+    local color = vim.api.nvim_get_hl(0, { name = source, link = false })
+    vim.api.nvim_set_hl(0, name, { fg = color.fg, bg = color.bg, italic = false, bold = false })
+  end
+end
+setup_styles()
+vim.api.nvim_create_autocmd('ColorScheme', {
+  group = vim.api.nvim_create_augroup('texttools_notice_styles', { clear = true }), callback = setup_styles,
+})
+M.style_namespace = vim.api.nvim_create_namespace 'texttools_notice_styles'
+
+local function style(level)
+  return level >= vim.log.levels.ERROR and 'TexttoolsNoticeError'
+    or (level >= vim.log.levels.WARN and 'TexttoolsNoticeWarning' or 'TexttoolsNotice')
+end
+
+-- Alleen presentatie: de volledige melding blijft in article_activity.
+-- Opgeslagen regels zonder sessiehistorie nooit willekeurig afkappen.
+function M.summary(message, full_available)
+  local text = tostring(message or ''):gsub('%s+', ' ')
+  if text:match('^Importbewerking %(zonder AI%):') then
+    return 'Import opgeschoond (zonder AI).'
+  elseif text:match('^Bewerkt met Behoudend publicatieklaar maken') then
+    return 'Minimaal geredigeerd (<leader>an).'
+  elseif text:match('^Herschreven met Persberichten bewerken') then
+    return 'Herschreven (<leader>ar).'
+  elseif text:match('^Aparte krantversies aangevraagd met Persberichten bewerken') then
+    return 'Krantversies aangevraagd (<leader>ar).'
+  elseif text:match('^Herschreven met eigen instructie') then
+    return 'Eigen instructie toegepast (<leader>ap).'
+  end
+  text = text:gsub('^Rubriekvorm toegepast: ', 'Rubriek: ')
+    :gsub('%. Kop en vaste rubriekgegevens ingesteld%.$', '.')
+    :gsub('^Kalendergegevens toegevoegd%. LET OP: ', 'LET OP: ')
+    :gsub('^Tekstcheck afgerond: resultaat toegepast%. Controleer de tekst%.$', 'Taalcorrecties toegepast (<leader>ao).')
+    :gsub('^Tekstcheck afgerond: geen correcties of suggesties%.$', 'Geen taalcorrecties (<leader>ao).')
+    :gsub('^Tekstopmaak: ', 'Opmaak: ')
+    :gsub('%. Controleer de tekst%.$', '.')
+  if full_available and vim.fn.strchars(text) > 120 then
+    local head = vim.fn.strcharpart(text, 0, 100):gsub('%s+%S*$', '')
+    return head .. '… (<leader>kl)'
+  end
+  return text
+end
+
 local function boundary(line)
   return line and (line:match '^=== ARTIKEL ===%s*$' or line:match '^=== AGENDAPAGINA ===%s*$')
 end
@@ -93,7 +139,7 @@ function M.replace_content(buf, lines)
   for entry, at in pairs(tracked) do
     entry.mark = vim.api.nvim_buf_set_extmark(buf, M.line_namespace, at, 0, {
       id = entry.mark, end_row = at + 1, end_col = 0, invalidate = true, undo_restore = false,
-      line_hl_group = entry.style or 'Comment', right_gravity = true,
+      line_hl_group = entry.style or 'TexttoolsNotice', right_gravity = true,
     })
   end
 end
@@ -131,20 +177,20 @@ local function show_virtual(buf, issues, changed)
   end
   for index = 1, math.min(3, #notices) do
     local notice = notices[index]
+    local summary = M.summary(notice.message, true)
     local prefix = notice.level >= vim.log.levels.ERROR and 'FOUT: '
       or (notice.level >= vim.log.levels.WARN and 'LET OP: ' or '')
-    if notice.message:find('LET OP:', 1, true) then prefix = '' end
-    local style = notice.level >= vim.log.levels.ERROR and 'ErrorMsg'
-      or (notice.level >= vim.log.levels.WARN and 'WarningMsg' or 'Comment')
-    local lines = wrap(prefix .. notice.message, columns)
+    if summary:find('LET OP:', 1, true) or summary:match('^FOUT:') then prefix = '' end
+    local notice_style = style(notice.level)
+    local lines = wrap(prefix .. summary, columns)
     local maximum = math.min(8, #lines)
-    for line = 1, maximum do rows[#rows + 1] = { { lines[line], style } } end
+    for line = 1, maximum do rows[#rows + 1] = { { lines[line], notice_style } } end
     if #lines > maximum then
-      append('Volledige uitleg: <leader>kl.', 'Comment')
+      append('Uitleg: <leader>kl.', 'TexttoolsNotice')
     end
   end
   if #notices > 3 then
-    append(('Nog %d aandachtspunt(en). Bekijk ze met <leader>kl.'):format(#notices - 3), 'WarningMsg')
+    append(('%d meer · <leader>kl.'):format(#notices - 3), 'TexttoolsNoticeWarning')
   end
   rows[#rows + 1] = { { '', 'Normal' } }
   if not previous or previous.row ~= row or not vim.deep_equal(previous.rows, rows) then
@@ -218,9 +264,9 @@ local function position(buf, id)
 end
 
 local function line_text(notice)
-  local message = tostring(notice.message or ''):gsub('%s+', ' ')
-  if notice.level >= vim.log.levels.ERROR and not message:match('^FOUT:') then
-    message = 'FOUT: ' .. message
+  local message = M.summary(notice.message, true)
+  if notice.level >= vim.log.levels.ERROR then
+    if not message:match('^FOUT:') then message = 'FOUT: ' .. message end
   elseif notice.level >= vim.log.levels.WARN and not message:find('LET OP:', 1, true) then
     message = 'LET OP: ' .. message
   end
@@ -232,6 +278,37 @@ local function line_mark(buf, at, style, id)
     id = id, end_row = at + 1, end_col = 0, invalidate = true, undo_restore = false,
     line_hl_group = style, right_gravity = true,
   })
+end
+
+local function highlight_header(buf, lines, first)
+  vim.api.nvim_buf_clear_namespace(buf, M.style_namespace, 0, -1)
+  for index = first, #lines do
+    local text = lines[index]
+    if text:lower():match('^%s*melding%s*:') then
+      local level = text:find('Melding: FOUT:', 1, true) and vim.log.levels.ERROR
+        or (text:find('LET OP:', 1, true) and vim.log.levels.WARN or vim.log.levels.INFO)
+      vim.api.nvim_buf_set_extmark(buf, M.style_namespace, index - 1, 0, {
+        end_row = index, end_col = 0, hl_group = style(level), hl_mode = 'replace', priority = 250,
+      })
+    end
+  end
+end
+
+-- Een tekstherstel is geen nieuwe redactieopdracht. Onthoud alleen de twee
+-- geschiedenisnummers wanneer de buffer werkelijk verandert; geen polling of
+-- artikelkopieën. Nieuwe edits krijgen altijd een nummer boven de oude takken.
+local function observe_history(buf, state)
+  local tick = vim.api.nvim_buf_get_changedtick(buf)
+  local previous = state.history
+  if previous and previous.tick == tick then return end
+  local current = vim.api.nvim_buf_call(buf, vim.fn.changenr)
+  if previous then
+    if current ~= previous.current then state.restoring = current <= previous.last end
+    state.history = { tick = tick, current = current, last = math.max(previous.last, current) }
+  else
+    local history = vim.api.nvim_buf_call(buf, vim.fn.undotree)
+    state.history = { tick = tick, current = current, last = history.seq_last }
+  end
 end
 
 -- Uitsluitend indeling van het expliciete editor-kopblok. Geen controleregels
@@ -246,12 +323,16 @@ local function organize_header(buf, state)
   for index = first, row do
     local line = before[index]
     if line:lower():match('^%s*melding%s*:') then
-      notices[#notices + 1] = { text = line, index = index }
+      local message = line:match('^%s*[Mm][Ee][Ll][Dd][Ii][Nn][Gg]%s*:%s*(.*)$')
+      notices[#notices + 1] = { text = 'Melding: ' .. M.summary(message, false), index = index }
     elseif not line:match('^%s*$') then
       controls[#controls + 1] = { text = line, index = index }
     end
   end
-  if #notices == 0 then return end
+  if #notices == 0 then
+    vim.api.nvim_buf_clear_namespace(buf, M.style_namespace, 0, -1)
+    return
+  end
   local after = {}
   for index = 1, first - 1 do after[#after + 1] = before[index] end
   if #after > 0 then after[#after + 1] = '' end
@@ -262,7 +343,10 @@ local function organize_header(buf, state)
     end
     if #block > 0 then after[#after + 1] = '' end
   end
-  if vim.deep_equal(before, after) then return end
+  if vim.deep_equal(before, after) then
+    highlight_header(buf, before, first)
+    return
+  end
   local tracked, cursors = {}, {}
   for _, entry in pairs(state.entries) do
     local at = position(buf, entry.mark)
@@ -281,8 +365,12 @@ local function organize_header(buf, state)
   local replacement = {}
   for index = prefix + 1, new_end do replacement[#replacement + 1] = after[index] end
   vim.api.nvim_buf_set_lines(buf, prefix, old_end, false, replacement)
-  for entry, at in pairs(tracked) do entry.mark = line_mark(buf, at - 1, entry.style or 'Comment', entry.mark) end
+  for entry, at in pairs(tracked) do
+    entry.text = after[at]
+    entry.mark = line_mark(buf, at - 1, entry.style or 'TexttoolsNotice', entry.mark)
+  end
   for win, cursor in pairs(cursors) do vim.api.nvim_win_set_cursor(win, cursor) end
+  highlight_header(buf, after, header_start(after, #after + 1))
 end
 
 function M.show(buf, issues, changed, may_edit)
@@ -329,31 +417,63 @@ function M.show(buf, issues, changed, may_edit)
   end
   M.hide(buf)
   if not state then
-    state = { entries = {}, dismissed = {}, editing = false }
+    state = { entries = {}, dismissed = {}, editing = false, rendered_notices = {} }
     literal[buf] = state
     state.boundary = vim.api.nvim_buf_set_extmark(buf, M.line_namespace, row, 0, {})
     vim.api.nvim_buf_attach(buf, false, {
       on_lines = function(_, _, _, first)
         if state.editing then return end
+        -- Ook body-edits observeren zonder de kop opnieuw te renderen. Anders
+        -- lijkt undo na zo'n edit op nieuw werk als geen refresh ertussen kwam.
+        observe_history(buf, state)
         local at = position(buf, state.boundary)
         if not at or first <= at then changed() end
       end,
-      on_reload = changed,
+      on_reload = function()
+        state.history, state.restoring = nil, false
+        changed()
+      end,
       on_detach = function() literal[buf] = nil end,
     })
   else
     state.boundary = vim.api.nvim_buf_set_extmark(buf, M.line_namespace, row, 0, { id = state.boundary })
   end
+  observe_history(buf, state)
   -- Wijzig geen bronrevisie terwijl een achtergrondtaak met die revisie werkt.
   -- Na de laatste taak volgt automatisch de bestaande refresh, zonder wachten.
   if may_edit == false then return end
-  local current, ordered = {}, {}
-  for _, notice in pairs(issues or {}) do current[notice.id] = notice; ordered[#ordered + 1] = notice end
+  local current, ordered, signature = {}, {}, {}
+  for _, notice in pairs(issues or {}) do
+    current[notice.id] = notice
+    ordered[#ordered + 1] = notice
+    signature[notice.id] = { notice.message, notice.level }
+  end
   table.sort(ordered, function(a, b) return a.id < b.id end)
+  -- Na undo/redo ook bij BufEnter/resize/logboekdetails de herstelde tekst
+  -- ongemoeid laten. Alleen een echt nieuw resultaat mag weer muteren.
+  if state.restoring and vim.deep_equal(signature, state.rendered_notices) then
+    local header = vim.api.nvim_buf_get_lines(buf, 0, row, false)
+    highlight_header(buf, header, header_start(header, row + 1))
+    return
+  end
+  state.restoring = false
   state.editing = true
   for id, entry in pairs(state.entries) do
     local at = position(buf, entry.mark)
     local same = at and vim.api.nvim_buf_get_lines(buf, at, at + 1, false)[1] == entry.text
+    -- Undo kan de echte regel herstellen zonder zijn ongeldig gemaakte
+    -- presentatie-extmark. Bind alleen exact dezelfde tekst opnieuw.
+    if not same then
+      local last = position(buf, state.boundary)
+      local header = last and vim.api.nvim_buf_get_lines(buf, 0, last, false) or {}
+      for index = header_start(header, #header + 1), #header do
+        if header[index] == entry.text then
+          at, same = index - 1, true
+          entry.mark = line_mark(buf, at, entry.style or 'TexttoolsNotice', entry.mark)
+          break
+        end
+      end
+    end
     if not same then
       -- dd of een eigen tekstbewerking is een bewuste UI-afwijzing, geen
       -- domeingoedkeuring. Dezelfde melding wordt niet opnieuw ingevoegd.
@@ -372,16 +492,17 @@ function M.show(buf, issues, changed, may_edit)
       if at then
         local text = line_text(notice)
         vim.api.nvim_buf_set_lines(buf, at, at, false, { text })
-        local style = notice.level >= vim.log.levels.ERROR and 'ErrorMsg'
-          or (notice.level >= vim.log.levels.WARN and 'WarningMsg' or 'Comment')
-        local mark = line_mark(buf, at, style)
-        state.entries[notice.id] = { mark = mark, text = text, style = style }
+        local notice_style = style(notice.level)
+        local mark = line_mark(buf, at, notice_style)
+        state.entries[notice.id] = { mark = mark, text = text, style = notice_style }
       end
     end
   end
   for id in pairs(state.dismissed) do if not current[id] then state.dismissed[id] = nil end end
   organize_header(buf, state)
   state.editing = false
+  state.rendered_notices = signature
+  observe_history(buf, state)
 end
 
 return M

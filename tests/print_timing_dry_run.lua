@@ -71,7 +71,7 @@ dialog.select = function(items, opts, done)
   error('dialog.select had niet aangeroepen mogen worden voor deze keuze')
 end
 dialog.confirm = function(prompt, buttons, default)
-  assert(prompt:find('andere tijdsversie', 1, true), 'verkeerde vraag getoond')
+  assert(prompt:find('datumcontext', 1, true), 'verkeerde vraag getoond')
   -- De sneltoets (&) staat vóór "website", niet vóór "Alleen": anders zou
   -- deze optie dezelfde A-sneltoets claimen als Annuleren.
   assert(buttons:find('Kranttijdsversie maken', 1, true)
@@ -333,6 +333,54 @@ calls, done_args = run_prepare({
 assert(#calls == 2 and vim.deep_equal(editions_of(calls[2]), { 'B' }))
 assert(vim.tbl_contains(calls[2], '--allow-past-rewrite'))
 assert(vim.tbl_contains(done_args[4], 'SW'))
+
+-- Webtekst behouden: de client geeft de specifieke edities door; geen
+-- herschrijf-/reviewvraag na deze expliciete keuze.
+local function copied_result()
+  return ok_result { changed = true, ai_call_count = 0,
+    markdown = 'e: B\n\n=== ARTIKEL ===\n\nKop\n\nKAMPEN - Tekst.\n\n---\n\n## Kranttijdsversies\n',
+    section = '## Kranttijdsversies\n' }
+end
+local function kept_editions(command)
+  for index, part in ipairs(command) do
+    if part == '--use-web-editions' then return vim.json.decode(command[index + 1]) end
+  end
+end
+for _, past in ipairs { false, true } do
+  dialog.confirm = function(_, buttons)
+    assert(buttons:find('Webtekst &behouden', 1, true))
+    return past and 4 or 3 -- Nieuwe zichtbare menu-index, vóór Annuleren.
+  end
+  calls, done_args = run_prepare({
+    ok_result { decision_required = past, requires_review = not past,
+      targets = { { edition = 'B', transitions = { { newspaper_state = past and 'past' or 'opening' } } } } },
+    copied_result(),
+  })
+  assert(#calls == 2 and vim.deep_equal(kept_editions(calls[2]), { 'B' }))
+  assert(not vim.tbl_contains(calls[2], '--dry-run'))
+  assert(done_args[1] == true and done_args[3] == false)
+end
+dialog.confirm = function() error('deadlinekeuze vroeg nogmaals welke tekst') end
+calls, done_args = run_prepare({
+  ok_result { decision_required = true,
+    targets = { { edition = 'B', transitions = { { newspaper_state = 'past' } } } } }, copied_result(),
+}, function(buf)
+  vim.b[buf].late_newspaper_decision = { mode = 'force', editions = { 'B' }, use_web_editions = { 'B' },
+    use_web_revision = require('buffer_revision').capture(buf) }
+end)
+assert(#calls == 2 and vim.deep_equal(kept_editions(calls[2]), { 'B' }))
+assert(done_args[1] and not done_args[3])
+
+local asked_again = false
+dialog.confirm = function() asked_again = true; return 2 end
+calls, done_args = run_prepare({ ok_result { decision_required = true,
+  targets = { { edition = 'B', transitions = { { newspaper_state = 'past' } } } } } }, function(buf)
+  local revision = require('buffer_revision').capture(buf)
+  vim.api.nvim_buf_set_lines(buf, -1, -1, false, { 'Nieuwe tekst na het behoudbesluit.' })
+  vim.b[buf].late_newspaper_decision = { mode = 'force', editions = { 'B' }, use_web_editions = { 'B' },
+    use_web_revision = revision }
+end)
+assert(asked_again and #calls == 1, 'verouderde behoudkeuze kopieerde of herschreef zonder nieuwe toestemming')
 
 -- Nieuwere tekst mag ook bij een late timingrespons niet worden toegepast.
 local callback

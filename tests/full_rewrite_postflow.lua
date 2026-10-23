@@ -24,6 +24,7 @@ end
 vim.system = function(command, opts, callback)
   assert(command[1]:match('aichat$'), 'vrije herschrijving startte een onverwacht commando')
   assert(opts.stdin:find('Oorspronkelijke kop', 1, true), 'vrije herschrijving kreeg de body niet')
+  assert(not opts.stdin:find('Boodschap voor Teams', 1, true), 'Teams-boodschap ging naar AI')
   callback {
     code = 0,
     stdout = 'Nieuwe kop\n\n**ZWOLLE - Nieuwe lead.**\n',
@@ -35,7 +36,7 @@ end
 local buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(buf)
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
-  'e: SW', '', '=== ARTIKEL ===', '', 'Oorspronkelijke kop', '',
+  'e: SW', '@ Boodschap voor Teams.', 'Foto: Eigen foto', 'wijk: Heel Zwolle', '', '=== ARTIKEL ===', '', 'Oorspronkelijke kop', '',
   'Oorspronkelijke body.', '', '***', 'Maak de lead concreter.',
 })
 
@@ -43,6 +44,10 @@ ai.ai_prompt_rewrite()
 assert(vim.wait(1000, function() return post_options ~= nil end, 20),
   'vrije herschrijving startte de gedeelde nacontrole niet')
 assert(post_options.controls[1] == 'e: SW', 'vrije herschrijving verloor de editiecontrole')
+local document = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+for _, line in ipairs { '@ Boodschap voor Teams.', 'Foto: Eigen foto', 'wijk: Heel Zwolle' } do
+  assert(document:find(line, 1, true) < document:find('=== ARTIKEL ===', 1, true), 'zichtbare kopregel verloren')
+end
 assert(post_options.document:find('Nieuwe kop', 1, true), 'nacontrole kreeg de nieuwe tekst niet')
 assert(post_options.original_content:find('Oorspronkelijke kop', 1, true),
   'nacontrole kreeg de oorspronkelijke tekst niet')

@@ -3892,6 +3892,9 @@ M._has_calendar_section = has_calendar_section
 -- geen tweede validatie van kalendergegevens in de client.
 local function calendar_notice(meta_lines)
   local fields = extract_calendar_frontmatter(meta_lines)
+  if fields.skip_reason == 'outside_coverage' and fields.skip_message then
+    return fields.skip_message, vim.log.levels.WARN
+  end
   local items = extract_calendar_items(meta_lines)
   if #items == 0 then items = { fields } end
   local labels = {
@@ -3993,7 +3996,10 @@ function M._calendar_transition(buf, action, values, done, guard)
         else
           require('article_notices').replace_content(buf, vim.split(data.markdown, '\n', { plain = true }))
           vim.b[buf].calendar_transition_tick = vim.api.nvim_buf_get_changedtick(buf)
-          if data.status == 'removed' or data.status == 'declined' then vim.b[buf].cached_calendar_metadata = nil end
+          if data.status == 'removed' or data.status == 'declined' or data.status == 'skipped' or data.status == 'allowed' then
+            vim.b[buf].cached_calendar_metadata = nil
+            vim.b[buf].cached_calendar_metadata_source = nil
+          end
           done(data)
         end
         M._on_buffer_jobs_idle(buf)
@@ -4008,6 +4014,64 @@ end
 local function write_calendar_section(buf, meta_lines, explicit_request, task_scope, generation)
   if not (buf and vim.api.nvim_buf_is_valid(buf)) then return end
 
+  local fields = extract_calendar_frontmatter(meta_lines)
+  if fields.skip_reason == 'outside_coverage' then
+    local function skip()
+      M._calendar_transition(buf, 'apply', {
+        metadata_yaml = table.concat(meta_lines, '\n'),
+        original = generation and vim.b[buf].calendar_request_source or nil,
+      }, function(data)
+        if data and data.status == 'skipped' then
+          vim.b[buf].calendar_section_seen = false
+          notify_workflow(type(data.message) == 'string' and data.message or fields.skip_message, vim.log.levels.WARN, {
+            buf = buf, inline = true, notice_key = 'calendar', resolved = true,
+            action = 'AI · Kalender', run_id = task_scope and task_scope.id,
+          })
+        elseif data and data.status == 'conflict' then
+          notify_workflow((type(data.message) == 'string' and data.message or fields.skip_message or 'Kalender niet toegepast.')
+            .. ' Het bestaande kalenderblok is behouden.', vim.log.levels.WARN,
+            { buf = buf, inline = true, notice_key = 'calendar', resolved = true,
+              action = 'AI · Kalender', run_id = task_scope and task_scope.id })
+        end
+        if task_scope then notifications.task_result('attention', task_scope) end
+      end, function() return M._calendar_result_current(buf, generation) end)
+    end
+    if explicit_request then
+      local snapshot = require('buffer_revision').capture(buf)
+      local keep = 'Geen agenda-item maken'
+      local allow = 'Toch maken buiten verspreidingsgebied'
+      require('user_dialog').select({ keep, allow }, {
+        prompt = fields.skip_message .. '\nWat wil je doen?', native = true,
+      }, function(choice)
+        if not M._calendar_result_current(buf, generation) then return end
+        if not require('buffer_revision').matches(buf, snapshot) then
+          notify_workflow('Artikel gewijzigd tijdens de gebiedskeuze; vraag de kalender opnieuw aan met <leader>ac.',
+            vim.log.levels.WARN, { buf = buf })
+          if task_scope then notifications.task_result('not_applied', task_scope) end
+          return
+        end
+        if choice == allow then
+          M._calendar_transition(buf, 'allow_outside', {
+            metadata_yaml = table.concat(meta_lines, '\n'),
+            original = table.concat(snapshot.lines, '\n'),
+          }, function(data)
+            if task_scope then notifications.task_result(data and data.status == 'allowed' and 'applied' or 'not_applied', task_scope) end
+            if data and data.status == 'allowed' then
+              vim.b[buf].calendar_section_seen = true
+              M._start_calendar_analysis(buf, true)
+            end
+          end, function() return M._calendar_result_current(buf, generation) end)
+        elseif choice == keep then
+          skip()
+        elseif task_scope then
+          notifications.task_result('cancelled', task_scope)
+        end
+      end)
+    else
+      skip()
+    end
+    return
+  end
   local section = build_calendar_section_lines(meta_lines)
   if not section then
     -- Geen evenement is een normale uitkomst van automatische herkenning.
@@ -5233,18 +5297,29 @@ end
 
 M._late_newspaper_message = late_newspaper_message
 M._late_newspaper_confirm = function(review, done)
-  local rewrite = review.publication_timing == 'date_bound'
-  local newspaper_choice = rewrite and 'Herschrijven voor krant [h]' or 'Toch ook naar de krant [t]'
+  local action_period = review.planning_basis == 'action_period'
+    and review.action_period_ends_before_newspaper ~= true
+  local rewrite = review.publication_timing == 'date_bound' and not action_period
+  local newspaper_choice = rewrite and 'Herschrijven voor krant [h]'
+    or (action_period and 'Webtekst naar krant, zonder herschrijven [t]' or 'Toch ook naar de krant [t]')
   local shortcuts = { w = 1, W = 1, t = 2, T = 2, a = 3, A = 3 }
-  if rewrite then shortcuts.h = 2; shortcuts.H = 2 end
-  require('user_dialog').select({
-    "Alleen website voor deze krant(en) [w]",
-    newspaper_choice,
-    "Annuleren [a]",
-  }, {
+  local items = { 'Alleen website voor deze krant(en) [w]', newspaper_choice }
+  if rewrite then
+    items[3] = 'Webtekst naar krant, zonder herschrijven [b]'
+    shortcuts.h, shortcuts.H, shortcuts.b, shortcuts.B = 2, 2, 3, 3
+    shortcuts.a, shortcuts.A = 4, 4
+  end
+  items[#items + 1] = 'Annuleren [a]'
+  require('user_dialog').select(items, {
     prompt = late_newspaper_message(review), native = true,
     shortcuts = shortcuts,
-  }, function(_, index) done(index) end)
+  }, function(_, index)
+    -- Bestaand callbackcontract: 1 web, 2 herschrijven, 3 annuleren;
+    -- nieuwe expliciete keuze 4 behoudt de webtekst.
+    if (rewrite and index == 3) or (action_period and index == 2) then done(4)
+    elseif rewrite and index == 4 then done(3)
+    else done(index) end
+  end)
 end
 
 local function review_late_newspapers(buf, review, done)
@@ -5299,7 +5374,7 @@ local function review_late_newspapers(buf, review, done)
       done(false)
       return
     end
-    if choice == 1 or choice == 2 then
+    if choice == 1 or choice == 2 or choice == 4 then
       if choice == 1 then
         if not M._record_newspaper_exclusions(
             buf, nil, pending, "inhoudelijke krantdeadline verstreken"
@@ -5315,8 +5390,11 @@ local function review_late_newspapers(buf, review, done)
         signature = signature,
         mode = choice == 1 and "website" or "force",
         editions = pending,
+        use_web_editions = choice == 4 and pending or {},
+        use_web_revision = choice == 4 and require('buffer_revision').capture(buf) or nil,
       }
-      require('workflow_log').decision(buf, 'Krantdeadline', choice == 1 and 'website' or 'force', pending)
+      require('workflow_log').decision(buf, 'Krantdeadline', choice == 1 and 'website'
+        or (choice == 4 and 'use_web_text' or 'force'), pending)
       done(true)
     else
       require('workflow_log').decision(buf, 'Krantdeadline', 'cancel', pending)
@@ -5338,6 +5416,9 @@ function M._resume_newspaper_deadline_review(buf, status, planning, done)
     return
   end
   local previously_allowed = late_newspaper_codes(buf, 'force')
+  local previous_decision = vim.b[buf].late_newspaper_decision or {}
+  local previous_web = require('buffer_revision').matches(buf, previous_decision.use_web_revision)
+    and previous_decision.use_web_editions or {}
   review_late_newspapers(buf, review, function(ready)
     if ready and vim.api.nvim_buf_is_valid(buf) then
       local state = vim.deepcopy(planning)
@@ -5355,8 +5436,13 @@ function M._resume_newspaper_deadline_review(buf, status, planning, done)
         end
         if #remaining > 0 then
           local current = vim.b[buf].late_newspaper_decision or {}
+          local kept_web = merged_edition_codes(previous_web, current.use_web_editions)
           vim.b[buf].late_newspaper_decision = {
             mode = 'force', editions = remaining, signature = current.signature,
+            use_web_editions = kept_web,
+            -- De eigen, gecontroleerde web-only-kopregel mag een bestaande
+            -- behoudkeuze voor andere edities niet ongeldig maken.
+            use_web_revision = #kept_web > 0 and require('buffer_revision').capture(buf) or nil,
           }
         end
       end
@@ -7252,7 +7338,7 @@ require("user_dialog").keymap("n", "<leader>aw", M.pubble_send, {
 -- ---------------------------------------------------------------------------
 
 local function temporal_print_command(
-  file, display_dates, edition_codes, allow_past_rewrite, skip_past_newspaper, dry_run
+  file, display_dates, edition_codes, allow_past_rewrite, skip_past_newspaper, dry_run, use_web_editions
 )
   local display_dates_json = "{}"
   if type(display_dates) == "table" and next(display_dates) ~= nil then
@@ -7273,6 +7359,10 @@ local function temporal_print_command(
   -- zo valt de keuze (maken / alleen website / annuleren) vóór de AI-kosten,
   -- niet erna.
   if dry_run then table.insert(command, "--dry-run") end
+  if type(use_web_editions) == 'table' and #use_web_editions > 0 then
+    table.insert(command, '--use-web-editions')
+    table.insert(command, vim.fn.json_encode(use_web_editions))
+  end
   return command
 end
 
@@ -7297,13 +7387,15 @@ M._newspaper_time_version_choice = function(targets)
     if type(target.edition) == "string" then table.insert(editions, target.edition) end
   end
   local label = #editions > 0 and (" voor " .. table.concat(editions, ", ")) or ""
-  return require('user_dialog').confirm(
-    "Voor de krant is een andere tijdsversie nodig" .. label
+  local choice = require('user_dialog').confirm(
+    "De datumcontext verschilt voor de krant" .. label
       .. " (de tekst verwijst naar een datum die in de latere krant anders leest). Wat wil je?"
       .. timing_overview(targets),
-    "&Kranttijdsversie maken en gebruiken\nAlleen &website voor deze editie(s)\n&Annuleren",
+    "&Kranttijdsversie maken en gebruiken\nAlleen &website voor deze editie(s)\n"
+      .. "Webtekst &behouden voor krant\n&Annuleren",
     1
   )
+  return choice == 3 and 4 or (choice == 4 and 3 or choice)
 end
 
 M._past_timing_confirm = function(targets)
@@ -7313,14 +7405,16 @@ M._past_timing_confirm = function(targets)
     if type(label) == "string" and label ~= "" then table.insert(editions, label) end
   end
   local suffix = #editions > 0 and (" (" .. table.concat(editions, ", ") .. ")") or ""
-  return require('user_dialog').confirm(
+  local choice = require('user_dialog').confirm(
     "De publicatiedatum van de krant ligt na minstens één evenement"
       .. suffix .. ". Kies voor alle getoonde edities."
       .. timing_overview(targets),
     "&Herschrijven voor alle getoonde kranten\nAlleen &website voor alle getoonde kranten\n"
-      .. "Alleen &afgelopen edities web; overige herschrijven\n&Annuleren",
+      .. "Alleen &afgelopen edities web; overige herschrijven\n"
+      .. "Webtekst &behouden voor alle getoonde kranten\n&Annuleren",
     2
   )
+  return choice == 4 and 5 or (choice == 5 and 4 or choice)
 end
 
 temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
@@ -7388,6 +7482,23 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
   -- er ook een andere editie bij, dan verschijnt alleen die nog onbeantwoorde
   -- editie in het overzicht; de eerdere toestemming blijft behouden.
   local forced_late_editions = late_newspaper_codes(buf, "force")
+  local decision = vim.b[buf].late_newspaper_decision or {}
+  local use_web_editions = {}
+  local valid_web_choice = require('buffer_revision').matches(buf, decision.use_web_revision)
+  local copied = {}
+  for _, code in ipairs(decision.use_web_editions or {}) do
+    copied[code] = true
+    if valid_web_choice and vim.tbl_contains(edition_codes, code) then table.insert(use_web_editions, code) end
+  end
+  if not valid_web_choice and next(copied) then
+    -- Een oud behoudbesluit is geen toestemming om nieuwere tekst stil te
+    -- kopiëren óf alsnog automatisch te laten herschrijven. Vraag opnieuw.
+    local remaining = {}
+    for _, code in ipairs(forced_late_editions) do
+      if not copied[code] then table.insert(remaining, code) end
+    end
+    forced_late_editions = remaining
+  end
   local function unapproved_targets(targets)
     local approved, pending = {}, {}
     for _, code in ipairs(forced_late_editions) do approved[code] = true end
@@ -7407,7 +7518,8 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
       edition_codes,
       allow_past_rewrite,
       skip_past_newspaper,
-      not confirmed
+      not confirmed,
+      use_web_editions
     )
     ai_system(command, { text = true }, function(result)
       notifications.schedule(function()
@@ -7441,7 +7553,7 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
           if #past_target_editions == 0 and #timing_target_editions(pending_targets, false) > 0 then
             choice = M._newspaper_time_version_choice(pending_targets)
             -- Het gewone menu gebruikt 3 voor annuleren; het gemengde menu 4.
-            if choice == 3 then choice = 4 end
+            if choice == 3 then choice = 4 elseif choice == 4 then choice = 5 end
           else
             choice = M._past_timing_confirm(pending_targets)
           end
@@ -7449,7 +7561,12 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
             done(false, 'Tekst gewijzigd tijdens krantkeuze; start opnieuw met <leader>aw.')
             return
           end
-          if choice == 1 then
+          if choice == 5 then
+            local keep = timing_target_editions(pending_targets, false)
+            use_web_editions = merged_edition_codes(use_web_editions, keep)
+            require('workflow_log').decision(buf, 'Kranttijd overzicht', 'use_web_text', keep)
+            run(true, false, true)
+          elseif choice == 1 then
             require('workflow_log').decision(buf, 'Kranttijd verlopen evenement', 'rewrite', past_target_editions)
             -- Met allow_past_rewrite=true blijft requires_review voor deze
             -- targets altijd waar (zie prepare_timing_workspace): een tweede
@@ -7515,7 +7632,11 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
             done(false, 'Tekst gewijzigd tijdens krantkeuze; start opnieuw met <leader>aw.')
             return
           end
-          if choice == 1 then
+          if choice == 4 then
+            use_web_editions = merged_edition_codes(use_web_editions, review_target_editions)
+            require('workflow_log').decision(buf, 'Kranttijdsversie', 'use_web_text', review_target_editions)
+            run(true, false, true)
+          elseif choice == 1 then
             require('workflow_log').decision(buf, 'Kranttijdsversie', 'rewrite', review_target_editions)
             run(allow_past_rewrite, skip_past_newspaper, true)
           elseif choice == 2 then

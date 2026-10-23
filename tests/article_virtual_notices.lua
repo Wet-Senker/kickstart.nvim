@@ -84,7 +84,7 @@ wait(function() return #marks(b) == 1 end)
 for _, line in ipairs(vim.split(text(b), '\n', { plain = true })) do
   assert(vim.fn.strdisplaywidth(line) <= 28, 'uitleg werd rechts afgesneden: ' .. line)
 end
-assert(text(b):find('<leader>kl.', 1, true), 'lange uitleg heeft geen zichtbare leesroute')
+assert(text(b):find('<leader>kl', 1, true), 'lange uitleg heeft geen zichtbare leesroute')
 
 -- Een oude import zonder grens krijgt geen verzonnen artikelstructuur.
 local raw = vim.api.nvim_create_buf(true, false)

@@ -63,13 +63,13 @@ buf = source()
 ai.journalistic_neutralize()
 reply { code = 0, stdout = vim.json.encode({ version = 1, status = 'ready',
   source_sha256 = vim.fn.sha256(last_input), article = 'Nieuwe kop\n\nBewerkte tekst.', issues = {} }), stderr = '' }
-wait(function() return text(buf):find('Melding: Bewerkt met Behoudend publicatieklaar maken (<leader>an)', 1, true) end)
-assert(text(buf):find('minimale redactie', 1, true))
+wait(function() return text(buf):find('Melding: Minimaal geredigeerd (<leader>an)', 1, true) end)
+assert(activity.snapshot(buf).entries[#activity.snapshot(buf).entries].message:find('minimale redactie', 1, true))
 vim.api.nvim_buf_set_lines(buf, -1, -1, false, { '', '***', 'Maak de kop concreter.' })
 ai.ai_prompt_rewrite()
 reply { code = 0, stdout = 'Nog een kop\n\nOpnieuw bewerkte tekst.', stderr = '' }
-wait(function() return text(buf):find('Melding: Herschreven met eigen instructie (<leader>ap)', 1, true) end)
-assert(not text(buf):find('Melding: Bewerkt met Behoudend', 1, true), 'oude redigeermethode bleef staan')
+wait(function() return text(buf):find('Melding: Eigen instructie toegepast (<leader>ap)', 1, true) end)
+assert(not text(buf):find('Melding: Minimaal geredigeerd', 1, true), 'oude redigeermethode bleef staan')
 assert(calls == 8, 'meldingen voegden AI-calls toe')
 vim.system, ai._post_full_article_rewrite = native_system, native_post
 print('quiet generated sections: OK')

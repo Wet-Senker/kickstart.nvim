@@ -29,7 +29,7 @@ assert(captured.options:find('Alleen', 1, true)
   'de web-only-optie ontbreekt in de keuze')
 assert(captured.options:find('Kranttijdsversie', 1, true),
   'de kranttijdsversie-optie ontbreekt')
-assert(captured.message:find('andere tijdsversie', 1, true),
+assert(captured.message:find('datumcontext', 1, true),
   'de uitleg noemt de kranttijdsversie niet')
 
 print('web only choice: OK')

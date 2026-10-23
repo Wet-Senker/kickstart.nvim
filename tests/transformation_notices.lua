@@ -22,8 +22,8 @@ vim.system = function(command, options, done)
   return native_system(command, options, done)
 end
 krant.apply_detected_rubric('leugenbankien', buf, { normalized_body = original_body }, function() end)
-wait(function() return text():find('Melding: Rubriekvorm toegepast: Leugenbankien.', 1, true) end)
-assert(text():find('Melding: Importbewerking (zonder AI)', 1, true), 'template verloor importmelding')
+wait(function() return text():find('Melding: Rubriek: Leugenbankien.', 1, true) end)
+assert(text():find('Melding: Import opgeschoond (zonder AI)', 1, true), 'template verloor importmelding')
 assert(text():find('Appien Floep', 1, true), 'template verloor broninhoud')
 local function correction(value)
   activity.record(buf, value, vim.log.levels.INFO, {
@@ -45,7 +45,7 @@ vim.system = function(command, opts, done)
   return native_system(command, opts, done)
 end
 ai.tekstcheck()
-wait(function() return text():find('Tekstcheck afgerond: resultaat toegepast.', 1, true) end)
+wait(function() return text():find('Taalcorrecties toegepast (<leader>ao).', 1, true) end)
 assert(text():find('gecorrigeerde alinea', 1, true), 'AO-resultaat niet toegepast')
 
 -- Echte opmaakwijzigingen leveren één precieze groepsmelding; geen fictieve kopwijziging.
@@ -68,7 +68,7 @@ ai.tussenkopjes_streamer { automatic = true, buf = format_buf,
   headline = { has_headline = true, automatic_structure = true } }
 assert(vim.wait(2000, function()
   local value = table.concat(vim.api.nvim_buf_get_lines(format_buf, 0, -1, false), '\n')
-  return value:find('Melding: Tekstopmaak: tussenkopjes toegevoegd; streamer toegevoegd.', 1, true)
+  return value:find('Melding: Opmaak: tussenkopjes toegevoegd; streamer toegevoegd.', 1, true)
 end, 10), 'opmaakmelding ontbreekt')
 assert(not table.concat(vim.api.nvim_buf_get_lines(format_buf, 0, -1, false), '\n'):find('kop aangepast', 1, true))
 

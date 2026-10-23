@@ -21,7 +21,7 @@ vim.api.nvim_buf_set_lines(buf, 0, -1, false, original)
 local revision = revisions.capture(buf)
 vim.api.nvim_set_current_buf(buf)
 local expected = vim.list_extend(vim.deepcopy(yaml), { '', 'e: B', 'c: Johan Schaart.', '',
-  'Melding: LET OP: Datum ontbreekt.', 'Melding: Herschreven met Persberichten bewerken.', '' })
+  'Melding: LET OP: Datum ontbreekt.', 'Melding: Herschreven (<leader>ar).', '' })
 vim.list_extend(expected, body)
 wait(function() return vim.deep_equal(lines(buf), expected) end)
 assert(not activity.snapshot(buf), 'heropenen verzon taak-/publicatiestatus')

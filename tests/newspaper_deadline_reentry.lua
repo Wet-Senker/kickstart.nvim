@@ -106,4 +106,33 @@ ai._review_late_newspapers(buf, matched, function(value) ready = value end)
 assert(vim.deep_equal(asked_for, { 'SW' }), 'toestemming voor B werd naar andere krant uitgebreid')
 assert(ready == false, 'annuleren van onafhankelijke deadline hervatte')
 
+buf = fresh()
+assert(resume(buf, 4), 'expliciet webtekst behouden hervatte niet')
+state = vim.b[buf].publication_review_state
+assert(state.late_newspaper_decision.mode == 'force')
+assert(vim.deep_equal(state.late_newspaper_decision.use_web_editions, { 'B' }), 'webtekstkeuze verloren bij hervatten')
+assert(vim.deep_equal(state.skip_newspaper_editions, { 'D' }))
+assert(vim.deep_equal(vim.api.nvim_buf_get_lines(buf, 0, -1, false), source))
+
+buf = fresh()
+vim.b[buf].late_newspaper_decision = { mode = 'force', editions = { 'SW' }, use_web_editions = { 'SW' },
+  use_web_revision = require('buffer_revision').capture(buf) }
+assert(resume(buf, 4))
+state = vim.b[buf].publication_review_state
+assert(vim.deep_equal(state.late_newspaper_decision.use_web_editions, { 'SW', 'B' }), 'eerdere behoudkeuze verloren')
+
+buf = fresh()
+vim.b[buf].late_newspaper_decision = { mode = 'force', editions = { 'SW' }, use_web_editions = { 'SW' },
+  use_web_revision = require('buffer_revision').capture(buf) }
+assert(resume(buf, 1))
+state = vim.b[buf].publication_review_state
+assert(vim.deep_equal(state.late_newspaper_decision.use_web_editions, { 'SW' }))
+assert(require('buffer_revision').matches(buf, state.late_newspaper_decision.use_web_revision),
+  'eigen web-only-kopregel maakte behoudkeuze voor andere editie ongeldig')
+
+buf = fresh()
+assert(not resume(buf, 4, function(target)
+  vim.api.nvim_buf_set_lines(target, -1, -1, false, { 'Nieuwe tekst.' })
+end), 'oude webtekstkeuze toegepast op nieuwe bron')
+
 print 'newspaper deadline reentry: OK'

@@ -108,5 +108,25 @@ assert(result.action == 'edit')
 local log = table.concat(vim.fn.readfile(require('workflow_log').log_path()), '\n')
 assert(log:find('invalid_display_dates', 1, true) and log:find('"failed"', 1, true))
 assert(not log:find('Interne redactienotitie', 1, true))
+
+-- Figuurlijk vandaag/morgen is geen publicatiedatum. Dezelfde column met een
+-- echte afspraak voor morgen vraagt nog steeds de gewone expliciete controle.
+local column = 'De problemen van vandaag mogen de kansen van morgen niet verdringen. '
+  .. 'Het gaat om keuzes die we vandaag durven te maken.'
+buf, file = source(column)
+local menu_count, call_count = #menus, #calls
+result = start(buf, file, { 'B', 'SW', 'ST', 'K', 'D', 'Z' }, {})
+wait(function() return result.action ~= nil end)
+assert(result.action == 'ready' and #menus == menu_count and #calls == call_count + 1)
+buf, file = source(column .. ' Morgen komt de raad bijeen.')
+result = start(buf, file, { 'B', 'SW' }, {})
+wait(function() return #menus == menu_count + 1 end)
+local question = menus[#menus]
+assert(question.options.prompt:find('‘morgen’', 1, true))
+assert(not question.options.prompt:find('‘vandaag’', 1, true), 'figuurlijk woord toch als datum gevraagd')
+assert(question.items[1]:find('Gecontroleerd', 1, true))
+question.done(question.items[1])
+wait(function() return result.action ~= nil end)
+assert(result.action == 'ready')
 vim.system = native_system
 print('publication dates contract: OK')
