@@ -15,6 +15,7 @@ end
 vim.notify = function(message) warnings[#warnings + 1] = message end
 dialog.select = function(items, opts, done)
   assert(opts.native == true, 'datumvraag moet een overlay zijn')
+  assert(opts.source_buf == buf, 'datumvraag verloor de bijbehorende artikelbuffer')
   menus[#menus + 1] = { items = items, opts = opts, done = done }
 end
 local function reply(index, value)

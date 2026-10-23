@@ -30,6 +30,21 @@ dialog.select({ 'A' }, { prompt = 'Handmatig' }, function(item) choice = item; c
 shown(); key('<Esc>')
 assert(choice == nil and calls == 2, 'handmatig menu niet geannuleerd')
 
+-- Een nieuwe import mag een publicatiedialoog in een ander tabblad uit beeld
+-- duwen, maar dezelfde bronbuffer moet haar direct kunnen terughalen.
+local source = vim.api.nvim_get_current_buf()
+dialog.select({ 'Datum' }, { prompt = 'Publicatieplanning', native = true, source_buf = source }, function(item)
+  choice = item
+end)
+shown()
+local dialog_win = vim.api.nvim_get_current_win()
+vim.cmd('tabnew')
+assert(vim.api.nvim_get_current_win() ~= dialog_win, 'nieuw importtabblad werd niet geopend')
+assert(dialog.focus(source), 'openstaande dialoog kon niet worden teruggehaald')
+assert(vim.api.nvim_get_current_win() == dialog_win, 'focus ging niet terug naar het dialoogvenster')
+key('<CR>')
+assert(choice == 'Datum', 'teruggehaalde dialoog verloor haar antwoord')
+
 dialog.select({ 'A' }, { prompt = 'Eerste' }, function(item) choice = item end)
 dialog.select({ 'B' }, { prompt = 'Tweede' }, function(item) choice = item end)
 shown(); key('<CR>'); shown(); key('<CR>')
