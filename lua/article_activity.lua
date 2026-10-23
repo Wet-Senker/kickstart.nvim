@@ -556,6 +556,11 @@ function M.expand()
   request_refresh()
 end
 
+function M.has_tasks(buf)
+  buf = M.source(buf)
+  return buf ~= nil and states[buf] ~= nil and next(states[buf].tasks) ~= nil
+end
+
 function M.snapshot(buf)
   buf = M.source(buf)
   return buf and vim.deepcopy(states[buf]) or nil

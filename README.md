@@ -958,6 +958,23 @@ stappenplan staat in `INSTALLATIE_NIEUWE_MAC.md` in de texttools-repository.
 
 ## Tests en CI
 
+### Eigen editor per artikel
+
+Nieuwe `pv`- en documentimports openen elk een eigen iTerm-tab met een eigen
+Neovim-proces. De tabtitel toont het artikel; vragen en achtergrondtaken zijn
+proceslokaal. Krantversies en hulpschermen blijven bij die editor. Een vaste
+legacy-socket blijft alleen voor handmatig gestarte editors beschikbaar.
+Bestaande open artikelen worden niet verplaatst. Herlaad na een update de
+shellfunctie of open een nieuwe shell om ook vanuit een oude terminal de nieuwe
+startroute te gebruiken.
+
+Sluit vanuit Neovim met `:TexttoolsSluiten`, `:q` of `:qa`. Gewoon getypte
+afsluitopdrachten en `ZZ`/`ZQ` waarschuwen/blokkeren bij geregistreerde taken.
+Rond publicatie eerst af; `<leader>aq` annuleert alleen de lokale editor-AI.
+`:TexttoolsSluiten!` is de bewuste nooduitgang en kan onopgeslagen werk verliezen.
+Rechtstreeks de iTerm-tab sluiten, signalen of gescripte Ex-afsluiting kunnen de
+Neovim-bewaking omzeilen. Duurzame herstelbestanden behouden bij heropenen.
+
 ### Vragen en krantversies
 
 Workflowkeuzelijsten gebruiken dezelfde native overlay: kies met pijltjes,

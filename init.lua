@@ -1242,8 +1242,8 @@ vim.keymap.set('n', '<leader>kt', function() require('krant').menu() end, { desc
 require("ai_text")
 require("teams_redactie").setup()
 
--- Start a named server socket so external tools (pastevim) can open files
--- in this instance instead of spawning a new Neovim window.
+-- Nieuwe artikelimports hebben hun eigen proces en automatische Neovim-socket.
+-- Handmatig gestarte editors behouden de expliciete legacy-serververbinding.
 -- serverstart() throws (not just returns "") when another live Neovim owns the
 -- address; Neovim normally reclaims a crash-stale socket itself. If startup
 -- still fails, probe the path before a fallback cleanup: a live socket must
@@ -1251,7 +1251,9 @@ require("teams_redactie").setup()
 local _nvim_socket = vim.fn.expand(
   vim.env.TEXTTOOLS_NVIM_SOCKET or "~/.cache/nvim/main.sock"
 )
-require("texttools_socket").ensure(_nvim_socket)
+if not require('article_instance').setup() then
+  require("texttools_socket").ensure(_nvim_socket)
+end
 
 -- vim: ts=2 sts=2 sw=2 et
 require('pubble_archive').setup()

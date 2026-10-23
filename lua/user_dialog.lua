@@ -24,6 +24,8 @@ local function has_question(buf)
   end
   return false
 end
+-- Alleen een leesvenster op de bestaande queue; geen tweede vraagregistratie.
+M.has_question = has_question
 -- Bestaande stappen mogen hun besliscode behouden, maar wachten nooit op de
 -- editorhoofdthread. Alleen expliciet geregistreerde UI-acties/callbacks
 -- draaien in deze coroutine; domeinstate blijft in de bestaande workflows.
