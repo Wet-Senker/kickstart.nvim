@@ -5608,7 +5608,9 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
     return
   end
   if vim.b[buf].publication_date_review_pending then
-    notify_workflow('Beantwoord eerst de openstaande tekst-/datumcontrole.', vim.log.levels.INFO)
+    if not require('user_dialog').focus(buf) then
+      notify_workflow('Beantwoord eerst de openstaande tekst-/datumcontrole.', vim.log.levels.INFO)
+    end
     return
   end
   if vim.b[buf]._rubric_dateline_pending then
@@ -5647,10 +5649,12 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
     return
   end
   if vim.b[buf].publication_planning_pending ~= nil then
-    notify_workflow(
-      "Beantwoord of annuleer eerst de openstaande publicatieplanning.",
-      vim.log.levels.INFO
-    )
+    if not require('user_dialog').focus(buf) then
+      notify_workflow(
+        "Beantwoord of annuleer eerst de openstaande publicatieplanning.",
+        vim.log.levels.INFO
+      )
+    end
     return
   end
 
@@ -7112,6 +7116,7 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
       local function choose_priority_and_restart()
         vim.ui.select({ 1, 2, 3, 4 }, {
           prompt = "Krantprioriteit kiezen:",
+          source_buf = buf,
           format_item = function(value)
             local labels = {
               [1] = "moet mee",
@@ -7167,6 +7172,7 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
           local volgnr = #edition_codes > 1 and ("  [" .. idx .. "/" .. #edition_codes .. "]") or ""
           vim.ui.select(items, {
             prompt = krant_naam .. volgnr .. "  —  week " .. week_nr .. ":",
+            source_buf = buf,
           }, function(choice, choice_idx)
             if choice == nil then
               finish_planning("cancelled")
@@ -7284,6 +7290,7 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
         unpublished_label,
       }, {
         prompt = table.concat(prompt_lines, "\n"),
+        source_buf = buf,
       }, function(choice)
         if choice == nil then
           finish_planning("cancelled")

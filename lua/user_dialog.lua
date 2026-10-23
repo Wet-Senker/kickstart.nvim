@@ -3,10 +3,20 @@
 local M = {}
 local notifications = require('texttools_notify')
 local queue, active = {}, false
-local active_request
+local active_request, active_win
 local postponed, question_serial = {}, 0
 local suspend_active
 local manual_select_provider
+local function focus_question(buf)
+  if not active_request or active_request.source_buf ~= buf
+      or not active_win or not vim.api.nvim_win_is_valid(active_win) then
+    return false
+  end
+  local tab = vim.api.nvim_win_get_tabpage(active_win)
+  if vim.api.nvim_tabpage_is_valid(tab) then vim.api.nvim_set_current_tabpage(tab) end
+  vim.api.nvim_set_current_win(active_win)
+  return true
+end
 local function has_question(buf)
   if active_request and active_request.source_buf == buf then return true end
   for _, requests in ipairs({ queue, postponed }) do
@@ -45,8 +55,10 @@ function M.action(callback)
   return function(...)
     local buf = notifications.source_buffer()
     if active_actions[buf] or has_question(buf) then
-      notifications.workflow('Deze handeling wacht al op een keuze. Beantwoord die vraag of hervat met :TexttoolsVraag.',
-        vim.log.levels.INFO, { buf = buf })
+      if not focus_question(buf) then
+        notifications.workflow('Deze handeling wacht al op een keuze. Beantwoord die vraag of hervat met :TexttoolsVraag.',
+          vim.log.levels.INFO, { buf = buf })
+      end
       return
     end
     active_actions[buf] = true
@@ -85,7 +97,7 @@ local function next_dialog()
     local ok = pcall(request.provider, items, opts, function(item, index)
       if finished then return end
       finished = true
-      active, active_request = false, nil
+      active, active_request, active_win = false, nil, nil
       vim.schedule(next_dialog)
       request.done(item, index)
     end)
@@ -164,6 +176,7 @@ local function next_dialog()
       or (opts.required and ' Antwoord nodig ' or ' Keuze '),
     footer = vim_edit and (opts.footer or ' Esc: Normal | Enter: zoeken | Ctrl-C: annuleren ') or nil,
   })
+  active_win = win
   vim.wo[win].wrap = true
   vim.wo[win].winblend = 0
   vim.wo[win].winhighlight = 'Normal:Normal,FloatBorder:FloatBorder'
@@ -186,7 +199,7 @@ local function next_dialog()
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
     if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
     if restore_focus and vim.api.nvim_win_is_valid(return_win) then vim.api.nvim_set_current_win(return_win) end
-    active, active_request = false, nil
+    active, active_request, active_win = false, nil, nil
     suspend_active = nil
     vim.schedule(next_dialog)
     if request.question_id then
@@ -206,7 +219,7 @@ local function next_dialog()
     close_description()
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
     if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
-    active, active_request = false, nil
+    active, active_request, active_win = false, nil, nil
     suspend_active = nil
     if postpone then
       if not request.question_id then
@@ -274,6 +287,10 @@ local function next_dialog()
   if opts.on_open then opts.on_open(buf, win) end
   if opts.input then vim.cmd('startinsert!') end
 end
+
+-- Breng een zichtbare vraag voor deze bronbuffer terug naar voren. Een vraag
+-- van een ander artikel wordt nooit overgenomen.
+M.focus = focus_question
 
 function M.select(items, opts, done)
   if #items == 0 then done(nil); return end

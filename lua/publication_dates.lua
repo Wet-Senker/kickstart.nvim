@@ -123,7 +123,9 @@ function M.review(buf, file, editions, dates, done)
           end
           local items = { 'Publicatiedatum aanpassen', 'Tekst zelf aanpassen', 'Annuleren' }
           if review.can_confirm then table.insert(items, 1, 'Gecontroleerd: tekst klopt op de gekozen webdatum') end
-          require('user_dialog').select(items, { prompt = table.concat(prompt, '\n'), native = true }, function(choice)
+          require('user_dialog').select(items, {
+            prompt = table.concat(prompt, '\n'), native = true, source_buf = buf,
+          }, function(choice)
             if not current() then finish('cancel'); return end
             if choice == items[1] and review.can_confirm then run(true)
             elseif choice == 'Publicatiedatum aanpassen' then finish('dates')
