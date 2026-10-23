@@ -26,11 +26,17 @@ end
 
 vim.notify = function() end
 
+local function response(source, article, issues)
+  issues = issues or {}
+  return vim.json.encode({ version = 1, source_sha256 = vim.fn.sha256(source),
+    status = #issues > 0 and 'needs_review' or 'ready', article = article, issues = issues })
+end
+
 vim.system = function(cmd, opts, callback)
   table.insert(calls, { cmd = cmd, opts = opts })
   callback {
     code = 0,
-    stdout = 'Feestelijk concert\n\nKAMPEN - Het concert begint om 20.00 uur.\n',
+    stdout = response(opts.stdin, 'Feestelijk concert\n\nKAMPEN - Het concert begint om 20.00 uur.\n'),
     stderr = '',
   }
   return { kill = function() end }
@@ -55,6 +61,7 @@ assert(
 )
 assert(#calls == 1, 'neutraliteitsactie startte niet exact één AI-call')
 assert(calls[1].cmd[2] == 'journalistiek_neutraliseren', 'verkeerde prompt gestart')
+assert(calls[1].cmd[3] == '--review-json', 'AN vraagt het getypeerde voorstel niet op')
 assert(calls[1].opts.stdin:find('Fantastisch feestelijk concert', 1, true), 'artikelbody ontbrak in AI-input')
 assert(not calls[1].opts.stdin:find('e: B', 1, true), 'controlecode kwam in AI-input terecht')
 assert(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == 'e: B', 'controlecode ging verloren bij neutraliseren')
@@ -65,9 +72,9 @@ assert(post_rewrite_calls[1].original_content:find('Fantastisch feestelijk conce
   'nacontrole kreeg de oorspronkelijke tekst niet')
 
 -- Een resultaat dat na een nieuwere gebruikersbewerking arriveert, blijft weg.
-vim.system = function(_, _, callback)
+vim.system = function(_, opts, callback)
   vim.api.nvim_buf_set_lines(buf, 4, 5, false, { 'Eigen nieuwere kop' })
-  callback { code = 0, stdout = 'Oude AI-kop\n', stderr = '' }
+  callback { code = 0, stdout = response(opts.stdin, 'Oude AI-kop\n'), stderr = '' }
   return { kill = function() end }
 end
 ai.journalistic_neutralize()
@@ -102,7 +109,7 @@ local edited_concert = 'Allerzielenconcert\n\n**KAMPEN - Het concert is op maand
 vim.system = function(command, opts, callback)
   concert_input = opts.stdin
   assert(command[2] == 'journalistiek_neutraliseren', 'AN veranderde van kernactie')
-  callback { code = 0, stdout = edited_concert, stderr = '' }
+  callback { code = 0, stdout = response(opts.stdin, edited_concert), stderr = '' }
   return { kill = function() end }
 end
 ai.journalistic_neutralize()
@@ -128,6 +135,49 @@ assert(concert_result == table.concat(vim.api.nvim_buf_get_lines(concert, 0, -1,
   'een geweigerd resultaat veranderde het concertdocument')
 assert(#post_rewrite_calls == 2, 'geweigerd resultaat startte toch nacontroles')
 
+-- Inhoudelijk verschil is een voorstel, geen fout of automatische overschrijving.
+local review = require('editorial_review')
+local real_open, pending = review.open, nil
+review.open = function(options) pending = real_open(options); return pending end
+vim.system = function(_, opts, callback)
+  callback { code = 0, stdout = response(opts.stdin,
+    edited_concert:gsub('20.00', '21.00'), { { code = 'times', message = 'Tijd veranderd: 20.00 naar 21.00.' } }), stderr = '' }
+  return { kill = function() end }
+end
+vim.api.nvim_set_current_buf(concert)
+ai.journalistic_neutralize()
+assert(vim.wait(1000, function() return pending ~= nil end, 10), 'controlevoorstel bleef onzichtbaar')
+assert(concert_result == table.concat(vim.api.nvim_buf_get_lines(concert, 0, -1, false), '\n'),
+  'voorstel veranderde het origineel voordat het is beoordeeld')
+assert(#post_rewrite_calls == 2, 'voorstel startte te vroeg nacontroles')
+pending.accept()
+assert(#post_rewrite_calls == 3, 'overgenomen voorstel startte geen nacontrole')
+local accepted = table.concat(vim.api.nvim_buf_get_lines(concert, 0, -1, false), '\n')
+assert(accepted:find('21.00', 1, true) and accepted:find(table.concat(protected_sections, '\n'), 1, true),
+  'overgenomen tekst/beschermde secties kloppen niet')
+review.open = real_open
+
+-- Ongeldige JSON / verkeerde bronbinding / nieuwere AN laten niets toepassen.
+for _, output in ipairs { 'geen JSON', response('andere bron', 'Verkeerde kop') } do
+  vim.system = function(_, _, callback)
+    callback { code = 0, stdout = output, stderr = '' }; return { kill = function() end }
+  end
+  ai.journalistic_neutralize()
+  vim.wait(40, function() return false end, 10)
+  assert(accepted == table.concat(vim.api.nvim_buf_get_lines(concert, 0, -1, false), '\n'))
+end
+local callbacks = {}
+vim.system = function(_, opts, callback)
+  callbacks[#callbacks + 1] = { opts = opts, callback = callback }
+  return { kill = function() end }
+end
+ai.journalistic_neutralize()
+ai.journalistic_neutralize()
+callbacks[1].callback { code = 0, stdout = response(callbacks[1].opts.stdin, 'Verouderde kop'), stderr = '' }
+vim.wait(40, function() return false end, 10)
+assert(accepted == table.concat(vim.api.nvim_buf_get_lines(concert, 0, -1, false), '\n'),
+  'oud resultaat won van een nieuwere AN-aanvraag met dezelfde bufferrevisie')
+
 ai._post_full_article_rewrite = original_post_rewrite
 
 -- Regressie: als minimaal publicatieklaar maken voor het eerst een betrouwbare
@@ -144,7 +194,7 @@ vim.system = function(command, opts, callback)
   if command[1]:match('aitext$') then
     callback {
       code = 0,
-      stdout = 'Halloween Spooktocht\n\n**ZWOLLE - De spooktocht vindt plaats in Zwolle Zuid.**\n',
+      stdout = response(opts.stdin, 'Halloween Spooktocht\n\n**ZWOLLE - De spooktocht vindt plaats in Zwolle Zuid.**\n'),
       stderr = '',
     }
     return { kill = function() end }

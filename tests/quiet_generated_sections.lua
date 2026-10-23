@@ -15,8 +15,9 @@ local function source()
 end
 local function text(buf) return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n') end
 local function idle(buf) return (vim.b[buf].pending_jobs or 0) == 0 and not next(activity.snapshot(buf).tasks) end
-local reply, calls = nil, 0
-vim.system = dofile('tests/helpers/calendar_core.lua')(function(_, _, done)
+local reply, calls, last_input = nil, 0, nil
+vim.system = dofile('tests/helpers/calendar_core.lua')(function(_, opts, done)
+  last_input = opts.stdin
   calls, reply = calls + 1, done; return { kill = function() end }
 end)
 for _, title in ipairs({ 'Facebook', 'LinkedIn' }) do
@@ -60,7 +61,8 @@ assert(not text(buf):find('Melding:', 1, true), 'opgeloste kalenderwaarschuwing 
 -- blijft daarom wel zichtbaar; een volgende methode vervangt de vorige.
 buf = source()
 ai.journalistic_neutralize()
-reply { code = 0, stdout = 'Nieuwe kop\n\nBewerkte tekst.', stderr = '' }
+reply { code = 0, stdout = vim.json.encode({ version = 1, status = 'ready',
+  source_sha256 = vim.fn.sha256(last_input), article = 'Nieuwe kop\n\nBewerkte tekst.', issues = {} }), stderr = '' }
 wait(function() return text(buf):find('Melding: Bewerkt met Behoudend publicatieklaar maken (<leader>an)', 1, true) end)
 assert(text(buf):find('minimale redactie', 1, true))
 vim.api.nvim_buf_set_lines(buf, -1, -1, false, { '', '***', 'Maak de kop concreter.' })

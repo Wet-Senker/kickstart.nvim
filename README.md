@@ -345,10 +345,19 @@ feitelijke kern. Goede formuleringen, alinea's, details en nuttige koppen
 blijven zoveel mogelijk staan; AN kort niet standaard in. Voor alleen
 objectieve taalfouten is er `<leader>ao`; voor ruimere redactie en lokale
 krantvarianten `<leader>ar`. Er komt geen extra menu of AI-ronde bij.
-Verandering van bestaande citaten, getallen, datums, tijden, URL's of
-mailadressen wordt technisch geweigerd. Een geslaagde controle geldt bij
-verzending alleen voor de exact gecontroleerde body. Bewerk je de buffer terwijl
-de AI draait, dan wordt het late resultaat niet toegepast.
+De controle vergelijkt unieke bronwaarden, niet het aantal herhalingen;
+`achttien` en `18` tellen als dezelfde waarde. Zonder controlepunten volgt de
+gewone toepassing. Bij mogelijke wijzigingen van getallen, datums, tijden,
+weekdagen, citaten, links of mailadressen opent een vergelijkingstab:
+**Onbewerkt** links, **Bewerkt — voorstel ter controle** rechts, met gemarkeerde
+verschillen en concrete controlepunten bovenaan. Rechts kun je de tekst aanpassen.
+`<leader>aY` / `:ArtikelBewerkingOvernemen` neemt die versie over;
+`q` / `:ArtikelBewerkingBehouden` behoudt het origineel. Escape blijft gewoon Escape.
+De vergelijking kan niet publiceren en verandert de bron pas na overnemen.
+Een gewijzigde/gesloten bron of nieuwere AN-aanvraag maakt een oud voorstel
+ongeldig. Getalsrollen worden niet semantisch bewezen. Geen extra AI-ronde.
+Na toepassen geldt de controle alleen voor de exacte body; de normale
+herschrijfnacontrole volgt ook na het overnemen van een voorstel.
 
 AR, AN en AP mogen bij duidelijke aangeleverde website-/nieuwsbronherkomst
 onder de artikeltekst één gewone `Bron: bronnaam of website`-regel zetten.

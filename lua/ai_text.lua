@@ -5461,6 +5461,11 @@ end
 function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  if vim.b[buf].texttools_proposal_review then
+    notifications.notify('Dit is een vergelijkingsvoorstel, geen verzendartikel. '
+      .. 'Neem de bewerking eerst over met <leader>aY, of behoud het origineel met q.', vim.log.levels.WARN)
+    return
+  end
   if publication_recovery.review_conflict(buf) then return end
   -- Deze review bezit de voortzetting. Ook een automatisch hervat
   -- verzendverzoek mag haar niet inhalen wanneer haar laatste taak afmeldt.
@@ -8067,18 +8072,49 @@ require("user_dialog").keymap("n", "<leader>ao", M.tekstcheck, {
 -- bufferbewerkingen nooit overschrijven.
 function M.journalistic_neutralize()
   local buf = vim.api.nvim_get_current_buf()
+  if vim.b[buf].texttools_proposal_review then
+    notifications.notify('Beoordeel eerst het openstaande voorstel: <leader>aY overnemen, q origineel behouden.', vim.log.levels.WARN)
+    return
+  end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
   local original_content = table.concat(lines, "\n")
   local requested_tick = vim.api.nvim_buf_get_changedtick(buf)
+  local generation = (vim.b[buf].an_request_generation or 0) + 1
+  vim.b[buf].an_request_generation = generation
+  local source_body = table.concat(body, '\n')
+  local function is_current()
+    return vim.api.nvim_buf_is_valid(buf)
+      and vim.api.nvim_buf_get_changedtick(buf) == requested_tick
+      and vim.b[buf].an_request_generation == generation
+  end
+  local function apply(new_body, reviewed)
+    if not is_current() then return end
+    local new_lines = reassemble_article(fm, ctrl, new_body, sections, has_boundary)
+    require('article_notices').replace_content(buf, new_lines)
+    M._post_full_article_rewrite({
+      buf = buf, document = table.concat(new_lines, '\n'),
+      body = table.concat(new_body, '\n'), controls = ctrl, original_content = original_content,
+      after_start = function()
+        if vim.api.nvim_buf_is_valid(buf) then mark_ai_neutrality_completed(buf) end
+      end,
+    })
+    notify_workflow(
+      'Bewerkt met Behoudend publicatieklaar maken (<leader>an): minimale redactie. '
+        .. (reviewed and 'Voorstel door jou beoordeeld en overgenomen.' or 'Controleer kop, lead en praktische informatie.'),
+      vim.log.levels.INFO,
+      { buf = buf, kind = 'success', inline = true, notice_key = 'rewrite-method',
+        resolved = true, task_outcome = 'applied' }
+    )
+  end
 
   ai_system(
-    { aitext, "journalistiek_neutraliseren" },
-    { text = true, stdin = table.concat(body, "\n") },
+    { aitext, "journalistiek_neutraliseren", '--review-json' },
+    { text = true, stdin = source_body },
     function(result)
       notifications.schedule(function()
         if not vim.api.nvim_buf_is_valid(buf) then return end
-        if vim.api.nvim_buf_get_changedtick(buf) ~= requested_tick then
+        if not is_current() then
           notify_workflow(
             "Neutraliteitsresultaat niet toegepast: de tekst is tijdens de AI-controle gewijzigd. Start opnieuw met <leader>an.",
             vim.log.levels.WARN,
@@ -8096,32 +8132,21 @@ function M.journalistic_neutralize()
           return
         end
 
-        local output = vim.trim(result.stdout or "")
-        if output == "" then
-          notifications.notify("Publicatiecontrole gaf geen tekst terug. Je tekst is behouden; probeer opnieuw met <leader>an.", vim.log.levels.ERROR)
+        local ok, report = pcall(vim.json.decode, result.stdout or '')
+        local review = require('editorial_review')
+        if not ok or not review.valid_report(report, source_body) then
+          notifications.notify('Publicatiecontrole gaf geen geldig voorstel voor deze tekst terug. '
+            .. 'Je tekst is behouden; probeer opnieuw met <leader>an.', vim.log.levels.ERROR)
           return
         end
-
-        local new_body = vim.split(output, "\n", { plain = true })
-        local new_lines = reassemble_article(fm, ctrl, new_body, sections, has_boundary)
-        require('article_notices').replace_content(buf, new_lines)
-        local rewritten_str = table.concat(new_lines, "\n")
-        M._post_full_article_rewrite({
-          buf = buf,
-          document = rewritten_str,
-          body = table.concat(new_body, "\n"),
-          controls = ctrl,
-          original_content = original_content,
-          after_start = function()
-            if vim.api.nvim_buf_is_valid(buf) then mark_ai_neutrality_completed(buf) end
-          end,
-        })
-        notify_workflow(
-          "Bewerkt met Behoudend publicatieklaar maken (<leader>an): minimale redactie. Controleer kop, lead en praktische informatie.",
-          vim.log.levels.INFO,
-          { buf = buf, kind = 'success', inline = true, notice_key = 'rewrite-method',
-            resolved = true, task_outcome = 'applied' }
-        )
+        if report.status == 'needs_review' then
+          review.open({ source_buf = buf, original = body, report = report,
+            is_current = is_current, on_accept = function(new_body) apply(new_body, true) end })
+          notify_workflow('AN-voorstel staat naast het origineel ter controle. Er is nog niets overgenomen.',
+            vim.log.levels.INFO, { buf = buf, task_outcome = 'not_applied' })
+        else
+          apply(vim.split(vim.trim(report.article), '\n', { plain = true }), false)
+        end
       end)
     end,
     "AI · Behoudend publicatieklaar maken",
