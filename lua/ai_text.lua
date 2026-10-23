@@ -7019,7 +7019,7 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
         end
       end
 
-      notifications.system({ pubble_schedule, editie, "--article", temp_file }, { text = true }, function(sched_result)
+      workflow_system({ pubble_schedule, editie, "--article", temp_file }, { text = true }, function(sched_result)
     notifications.schedule(function()
       local display_dates = {}
       local ok, sched_data = pcall(vim.fn.json_decode, sched_result.stdout or "")
@@ -7089,7 +7089,10 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
         for _, day in ipairs(days) do
           local d, dow = day.date, day.weekday
           local c = counts[d] or 0
-          local label = d .. "  " .. dow .. "  (" .. c .. ")"
+          -- Zonder geldige telling is nul geen feit. De datum blijft bewust
+          -- handmatig kiesbaar; er wordt dan geen aanbeveling gemarkeerd.
+          local count_label = info and tostring(c) or '?'
+          local label = d .. "  " .. dow .. "  (" .. count_label .. ")"
           local val
           if krant_set[d] then
             label = label .. " 🗞"
@@ -7305,7 +7308,7 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
         end
       end)
     end)
-      end)
+      end, 'Publicatieplanning · Ophalen', buf)
       end
       if resolved_web_only then
         after_deadline_review(true)
