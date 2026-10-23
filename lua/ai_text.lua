@@ -4575,6 +4575,9 @@ local function apply_recognized_rubric(buf, candidate, done)
     vim.b[buf].recognized_rubric = candidate.id
     vim.b[buf].recognized_rubric_score = candidate.confidence
     vim.b[buf].rubric_recognition_pending = nil
+    notify_workflow('Herkend als ' .. (candidate.label or candidate.id)
+      .. '; bijbehorende rubriekvorm toegepast.', vim.log.levels.INFO,
+      { buf = buf, kind = 'success', inline = true, notice_key = 'rubric-form', resolved = true })
     finish(true)
   end
   local ok, reason = require("krant").apply_detected_rubric(candidate.id, buf, candidate, applied)
@@ -8054,7 +8057,8 @@ function M.tekstcheck()
         local unchanged = table.concat(new_body, '\n') == table.concat(body, '\n'):gsub('\n+$', '')
         notify_workflow(unchanged and 'Tekstcheck afgerond: geen correcties of suggesties.'
           or 'Tekstcheck afgerond: resultaat toegepast. Controleer de tekst.', vim.log.levels.INFO,
-          { buf = buf, kind = 'success', task_outcome = 'applied' })
+          { buf = buf, kind = 'success', task_outcome = 'applied', inline = not unchanged,
+            notice_key = 'text-corrections', resolved = true })
       end)
     end,
     "AI · Tekstcheck",
@@ -8411,6 +8415,7 @@ function M.tussenkopjes_streamer(options)
     local new_body = has_subheadings
         and vim.deepcopy(body)
         or insert_headings(body, koppen, paras, has_headline)
+    local headings_added = not vim.deep_equal(new_body, body)
     if not has_subheadings and #koppen == 0 then
       notify_workflow(
         "Geen tussenkopjes toegevoegd (artikel te kort of AI gaf niets terug).",
@@ -8439,6 +8444,21 @@ function M.tussenkopjes_streamer(options)
         buf, 0, -1, false,
         reassemble_article(latest_fm, latest_ctrl, final_body, latest_sections, latest_boundary)
       )
+      if not vim.deep_equal(final_body, body) then
+        local changes = {}
+        if headings_added then
+          table.insert(changes, 'tussenkopjes toegevoegd')
+        end
+        local before_streamers, after_streamers = 0, 0
+        for _, line in ipairs(body) do if line:match('^%s*>%s+') then before_streamers = before_streamers + 1 end end
+        for _, line in ipairs(final_body) do if line:match('^%s*>%s+') then after_streamers = after_streamers + 1 end end
+        if after_streamers > before_streamers then table.insert(changes, 'streamer toegevoegd') end
+        if not vim.deep_equal(final_body, new_body) then table.insert(changes, 'kop aangepast') end
+        if #changes > 0 then
+          notify_workflow('Tekstopmaak: ' .. table.concat(changes, '; ') .. '.', vim.log.levels.INFO,
+            { buf = buf, kind = 'success', inline = true, notice_key = 'text-structure', resolved = true })
+        end
+      end
       if has_streamer then
         notify_workflow(
           "Tussenkopjes toegevoegd; eigen > streamer blijft staan.",

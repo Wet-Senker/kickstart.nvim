@@ -325,6 +325,13 @@ wordt één uitgestelde kalenderactie hervat. Kies je **annuleren**, dan vervalt
 die actie en worden er geen kalender-AI-kosten gemaakt. Gewone metadata- en
 Facebooktaken mogen wel parallel blijven lopen.
 
+Boven `=== ARTIKEL ===` staan ook samenvattingen van echte tekstbewerkingen:
+opschoning bij import (zonder AI), toegepaste rubriekvorm, herschrijfmethode,
+tekstcorrecties en toegevoegde tekstopmaak. Herhaalde acties vervangen hun
+eerdere groepsmelding; de sessiegeschiedenis blijft op afroep beschikbaar.
+De meldingsregels kun je gewoon verwijderen en ze gaan niet mee naar de AI of
+publicatie. Controles zonder tekstwijziging krijgen geen extra succesregel.
+
 `<leader>an` is bedoeld voor een tekst waarvan de inhoud grotendeels goed staat,
 maar die nog niet helemaal plaatsbaar is. Een lichte AI-voorfase wijst alleen
 regelnummers met zekere persbericht- of mailruis aan; Python verwijdert precies

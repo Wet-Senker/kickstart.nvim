@@ -56,6 +56,7 @@ function M.defer_fn(callback, milliseconds) return vim.defer_fn(M.bind(nil, call
 function M.system(command, options, callback)
   options = vim.tbl_extend('force', {}, options or {})
   local scope = options.texttools_activity
+  local await_result = scope and scope.await_result
   options.texttools_activity = nil -- UI-contract, geen vim.system/Python-optie.
   local owner = scope and scope.buf or (context and context.buf)
     or (not context and (activity.current_source() or vim.api.nvim_get_current_buf()) or nil)
@@ -68,6 +69,7 @@ function M.system(command, options, callback)
       buf = owner,
     }
     activity.start(owner, scope.id, scope.action)
+    if await_result then activity.defer_result(owner, scope.id) end
   end
   local bound = callback and M.bind(owner, function(result)
     if automatic then activity.finish(owner, scope.id) end
@@ -82,6 +84,7 @@ function M.system(command, options, callback)
   local started, process = pcall(vim.system, command, options, bound)
   if not started then
     if automatic then
+      if await_result then activity.result(owner, scope.id, 'failed') end
       activity.finish(owner, scope.id)
       -- Alleen lokaal vastleggen. Callers behouden hun eigen foutafhandeling;
       -- buiten de strook geen extra, dubbele commandoregelmelding toevoegen.

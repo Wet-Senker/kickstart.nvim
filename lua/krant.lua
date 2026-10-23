@@ -735,11 +735,23 @@ local function mark_template_applied(target_buf, name, done)
     if data.markdown ~= input then
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(data.markdown, '\n', { plain = true }))
     end
+    notifications.workflow('Rubriekvorm toegepast: ' .. name
+      .. '. Kop en vaste rubriekgegevens ingesteld.'
+      .. (data.removed_count > 0 and ' Plaatsaanduiding verwijderd.' or ''),
+      vim.log.levels.INFO, { buf = buf, kind = 'success', inline = true,
+        notice_key = 'rubric-form', resolved = true })
     if done then done(true) end
   end
   local started = pcall(notifications.system,
     { texttools_commands.bin('article-dateline'), '--rubric-template', name },
-    { text = true, stdin = input }, notifications.schedule_wrap(settle))
+    { text = true, stdin = input, texttools_activity = { await_result = true } }, function(result)
+      local scope = notifications.task_scope()
+      notifications.schedule(function()
+        local ok, err = pcall(settle, result)
+        notifications.task_result(ok and 'silent' or 'failed', scope)
+        if not ok then error(err, 0) end
+      end)
+    end)
   if not started then notifications.schedule(function() settle({ code = 1 }) end) end
 end
 M._mark_template_applied = mark_template_applied
