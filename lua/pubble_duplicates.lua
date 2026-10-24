@@ -231,6 +231,9 @@ local function choose_variant(candidate, callback)
 end
 
 function M.show(result, callback, options)
+  if result.review_version == 1 and options and options.selection_review then
+    return require('duplicate_selection_ui').show(result, callback, options)
+  end
   local report, ranges = M.report_lines(result, options)
   local width = M._dialog_width(report, vim.o.columns)
   local height = math.min(math.max(16, #report), math.max(16, vim.o.lines - 8))
@@ -579,7 +582,8 @@ function M.check(command, callback, options)
         for _, candidate in ipairs(data.candidates) do if candidate.kind == 'agenda' then has_agenda = true end end
         if not has_agenda then options.reject_label = nil end
       end
-      if #data.candidates == 0 and not (data.combined and #(data.errors or {}) > 0) then
+      if #data.candidates == 0 and not (options.show_saved and #(data.saved_selections or {}) > 0)
+          and not (data.combined and #(data.errors or {}) > 0) then
         callback(true, data)
         return
       end

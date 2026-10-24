@@ -141,17 +141,21 @@ Lua-workaround is dan niet meer nodig. Er wordt niets automatisch gepubliceerd.
 Het invoerscherm **Mogelijke doublures** zet het nieuwe bericht apart en toont
 bestaande treffers met Agenda/Web, krantnaam en uitgelijnde Europese datum.
 Web en agenda worden vóór de beoordeling samen opgehaald en in één overzicht
-getoond. Bij import/herschrijven betekent `n`: meteen verder bewerken zonder
-agendabericht, zonder tweede webbevestiging. Dit is geen akkoord voor webpublicatie.
-Bij definitief verzenden haalt `n` alleen de agendatreffers weg; eventuele
-webtreffers blijven beoordeling vragen. Een fout in één controle verbergt de andere treffers niet.
+getoond. `m` markeert **wel doublure**, `n` **geen doublure**; dezelfde toets
+nogmaals wist alleen die keuze. De markeringen zijn per krant en onderdeel:
+Web slaat die website/social/Teams over; Agenda slaat alleen die activiteit bij
+die krant over. Andere activiteiten op dezelfde dag en de krant blijven mogelijk.
+Een fout in één controle verbergt de andere treffers niet.
 Enter/dubbelklik bekijkt alleen tekst/details in NVIM; `o` opent de geselecteerde
-treffer in Pubble. `n` bij een agendacontrole slaat agenda-aanmaak voor het hele
-artikel over, maar laat web/krant doorgaan. Het verwijdert niets uit Pubble.
-Bij import/herschrijven sluit `q` de agenda-keuze: bewerken gaat verder, zonder
-automatisch kalenderblok of toestemming. `v` bereidt bewust toch een agenda voor.
-Bij verzending stopt `q` alleen die verzendpoging; `v` bevestigt dan publicatie
-ondanks de mogelijke doublure. `<leader>ac` maakt altijd een werkblok, ook na
+treffer in Pubble. `q` bewaart de keuzes en brengt je terug naar bewerken,
+ook vanuit aw; daarna is opnieuw bewust `<leader>aw` nodig om te publiceren.
+Ctrl-c stelt uit zonder wijzigingen en pauzeert de automatische agenda.
+Zonder markeringen wordt niets als doublure bevestigd. Geen aparte `v` meer.
+Keuzes staan duurzaam in het werkdocument; boven het artikel staat een samenvatting.
+Een hercontrole laat bevestigde uitsluitingen zien en kan ze wissen. Verwijder
+de beschermende regel `doublures: beoordeeld` niet apart; update beide repos samen.
+De losse archiefaudits (`kd`/eigen-doublures) behouden hun eigen paarbediening.
+Dit verwijdert of wijzigt niets in Pubble. `<leader>ac` maakt altijd een werkblok, ook na
 weigeren/verwijderen of bij ontbrekende gegevens. Dat is geen publicatietoestemming.
 Een actuele controle wordt hergebruikt. Veranderen later de tekst, editie of
 kalendergegevens, dan kan opnieuw controle nodig zijn; een nauwkeuriger

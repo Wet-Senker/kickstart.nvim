@@ -521,7 +521,7 @@ end
 local _control_keys = {
   p=true, r=true, e=true, b=true, c=true,
   prio=true, editie=true,
-  koppel=true, ontkoppel=true, suggestiereden=true,
+  koppel=true, ontkoppel=true, suggestiereden=true, doublures=true,
   agenda=true, calendar=true, cal=true,
   facebook=true, facebook_tekst=true,
   rewrite=true,
@@ -1633,6 +1633,7 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
             vim.b[buf].agenda_duplicate_rejected = true
             M.reject_calendar(buf, 'Agenda overgeslagen voor dit artikel. Web en krant gaan door.')
           elseif not approved then
+            if data.review_version == 1 then M._cancel_calendar_preparation(buf) end
             for _, candidate in ipairs(data.candidates or {}) do
               if candidate.kind == 'agenda' then M._cancel_calendar_preparation(buf); break end
             end
@@ -1651,7 +1652,7 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
           -- bewerkingsakkoord wordt nooit door de verzendpoort gebruikt.
           vim.b[buf].pubble_duplicate_editing_review = M._duplicate_editing_revision(buf, codes)
         end
-        if approved and not editing_only then remember_ignored_duplicates(buf, data) end
+        if approved and not editing_only and not (data and data.selection_applied) then remember_ignored_duplicates(buf, data) end
         local web = type(data) == 'table' and data.checks and data.checks.web
         if approved and not editing_only and type(data) == "table" and ((web and web.complete and web.requested and web.performed ~= false)
             or (not data.combined and data.performed ~= false)) then
@@ -1662,12 +1663,27 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
         settle_duplicate_calendar_gate(buf, approved == true or continue_editing)
       end
       finish_buffer_job(job)
-      if done then done(approved == true or continue_editing) end
+      -- A selection review returns to editing even when opened by aw. The
+      -- next explicit aw uses the saved exclusions; closing never publishes.
+      if done then done((approved == true or continue_editing)
+        and not (not early and data and data.selection_applied)) end
   end
   local started = pcall(M._duplicate_stage_runner,
     command, complete,
     {
       is_current = is_current,
+      selection_review = true,
+      show_saved = stage == 'hercontroleren',
+      on_apply = function(report, selections, applied)
+        if not is_current() then applied(false); return end
+        require('duplicate_review').apply(buf, report, selections, function(ok)
+          if ok then
+            snapshot = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+            vim.b[buf].send_requested = false
+          end
+          applied(ok)
+        end)
+      end,
       on_mark = function(candidate, marked)
         if candidate.kind == 'agenda' then
           if not is_current() then marked(false); return end
@@ -3350,6 +3366,7 @@ local function agenda_duplicate_candidates(buf, codes, done, prepared_lines)
         return
       end
       workflow_log.finish(trace, 'succeeded', { exit_code = result.code })
+      if prepared_lines then data.reviewed_markdown = table.concat(prepared_lines, '\n') end
       done(data)
     end)
   end
@@ -3364,6 +3381,23 @@ end
 
 local function agenda_duplicate_prompt(buf, data, done, publication)
   local snapshot = agenda_comparison_text(buf)
+  if type(data.selection_report) == 'table' and data.selection_report.review_version == 1 then
+    pubble_duplicates.show(data.selection_report, function(accepted)
+      -- nil preserves the existing safe cancellation path, including aw.
+      done(accepted and true or nil, accepted and data.selection_report.selection_applied)
+    end, {
+      selection_review = true,
+      is_current = function() return vim.api.nvim_buf_is_valid(buf) and agenda_comparison_text(buf) == snapshot end,
+      on_apply = function(report, selections, applied)
+        if not vim.api.nvim_buf_is_valid(buf) or agenda_comparison_text(buf) ~= snapshot then applied(false); return end
+        require('duplicate_review').apply(buf, report, selections, function(ok)
+          if ok then snapshot = agenda_comparison_text(buf) end
+          applied(ok)
+        end, data.reviewed_markdown)
+      end,
+    })
+    return
+  end
   local candidates = {}
   for _, item in ipairs(data.candidates or {}) do
     -- Alleen presentatie: vergelijking en kandidaatselectie blijven in Python.
@@ -3504,9 +3538,10 @@ function M._check_agenda_duplicates(buf, codes, done, prepared_lines, publicatio
       done(true)
       return
     end
-    M._agenda_duplicate_confirm(buf, data, function(keuze)
+    M._agenda_duplicate_confirm(buf, data, function(keuze, selection_applied)
       if not vim.api.nvim_buf_is_valid(buf) then done(false); return end
       if vim.b[buf].manual_calendar_generation ~= review_generation then done(false); return end
+      if selection_applied then source_snapshot = agenda_comparison_text(buf) end
       if agenda_comparison_text(buf) ~= source_snapshot then
         notify_workflow('Artikel gewijzigd tijdens beoordeling; controleer opnieuw. Er is geen besluit toegepast.',
           vim.log.levels.WARN, { buf = buf })
@@ -3520,6 +3555,13 @@ function M._check_agenda_duplicates(buf, codes, done, prepared_lines, publicatio
             or 'Agenda-keuze uitgesteld. Bewerken kan verder; <leader>ac maakt alsnog een kalenderwerkblok.',
           vim.log.levels.WARN, { buf = buf, action = 'Agenda · Beoordeling', notice_key = 'agenda-review' }
         )
+        done(not publication)
+        return
+      elseif selection_applied then
+        if check_complete then
+          vim.b[buf].agenda_duplicate_accepted_fingerprint = vim.fn.sha256(table.concat(codes, ',') .. '\n' .. source_snapshot)
+        end
+        vim.b[buf].send_requested = false
         done(not publication)
         return
       elseif keuze then
@@ -3567,7 +3609,7 @@ function M.recheck_duplicates(buf)
     end
     vim.b[buf].pubble_duplicate_checked_body = nil
     vim.b[buf].pubble_duplicate_editing_review = nil
-    check_duplicate_stage(buf, codes, "herschrijven", function(approved)
+    check_duplicate_stage(buf, codes, "hercontroleren", function(approved)
       if approved and vim.api.nvim_buf_is_valid(buf) then
         notify_workflow("Doublurecontrole opnieuw gedraaid.", vim.log.levels.INFO)
       end

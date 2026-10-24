@@ -3,6 +3,41 @@ local M = {}
 local notifications = require 'texttools_notify'
 local commands = require 'texttools_commands'
 
+function M.apply(buf, report, selections, done, reviewed_markdown)
+  if not vim.api.nvim_buf_is_valid(buf) then done(false); return end
+  local revision = require('buffer_revision').capture(buf)
+  local markdown = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+  local function handle(process)
+    notifications.schedule(function()
+      local ok, data = pcall(vim.json.decode, process.stdout or '')
+      if process.code ~= 0 or not ok or type(data) ~= 'table' or data.version ~= 1
+          or type(data.markdown) ~= 'string' then
+        notifications.notify('Doublurekeuzes niet opgeslagen: ' .. vim.trim(process.stderr or ''),
+          vim.log.levels.ERROR, { buf = buf })
+        done(false); return
+      end
+      if not vim.api.nvim_buf_is_valid(buf) or not require('buffer_revision').matches(buf, revision) then
+        notifications.notify('Artikel gewijzigd; doublurekeuzes niet toegepast. Beoordeel opnieuw.', vim.log.levels.WARN, { buf = buf })
+        done(false); return
+      end
+      require('article_notices').replace_content(buf, vim.split(data.markdown, '\n', { plain = true }))
+      local summaries = data.summaries or {}
+      local summary = #summaries > 0 and table.concat(summaries, '; ')
+        or 'Geen onderdelen overgeslagen wegens bevestigde doublures.'
+      notifications.workflow(summary .. ' Verder bewerken kan; <leader>aw start bewust de verzending.',
+        vim.log.levels.INFO, { buf = buf, action = 'Doublurekeuzes', notice_key = 'duplicate-selection', resolved = true })
+      done(true)
+    end)
+  end
+  local started, err = pcall(notifications.system, { commands.bin('python'), '-m', 'texttools.duplicate_selection' }, {
+    text = true, stdin = vim.json.encode { markdown = markdown, report = report,
+      reviewed_markdown = reviewed_markdown,
+      selections = next(selections) and selections or vim.empty_dict() },
+    texttools_activity = { action = 'Doublurekeuzes bewaren' },
+  }, handle)
+  if not started then handle { code = 1, stderr = tostring(err) } end
+end
+
 function M.mark_agenda(key, done)
   if type(key) ~= 'string' or key == '' then
     notifications.notify('Python-kern mist paarsleutels. Werk Texttools bij en controleer opnieuw.', vim.log.levels.ERROR)
