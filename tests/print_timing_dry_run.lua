@@ -382,6 +382,34 @@ calls, done_args = run_prepare({ ok_result { decision_required = true,
 end)
 assert(asked_again and #calls == 1, 'verouderde behoudkeuze kopieerde of herschreef zonder nieuwe toestemming')
 
+-- Inhoudelijke twijfel bewaart de aparte krantsectie en vraagt herstel, niet
+-- opnieuw genereren. De webbody en controleregels blijven exact behouden.
+local proposal = '## Kranttijdsversies\n\n### Kranttijdsversie B — De Brug\n\nKop\n\nKAMPEN - Voorstel met 35 punten.'
+local recovery_buf
+dialog.confirm = function() return 1 end
+calls, done_args = run_prepare({
+  ok_result { requires_review = true, targets = { { edition = 'B' } } },
+  ok_result {
+    changed = true, requires_review = true, ai_call_count = 1,
+    section = proposal,
+    validation_issues = { { edition = 'B', code = 'values', message = 'Uitslag gewijzigd.',
+      differences = { 'Ontbreekt of minder vaak: 36 (1×)', 'Nieuw of vaker: 35 (1×)' } } },
+  },
+}, function(buf) recovery_buf = buf end)
+assert(#calls == 2 and done_args[1] and done_args[3])
+assert(done_args[5]:find('Uitslag gewijzigd.', 1, true))
+assert(done_args[5]:find('36 (1×)', 1, true) and done_args[5]:find('35 (1×)', 1, true))
+local recovery_text = table.concat(vim.api.nvim_buf_get_lines(recovery_buf, 0, -1, false), '\n')
+assert(recovery_text:find('KAMPEN - Tekst.', 1, true), 'webtekst overschreven door voorstel')
+assert(recovery_text:find(proposal, 1, true), 'afgekeurd voorstel verloren gegaan')
+
+-- Een bewaard maar nog niet hersteld voorstel bereikt zelfs geen keuzemenu.
+dialog.confirm = function() error('afgekeurd bestaand voorstel vroeg opnieuw toestemming/AI') end
+calls, done_args = run_prepare({ ok_result {
+  requires_review = true, validation_issues = { { edition = 'B', message = 'Uitslag gewijzigd.' } },
+} })
+assert(#calls == 1 and done_args[1] and done_args[3] and done_args[5])
+
 -- Nieuwere tekst mag ook bij een late timingrespons niet worden toegepast.
 local callback
 vim.system = function(_, _, cb) callback = cb; return { kill = function() end } end

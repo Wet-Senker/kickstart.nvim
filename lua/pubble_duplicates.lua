@@ -165,7 +165,7 @@ function M.report_lines(result, options)
       local variant = entry.variant or {}
       local date = candidate_date(entry.candidate, variant)
       local author = flatten(
-        (entry.variant and entry.variant.created_by) or entry.candidate.created_by
+        nonempty(variant.created_by_label, variant.created_by, entry.candidate.created_by_label, entry.candidate.created_by)
       )
       local row_text = '  ' .. pad(kind_label(entry.candidate, entry.variant, options), kind_width)
         .. '  ' .. pad(date, date_width) .. '  ' .. headline
@@ -371,7 +371,7 @@ function M.show(result, callback, options)
       '',
     }
     local created_date = nonempty(variant.created_date_short, variant.created_date_label)
-    local author = nonempty(variant.created_by)
+    local author = nonempty(variant.created_by_label, variant.created_by)
     if created_date or author then
       table.insert(lines, 7, ('Aangemaakt: %s door %s'):format(
         display_date(created_date), author or 'maker onbekend'))

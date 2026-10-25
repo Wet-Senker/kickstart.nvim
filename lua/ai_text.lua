@@ -353,6 +353,32 @@ end, { desc = "Actieve AI-taak in huidige buffer annuleren" })
 local texttools_commands = require("texttools_commands")
 local layout_export = require("layout_export")
 local aitext = texttools_commands.bin("aitext")
+-- Geef alleen een werkelijk gekozen, eenduidige webdatum door. Python bepaalt
+-- de datuminterpretatie en gebruikt anders vandaag; hier geen tijdslogica.
+local function append_reference_date(command, buf, editions)
+  local review = vim.b[buf].publication_review_state
+  local dates = type(review) == 'table' and review.display_dates or nil
+  if type(dates) ~= 'table' then return end
+  local values = {}
+  if editions then
+    for _, code in ipairs(editions) do values[#values + 1] = dates[code] or 'direct' end
+  else
+    for _, value in pairs(dates) do values[#values + 1] = value end
+  end
+  local reference
+  for _, value in ipairs(values) do
+    if type(value) ~= 'string' or not value:match('^%d%d%d%d%-%d%d%-%d%d') then return end
+    -- Het bestaande datumkeuzemenu bewaart UI-waarden als datum:aantal of
+    -- datum:krant. Alleen die keuzemarkering weglaten; ISO-tijdzones blijven
+    -- intact zodat Python de Amsterdam-dag kan bepalen.
+    local day, marker = value:match('^(%d%d%d%d%-%d%d%-%d%d):([^:]+)$')
+    if day and (marker == 'krant' or marker:match('^%d+$')) then value = day end
+    if reference and reference ~= value then return end
+    reference = value
+  end
+  if reference then vim.list_extend(command, { '--reference-date', reference }) end
+end
+M._append_reference_date = append_reference_date
 local redactie_adres = texttools_commands.bin("redactie-adres")
 local article_dateline = texttools_commands.bin("article-dateline")
 local rubriek_check = texttools_commands.bin("rubriek-check")
@@ -2646,6 +2672,7 @@ M._edition_variant_runner = function(buf, code, source, done, task)
     table.insert(command, "--optional-local-angle")
   end
   append_seo_context(command, task and task.seo_context)
+  append_reference_date(command, buf, task and task.editions or { code })
   if task and (task.edit_mode == 'preserve' or task.edit_mode == 'auto') then
     vim.list_extend(command, { '--edit-mode', task.edit_mode })
   end
@@ -3215,6 +3242,7 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
     vim.list_extend(rewrite_cmd, rewrite_args)
     append_seo_context(rewrite_cmd, seo_context)
     vim.list_extend(rewrite_cmd, { '--edit-mode', edit_mode })
+    append_reference_date(rewrite_cmd, buf)
     ai_system(rewrite_cmd, { text = true, stdin = input }, receive_rewrite, "AI · Herschrijven", buf)
   end
   end
@@ -6643,7 +6671,7 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
           temp_file,
           display_dates,
           resolved_editions,
-          function(ok, err, timing_prepared, skipped_newspapers)
+          function(ok, err, timing_prepared, skipped_newspapers, timing_problem)
             if not ok then
               vim.b[buf].publication_in_progress = false
               discard_unpublished_temp()
@@ -6666,9 +6694,9 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
               }
               discard_unpublished_temp()
               notify_workflow(
-                "De bron of planning veranderde. Controleer de vernieuwde "
-                  .. "kranttijdsversie en druk daarna opnieuw <leader>aw.",
-                vim.log.levels.INFO, { buf = buf, attention = true }
+                timing_problem or ("De bron of planning veranderde. Controleer de vernieuwde "
+                  .. "kranttijdsversie en druk daarna opnieuw <leader>aw."),
+                timing_problem and vim.log.levels.WARN or vim.log.levels.INFO, { buf = buf, attention = true }
               )
               return
             end
@@ -6704,7 +6732,7 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
         temp_file,
         display_dates,
         resolved_editions,
-        function(ok, err, timing_prepared, skipped_newspapers)
+        function(ok, err, timing_prepared, skipped_newspapers, timing_problem)
           if not ok then
             vim.b[buf].publication_in_progress = false
             discard_unpublished_temp()
@@ -6720,6 +6748,18 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
           end
           if type(skipped_newspapers) == "table" and #skipped_newspapers > 0 then
             vim.b[buf].skip_newspaper_editions = skipped_newspapers
+          end
+          if timing_problem then
+            vim.b[buf].publication_in_progress = false
+            vim.b[buf].publication_review_state = {
+              display_dates = display_dates,
+              editions = resolved_editions,
+              skip_newspaper_editions = vim.b[buf].skip_newspaper_editions,
+              late_newspaper_decision = vim.b[buf].late_newspaper_decision,
+            }
+            discard_unpublished_temp()
+            notify_workflow(timing_problem, vim.log.levels.WARN, { buf = buf, attention = true })
+            return
           end
 
           local function finish_preparation(event_prepared)
@@ -7150,7 +7190,7 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
             label = label .. " ← aanbevolen"
           end
           if latest_date and d > latest_date then
-            label = label .. "  (na evenement)"
+            label = label .. "  (na adviesdatum)"
           end
           table.insert(items, label)
           table.insert(item_values, val)
@@ -7420,12 +7460,17 @@ end
 
 local function timing_overview(targets)
   local lines = {}
-  local labels = { future = 'nog te komen', opening = 'begint die dag', ongoing = 'loopt nog', past = 'afgelopen' }
+  local labels = { future = 'nog te komen', opening = 'begint die dag', ongoing = 'loopt nog', past = 'afgelopen',
+    unknown_end = 'begonnen; einde onbekend' }
   for _, target in ipairs(targets or {}) do
     local parts = {}
     for _, transition in ipairs(target.transitions or {}) do
-      table.insert(parts, tostring(transition.start or '?') .. ' t/m ' .. tostring(transition['end'] or '?')
-        .. ': ' .. (labels[transition.newspaper_state] or '?'))
+      local finish = type(transition['end']) == 'string' and transition['end'] or nil
+      local period = finish and (tostring(transition.start or '?') .. ' t/m ' .. finish)
+        or ('vanaf ' .. tostring(transition.start or '?'))
+      local state = labels[transition.newspaper_state] or '?'
+      if not finish and transition.newspaper_state ~= 'unknown_end' then state = state .. '; einde onbekend' end
+      table.insert(parts, period .. ': ' .. state)
     end
     table.insert(lines, tostring(target.edition or '?') .. ' · krant ' .. tostring(target.newspaper_date or '?')
       .. (#parts > 0 and (' · ' .. table.concat(parts, '; ')) or ''))
@@ -7591,6 +7636,28 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
         end
         if type(payload.markdown) ~= "string" then
           done(false, "Kranttijdvoorbereiding gaf geen geldig werkdocument terug")
+          return
+        end
+
+        -- Een inhoudelijk afgekeurd voorstel is geen verloren AI-poging. Bewaar
+        -- uitsluitend de aparte krantsectie; de webbody blijft onaangeroerd.
+        -- Python blijft dezelfde inhoud bij iedere verzendpoging strikt toetsen.
+        if type(payload.validation_issues) == 'table' and #payload.validation_issues > 0 then
+          if payload.changed == true then
+            if type(payload.section) ~= 'string' or not apply_timing_versions_section(buf, payload.section) then
+              done(false, 'Krantvoorstel kon niet veilig in de buffer worden gezet.')
+              return
+            end
+            vim.fn.writefile(vim.split(payload.markdown:gsub('\n$', ''), '\n', { plain = true }), file)
+          end
+          local messages = { 'Krantvoorstel controleren bij ## Kranttijdsversies; daarna <leader>aw. Nog niets verzonden.' }
+          for _, issue in ipairs(payload.validation_issues) do
+            table.insert(messages, tostring(issue.message or 'Kranttekst vereist correctie.'))
+            for _, difference in ipairs(issue.differences or {}) do
+              table.insert(messages, tostring(difference))
+            end
+          end
+          done(true, nil, true, effective_skipped_newspapers(buf), table.concat(messages, '\n'))
           return
         end
 
@@ -8285,8 +8352,10 @@ function M.journalistic_neutralize()
     )
   end
 
+  local neutrality_command = { aitext, "journalistiek_neutraliseren", '--review-json' }
+  append_reference_date(neutrality_command, buf)
   ai_system(
-    { aitext, "journalistiek_neutraliseren", '--review-json' },
+    neutrality_command,
     { text = true, stdin = source_body },
     function(result)
       notifications.schedule(function()
@@ -8874,8 +8943,10 @@ function M.ai_prompt_rewrite()
   local is_112_template = _parse_112_template(body)
   local requested_tick = vim.api.nvim_buf_get_changedtick(buf)
 
+  local rewrite_command = { aichat, prompt, "--mode", "rewrite" }
+  append_reference_date(rewrite_command, buf)
   ai_system(
-    { aichat, prompt, "--mode", "rewrite" },
+    rewrite_command,
     { text = true, stdin = table.concat(body, "\n") },
     function(result)
       notifications.schedule(function()

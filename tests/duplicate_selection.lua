@@ -33,7 +33,8 @@ print(json.dumps(annotate_report(source,['B','SW'],{
  'version':1,'combined':True,'performed':True,'history_complete':True,'errors':[],
  'checks':{'web':{'performed':True,'requested':True,'complete':True},
            'agenda':{'performed':True,'requested':True,'complete':True}},
- 'candidates':[{'key':'join:123','kind':'web','variants':[
+ 'candidates':[{'key':'join:123','kind':'web',
+   'comparison':{'date':'2099-11-18','headline':'Concert'},'variants':[
    {'edition':'B','publication':'De Brug','article_id':123,'headline':'Concert Brug','text':'Een concert.'},
    {'edition':'SW','publication':'De Swollenaer','article_id':124,'headline':'Concert Zwolle','text':'Een concert.'}]}]
 })))
@@ -51,6 +52,11 @@ end
 local buf, result = source(), nil
 ai._check_duplicate_stage(buf, { 'B', 'SW' }, 'verzenden', function(ok) result = ok end)
 local dialog = vim.api.nvim_get_current_buf()
+assert(text(dialog):find('Bestaand webartikel:', 1, true), 'bestaande webtekst niet herkenbaar gelabeld')
+assert(text(dialog):find('Jouw huidige bericht: 18-11-2099', 1, true)
+  and text(dialog):find(')  Concert', 1, true),
+  'huidig bericht mist een duidelijk vergelijkingslabel of dezelfde datumweergave')
+assert(not text(dialog):find('dezelfde toets nogmaals', 1, true), 'overbodige toetsuitleg bleef in overzicht')
 row_contains('Concert Brug'); key(dialog, 'm')
 assert(row_contains('Concert Brug'):find('[=]', 1, true))
 assert(result == nil, 'markering sloot de review of startte publicatie')
@@ -109,5 +115,28 @@ row_contains('Concert Brug'); key(dialog, 'm'); key(dialog, 'q')
 wait(function() return result ~= nil end)
 assert(result and text(buf):find('duplicate_selection:', 1, true))
 assert(not text(buf):find('## Kalender', 1, true))
+
+-- Het agenda-item en de huidige bron vormen één vergelijking, geen twee
+-- categorieën. Beide regels blijven hetzelfde selecteerbare paar aanwijzen.
+local agenda_report = { candidates = { { kind = 'agenda',
+  comparison = { date = '2026-11-05', headline = 'Mijn huidige concertbericht' },
+  variants = { { publication = 'De Swollenaer', kind = 'agenda',
+    display_date_short = '05-11-2026', headline = 'Bestaand concert',
+    review_selectable = true, review_target = { id = 'agenda-pair' } } },
+} } }
+local selected_choices
+require('duplicate_selection_ui').show(agenda_report, function() end, {
+  on_apply = function(_, choices, done)
+    selected_choices = choices
+    done(true)
+  end,
+})
+dialog = vim.api.nvim_get_current_buf()
+assert(row_contains('Bestaand agenda-item:'):find('05-11-2026', 1, true))
+assert(row_contains('Jouw huidige bericht:'):find('05-11-2026', 1, true))
+key(dialog, 'n')
+assert(row_contains('Bestaand agenda-item:'):find('[≠]', 1, true), 'vergelijkingsregel verloor koppeling met bestaand item')
+key(dialog, 'q')
+assert(selected_choices['agenda-pair'] == 'different', 'labels veranderden de opgeslagen keuze')
 
 print('duplicate_selection: ok')
