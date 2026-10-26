@@ -1,4 +1,5 @@
 local photos = require 'pubble_photos'
+require('tests.helpers.photo_text')(photos)
 local requests, inputs = {}, {}
 vim.notify = function() end
 vim.system = function(cmd, opts, done)

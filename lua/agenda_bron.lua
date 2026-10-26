@@ -127,20 +127,7 @@ local function show_overview(sources)
     },
   })
 
-  -- Toon in een apart venster; overschrijf nooit de huidige (artikel)buffer.
-  local win
-  for _, w in ipairs(vim.api.nvim_list_wins()) do
-    if vim.api.nvim_win_get_buf(w) == buf then
-      win = w
-      break
-    end
-  end
-  if win then
-    vim.api.nvim_set_current_win(win)
-  else
-    vim.cmd 'botright vsplit'
-    vim.api.nvim_win_set_buf(0, buf)
-  end
+  require('buffer_navigation').show(buf)
 end
 
 -- Toon het overzicht van geregistreerde bronnen.

@@ -24,8 +24,7 @@ local function open_editable(name, text, is_review)
   vim.bo[buf].filetype = 'markdown'
   vim.bo[buf].bufhidden = 'hide'
   pcall(vim.api.nvim_buf_set_name, buf, name)
-  vim.cmd 'botright vsplit'
-  vim.api.nvim_win_set_buf(0, buf)
+  require('buffer_navigation').show(buf, { editable = true })
   vim.b[buf].weekly_most_read_review = is_review == true
   return buf
 end

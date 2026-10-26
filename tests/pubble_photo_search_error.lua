@@ -1,4 +1,5 @@
 local photos = require('pubble_photos')
+require('tests.helpers.photo_text')(photos)
 local dialog = require('user_dialog')
 local log = require('workflow_log')
 local requests, messages, started, finished = {}, {}, {}, {}

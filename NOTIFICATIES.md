@@ -311,12 +311,20 @@ headless suite toetst daarnaast alle afzonderlijke beslis- en foutpaden.
 
 ## Reflectie op de aparte logboekbuffer
 
-De huidige split heeft nuttige eigenschappen: de tekst blijft altijd in beeld,
+De vroegere split had nuttige eigenschappen: de tekst bleef altijd in beeld,
 meldingen blijven staan tijdens scrollen, je kunt teruglezen en tekst kopiëren,
 en de artikelinhoud/undo-/opslaggeschiedenis blijven schoon. De prijs is groot
 voor een log van twee regels: een eigen buffer, vensterkop, statusregel,
 focusbestemming en extra vensterhoogte. De taakanimatie kan daar nog bij komen.
 Dat verklaart waarom het technisch correct kan zijn en toch druk aanvoelt.
+
+Op akkoord van 26 oktober opent ook de geschiedenis voortaan in het huidige
+venster, als aparte buffer. De artikelinhoud blijft intact; q keert terug met
+de eerdere cursor-/scrollpositie. l opent het technische logboek in hetzelfde
+venster; q gaat dan eerst terug naar de resultatenhistorie. Achtergrondwerk
+opent geen nieuw logboek en verdringt geen handmatig gekozen buffer. De
+logboekweergave kan nog tussen samenvatting en volledige historie wisselen,
+maar verandert niet meer de vensterhoogte.
 
 Gewone logregels aan het artikelbestand toevoegen raad ik af. Dezelfde buffer
 wordt opgeslagen, gehasht, door AI gelezen en gepubliceerd. Iedere client en

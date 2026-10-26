@@ -1,4 +1,5 @@
 local photos = require 'pubble_photos'
+require('tests.helpers.photo_text')(photos)
 local dialog = require 'user_dialog'
 local requests, opened, messages = {}, {}, {}
 vim.notify = function(message) messages[#messages + 1] = message end

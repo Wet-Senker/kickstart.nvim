@@ -121,12 +121,10 @@ local function open_detail_buffer(item)
   vim.bo[abuf].modifiable = false
   vim.bo[abuf].bufhidden = 'wipe'
   pcall(vim.api.nvim_buf_set_name, abuf, 'Rubriekvoorstel: ' .. sanitize(item.headline))
-  vim.cmd 'belowright split'
-  vim.api.nvim_win_set_buf(0, abuf)
-  vim.api.nvim_win_set_height(0, math.max(8, math.min(20, #body)))
+  require('buffer_navigation').show(abuf)
   -- Alleen q sluit; geen <Esc> (die is spiergeheugen voor insert-mode verlaten).
   for _, key in ipairs({ 'q' }) do
-    vim.keymap.set('n', key, '<cmd>close<cr>', { buffer = abuf, silent = true, desc = 'Sluiten' })
+    vim.keymap.set('n', key, function() require('buffer_navigation').back(abuf) end, { buffer = abuf, silent = true, desc = 'Terug' })
   end
 end
 
@@ -163,16 +161,15 @@ local function show_report(result, edition, include_reviewed)
       },
     },
   })
-  vim.cmd 'botright split'
+  require('buffer_navigation').show(buf)
   local win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(win, buf)
-  vim.api.nvim_win_set_height(win, math.max(10, math.min(#lines + 1, math.floor(vim.o.lines / 2))))
 
   local function entry_at_cursor()
     return ranges[vim.api.nvim_win_get_cursor(win)[1]]
   end
 
   local function redraw()
+    if not vim.api.nvim_buf_is_valid(buf) then return end
     lines, ranges = M._render(result)
     vim.bo[buf].modifiable = true
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -210,6 +207,7 @@ local function show_report(result, edition, include_reviewed)
   end, { buffer = buf, silent = true, desc = 'Kandidaat als afgehandeld markeren' })
 
   vim.keymap.set('n', 'r', function()
+    require('buffer_navigation').back(buf)
     if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
     M.run(edition, { include_reviewed = not include_reviewed })
   end, { buffer = buf, silent = true, desc = 'Afgehandelde tonen/verbergen' })
@@ -217,7 +215,7 @@ local function show_report(result, edition, include_reviewed)
   -- Alleen q sluit; geen <Esc> (die is spiergeheugen voor insert-mode verlaten).
   for _, key in ipairs({ 'q' }) do
     vim.keymap.set('n', key, function()
-      if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
+      require('buffer_navigation').back(buf)
     end, { buffer = buf, silent = true, desc = 'Overzicht sluiten' })
   end
 end

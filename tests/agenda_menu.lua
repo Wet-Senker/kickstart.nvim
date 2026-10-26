@@ -54,8 +54,7 @@ assert(blob:find('✗ [event-2] Concert — ontbreekt: Stad', 1, true), 'ontbrek
 assert(blob:find('Mogelijke doublures (1)', 1, true), 'doublures ontbreken')
 assert(blob:find('Opgeschoonde tekst.', 1, true), 'genormaliseerde tekst ontbreekt')
 
--- Eigen-doublures-render: meerdere edities in één run, met bewerk-URL's en
--- een leesfout per editie.
+-- Eigen-doublures-render: één korte paarregel, zonder datums of ruwe links.
 local pair_lines = module._render_pairs {
   van = '2026-09-10', tot = '2026-10-22',
   edities = {
@@ -69,10 +68,13 @@ local pair_lines = module._render_pairs {
   },
 }
 local pblob = table.concat(pair_lines, '\n')
-assert(pblob:find('Editie B: 104 item', 1, true), 'editie B-regel ontbreekt')
-assert(pblob:find('Editie SW: 134 item', 1, true), 'editie SW-regel ontbreekt')
-assert(pblob:find('/articles/internet/a1', 1, true), 'bewerk-URL links ontbreekt')
-assert(pblob:find('Editie ST: NIET gelezen', 1, true), 'leesfout-regel ontbreekt')
+assert(pair_lines[2]:find('m Geen doublure', 1, true), 'bediening ontbreekt bovenaan')
+assert(pblob:find('B: geen treffers', 1, true), 'editie B-regel ontbreekt')
+assert(pblob:find('SW:', 1, true), 'editie SW-regel ontbreekt')
+assert(pblob:find('[ ] Nazomer Fair ↔ Nazomer Fair', 1, true), 'koppen niet tot twee woorden beperkt')
+assert(not pblob:find('8ste Werk', 1, true) and not pblob:find('2026-', 1, true))
+assert(not pblob:find('https://', 1, true) and not pblob:find('88%', 1, true))
+assert(pblob:find('ST: NIET gelezen', 1, true), 'leesfout-regel ontbreekt')
 
 local website_lines, website_by_line = module._render_website_candidates {
   date_from = '2026-08-23', date_to = '2026-09-13',

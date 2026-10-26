@@ -1068,6 +1068,7 @@ local function extract_media_controls(body)
   for _, line in ipairs(body) do
     local key, value = vim.trim(line):match("^([%a]+)%s*:%s*(.-)%s*$")
     local kind = key and _media_control_kinds[key:lower()] or nil
+    if key and key:lower() == 'beeld' and value:match('^%[Archieffoto') then kind = nil end
     if kind and value ~= "" then
       if not media[kind] then
         if kind == "caption" then
@@ -1090,7 +1091,8 @@ end
 local function has_media_control(ctrl, wanted_kind)
   for _, line in ipairs(ctrl) do
     local key = vim.trim(line):match("^([%a]+)%s*:")
-    if key and _media_control_kinds[key:lower()] == wanted_kind then return true end
+    local image_reference = line:match('^%s*beeld%s*:%s*%[Archieffoto')
+    if key and not image_reference and _media_control_kinds[key:lower()] == wanted_kind then return true end
   end
   return false
 end

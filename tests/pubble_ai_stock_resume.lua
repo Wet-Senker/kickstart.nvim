@@ -1,6 +1,7 @@
 local requests, tags, menus, notices, urls = {}, {}, {}, {}, {}
 require('texttools_notify').workflow = function(message) notices[#notices + 1] = message end
 local photos = require 'pubble_photos'
+require('tests.helpers.photo_text')(photos)
 local dialog = require 'user_dialog'
 local browser = require 'ordered_browser'
 vim.notify = function(message) notices[#notices + 1] = message end
@@ -94,7 +95,9 @@ assert(#requests == count, 'gesloten sessie blijft uit')
 picker = open()
 launch(picker)
 local other = vim.api.nvim_create_buf(true, false)
-vim.api.nvim_set_current_win(vim.fn.bufwinid(source))
+-- De fotozoeker maakt geen split meer. De gebruiker kan wel zelf een tweede
+-- venster openen en daarin aan een ander artikel werken.
+vim.cmd 'vsplit'
 vim.api.nvim_set_current_buf(other)
 flush()
 count = #requests

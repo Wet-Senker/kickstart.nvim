@@ -113,8 +113,6 @@ local function open_review(source_buf, document, offset)
     vim.bo[buf].filetype = 'markdown'
     vim.bo[buf].bufhidden = 'hide'
     pcall(vim.api.nvim_buf_set_name, buf, 'Archief · eerder geschreven')
-    vim.cmd 'botright vsplit'
-    vim.api.nvim_win_set_buf(0, buf)
     vim.b[buf].archive_context_review = true
     vim.b[buf].archive_context_source = source_buf
     context_help.register(buf, function(target) return help_entry(target) end)
@@ -126,15 +124,10 @@ local function open_review(source_buf, document, offset)
       buffer = buf,
       desc = '[A]rchief: volgende vijf verhalen',
     })
-  else
-    -- Dezelfde buffer hergebruiken houdt de vensterindeling rustig bij bladeren.
-    for _, win in ipairs(vim.api.nvim_list_wins()) do
-      if vim.api.nvim_win_get_buf(win) == buf then
-        vim.api.nvim_set_current_win(win)
-        break
-      end
-    end
   end
+  require('buffer_navigation').show(buf, { editable = true })
+  vim.keymap.set('n', 'q', function() require('buffer_navigation').back(buf) end,
+    { buffer = buf, desc = 'Terug naar het artikel' })
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.b[source_buf].archive_context_review_buf = buf
   vim.b[buf].archive_context_offset = offset

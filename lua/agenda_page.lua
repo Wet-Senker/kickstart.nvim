@@ -369,9 +369,9 @@ function M.preview(buf)
       local preview = vim.api.nvim_create_buf(false, true)
       vim.api.nvim_buf_set_lines(preview, 0, -1, false, lines)
       vim.bo[preview].filetype = 'html'
+      vim.bo[preview].bufhidden = 'wipe'
       vim.bo[preview].modifiable = false
-      vim.cmd 'botright new'
-      vim.api.nvim_win_set_buf(0, preview)
+      require('buffer_navigation').show(preview)
       vim.api.nvim_buf_set_name(preview, 'Agendapagina blokpreview')
     end)
   end)

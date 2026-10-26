@@ -1,4 +1,5 @@
 local photos = require 'pubble_photos'
+require('tests.helpers.photo_text')(photos)
 local dialog = require 'user_dialog'
 local requests, messages = {}, {}
 vim.notify = function(message) table.insert(messages, message) end
@@ -47,6 +48,7 @@ assert(table.concat(vim.api.nvim_buf_get_lines(a, 0, -1, false)):find('Eigen wij
 reply(2, data)
 local picker = vim.api.nvim_get_current_buf()
 assert(picker ~= a)
+assert(#vim.api.nvim_tabpage_list_wins(0) == 1, 'fotozoeker opende een split')
 local display = table.concat(vim.api.nvim_buf_get_lines(picker, 0, -1, false), '\n')
 assert(display:find('Controleer context en gebruiksrechten', 1, true))
 assert(not display:find('112 uitgesloten', 1, true))
@@ -74,6 +76,7 @@ picker = vim.api.nvim_get_current_buf()
 vim.api.nvim_win_set_cursor(0, { 5, 0 })
 mapping(picker, '<CR>')()
 mapping(picker, 'q')()
+assert(vim.api.nvim_get_current_buf() == a, 'fotozoeker keerde niet terug naar de bron')
 reply(7, { markdown = 'OOK VEROUDERD' })
 assert(vim.api.nvim_buf_get_lines(a, -2, -1, false)[1] == 'Nog een wijziging.')
 

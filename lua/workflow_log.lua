@@ -193,15 +193,15 @@ local function open_summary(text)
   if #lines == 0 or (#lines == 1 and lines[1] == '') then
     lines = { 'Het Texttools-logboek bevat geen leesbare tijdlijn.' }
   end
-  vim.cmd('botright 16new')
-  local buf = vim.api.nvim_get_current_buf()
+  local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].buftype = 'nofile'
   vim.bo[buf].bufhidden = 'wipe'
   vim.bo[buf].swapfile = false
   vim.bo[buf].filetype = 'text'
   vim.bo[buf].modifiable = false
-  vim.keymap.set('n', 'q', '<cmd>close<cr>', {
+  require('buffer_navigation').show(buf)
+  vim.keymap.set('n', 'q', function() require('buffer_navigation').back(buf) end, {
     buffer = buf,
     silent = true,
     desc = 'Texttools-logboek sluiten',

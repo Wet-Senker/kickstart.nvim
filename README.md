@@ -22,17 +22,25 @@ typ die desgewenst zelf erbij, bijvoorbeeld `Zoekwoorden: biljart, Kampen`.
 Oude Onderwerp/Plaats-invoer blijft leesbaar, zonder een aparte plaatsbonus.
 Escape gaat naar Normal-modus, gewone
 bewerkingen/undo/plakken werken, Enter zoekt en Ctrl-C annuleert. De artikelbuffer
-en cursorpositie blijven behouden. De resultatenlijst heeft één regel per foto
-met een witregel tussen opeenvolgende resultaten.
-`p` toont alle voorbeelden in een browsertab, met knoppen om van bron te wisselen,
-meer resultaten te laden en **Gebruik deze foto** te kiezen. In NeoVim wisselt
-`b` van bron, Enter kiest een foto, `s` wijzigt zoekwoorden, `]p` laadt meer,
-`a` maakt een controleerbare AI-stockprompt; bij terugkeer met een nieuwe
-Inbox-download opent het tagscherm automatisch. `i` heropent het na wegklikken;
-`q` annuleert. Op macOS openen tabs op de achtergrond. De foto's worden niet
+en cursorpositie blijven behouden. Na Enter opent rechtstreeks het browserraster;
+er verschijnt geen resultatenbuffer in NeoVim. In de browser kun je zoeken,
+van bron wisselen, meer resultaten laden, AI-stock starten/importeren en
+**Gebruik deze foto** kiezen. Nogmaals `<leader>pf` heropent dezelfde sessie.
+Alleen als expliciet tekstalternatief bestaat `:PubbleFotoTekst`: daarin zijn
+`p` (browser), `b` (bron), Enter (kiezen), `s` (zoeken), `]p` (meer), `a`
+(AI-stock), `i` (tags/import) en `q` (terug) beschikbaar.
+Op macOS openen tabs op de achtergrond. De foto's worden niet
 gedownload; alleen de browser kan cachen. Het oude archiefbijschrift wordt niet
 overgenomen: `b:` is optioneel. Controleer na kiezen altijd de verplichte `c:` in
 het artikel en verzend met een volgende `<leader>aw`. De bronfoto blijft gelijk.
+Nieuwe keuzes krijgen boven het artikel een gewone `beeld:`-regel met een
+link naar de archieffoto. Een andere `<leader>pf`-keuze vervangt die regel.
+Verwijderen met `dd` betekent: deze foto niet meesturen, ook niet vervangen
+door een losse Inbox-foto. Undo herstelt de keuze. De technische referentie
+blijft verborgen bewaard om dit veilig en herhaalbaar te herkennen. Oude
+artikelen zonder beheerde beeldregel blijven compatibel. Bij een al begonnen
+fotokoppeling blokkeert verwijderen: herstel de regel en wijzig beeld daarna
+expliciet in Pubble; geen stille verwijdering van bestaande publicatiefoto's.
 Vanuit een krantversiebuffer gebruikt de fotokeuze altijd het hoofddocument:
 de foto geldt voor alle edities en vervuilt nooit de kranttekst met YAML of
 een extra artikelgrens. Dit geldt ook voor de AI-stockroute.
@@ -50,23 +58,30 @@ beeldbank werkt ook zonder bronartikel. Ontbreekt een veilige thumbnail, dan
 toont het raster een Pubble-link. Bekend eenmalig gebruik wordt geblokkeerd;
 controleer altijd context en rechten.
 Alle geladen pagina's vormen één lijst met unieke foto-ID's; alternatieve
-bronverwijzingen blijven bewaard. `p` toont dezelfde unieke selectie. Een
+bronverwijzingen blijven bewaard. Het browserraster toont dezelfde unieke selectie. Een
 nieuwe zoekopdracht begint opnieuw; een mislukte vervolgpagina laat de vorige
 resultaten intact. Geen automatische scan bij alleen dubbele resultaten en
 geen extra API-/AI-calls voor ontdubbelen. Wel groeit de tijdelijke metadata
 en lokale sortering zolang je meer pagina's ophaalt. Sluiten ruimt dit op.
-Sinds 7 oktober stelt de fotozoeker maximaal twee onderwerpen plus bekende
-woordvarianten voor (maximaal drie voorgestelde zoekwoorden). Alle zelf gekozen begrippen worden
+De fotozoeker stelt zonder AI maximaal twee onderwerpen plus bekende
+woordvarianten voor (maximaal drie voorgestelde zoekwoorden). Sinds 26 oktober
+filtert de gedeelde Python-kern algemene woorden en houdt woordgroepen vaker
+bij elkaar: `grote vuurvlinder`, `sociale huurwoningen`, `Kerst in Oud Kampen`.
+Plaatsen worden niet los toegevoegd. Dit is woordweging, geen inhoudelijke
+fotobeoordeling; controleer de bewerkbare suggestie. Algemene tekst kan een leeg
+zoekveld geven. De afzonderlijk toegestane zes-calls-AI-proef verandert de
+gewone route niet; resultaten staan in de kern bij
+`FOTOZOEKWOORDEN_VERGELIJKING.md`. Alle zelf gekozen begrippen worden
 los én in alle betekenisvolle combinaties gezocht, zonder categorie-/locatiefilter.
 `Zoekwoorden: hond, Zwolle` zoekt dus `hond`, `Zwolle` en `hond Zwolle`. Specifiekere
 matches komen eerst, dan bevestigde fototrefwoorden/bijschrift/kop;
 enkelvoud/meervoud telt niet dubbel. `Gevonden via` toont de zoekherkomst.
 `Zoekwoorden: sport, landstede, Zwolle` levert zeven routes op: alle drie samen, drie
 paren en drie losse termen. De eerste pagina verdeelt maximaal 36 bronrecords
-over die routes; honderden Pubble-treffers worden met `]p` vervolgd. De toets en
+over die routes; honderden Pubble-treffers worden met de browserknop vervolgd. De knop en
 melding voor meer bronresultaten staan alleen in beeld als Pubble een volgende
 pagina meldt.
-Met `p` zie je een compact raster van drie foto's naast elkaar, of minder op
+Je ziet een compact raster van drie foto's naast elkaar, of minder op
 smalle schermen. Klikken vergroot/sluit het beeld; **Gebruik deze foto** kiest.
 In datzelfde raster kun je van bron wisselen en meer resultaten laden.
 Combinaties kosten meer netwerkcalls. Artikelfoto's gebruikt maximaal vijftien
@@ -77,8 +92,9 @@ tegelijk. Een oude zoekcursor vraagt opnieuw zoeken; geen extra AI-call, downloa
 upload of automatische publicatie. Latentie op een oude Mac moet nog worden gemeten.
 
 De browserkeuze gebruikt een tijdelijke lokale verbinding, maximaal vijftien
-minuten. Kiezen, opnieuw zoeken, `q` en afsluiten van NeoVim stoppen de verbinding.
-Een gewijzigde artikelbuffer weigert een late keuze. Er wordt alleen een
+minuten. Kiezen en afsluiten van NeoVim stoppen de verbinding. Alleen het
+tekstalternatief gebruikt `q`. Latere gebeurtenissen uit een oude sessie worden
+genegeerd; gewone tekstwijzigingen blijven met media-only merge beschermd. Er wordt alleen een
 bestaand beeld-ID overgenomen, nooit geüpload of automatisch gepubliceerd.
 Een AI-stockimport bewaart het gecontroleerde beeld in de gedeelde werkruimte
 en een duurzame verwijzing met tags in het artikel. De keuze blijft behouden
@@ -163,6 +179,16 @@ Keuzes staan duurzaam in het werkdocument; boven het artikel staat een samenvatt
 Een hercontrole laat bevestigde uitsluitingen zien en kan ze wissen. Verwijder
 de beschermende regel `doublures: beoordeeld` niet apart; update beide repos samen.
 De losse archiefaudits (`kd`/eigen-doublures) behouden hun eigen paarbediening.
+
+**Eigen agenda: doublures zoeken (alle sites)** gebruikt hetzelfde venster,
+zonder extra split. De oorspronkelijke buffer blijft intact, ook met
+onopgeslagen werk; `q` keert terug naar die buffer en cursorpositie. Bovenaan
+staan de toetsen en de markeringen. Ieder paar krijgt één korte regel met de
+eerste twee woorden van beide koppen, zonder datums, scores, redenen of ruwe
+links. `o` opent de volledige geselecteerde groep in Pubble, `m` bewaart voor
+het gekozen paar **geen doublure**, en `r` toont/verbergt eerdere beoordelingen.
+Bij groepen groter dan twee blijft het artikelenaantal zichtbaar. Leesfouten
+per site blijven zichtbaar; de scan en opgeslagen beoordelingen veranderen niet.
 Dit verwijdert of wijzigt niets in Pubble. `<leader>ac` maakt altijd een werkblok, ook na
 weigeren/verwijderen of bij ontbrekende gegevens. Dat is geen publicatietoestemming.
 Een actuele controle wordt hergebruikt. Veranderen later de tekst, editie of
@@ -215,13 +241,24 @@ Details: [schrijfprofielen](/Users/nickdevries/workspace/texttools/docs/schrijfp
 | `<leader>aq` | Annuleer alle actieve editor-AI-taken van de huidige buffer. |
 | `:AICancel` | Zelfde expliciete annulering als `<leader>aq`. |
 | `<leader>kl` / `:TexttoolsActiviteit` | Open of sluit de meldingenhistorie op afroep. Aandachtmeldingen staan bij de controleregels boven het artikel. |
-| `:TexttoolsActiviteit!` | Wissel tussen de kleine strook en het uitgebreide artikel-logboek. |
+| `:TexttoolsActiviteit!` | Wissel tussen een korte samenvatting en de volledige meldingenhistorie. |
+| `:TexttoolsTerug` | Terug naar de vorige Texttools-buffer; bewerkbare uitvoer blijft in de bufferlijst staan. |
 | `:TexttoolsLog` | Toon de veilige tijdlijn van het huidige artikel: handelingen, duur, uitkomst en een eventueel onafgesloten proces. |
 | `:TexttoolsLog!` | Toon de laatst gelogde Texttools-workflow, ongeacht de huidige buffer. |
 
 De datum achter de krantwerktitel en vaste rubriektitels gebruikt Nederlandse
 notatie: `19-10-26` voor 19 oktober 2026. Technische datumvelden blijven ISO;
 een ongewijzigde herpoging houdt dezelfde bewerkdatum.
+
+Overzichten, fotoresultaten, archieflijsten, logboeken, previews en nieuwe
+agenda-/Meestgelezen-artikelen gebruiken het huidige venster, geen automatische
+split. Het bronartikel blijft als aparte buffer intact, ook met onopgeslagen
+wijzigingen. `q` gaat in alleen-lezen hulpschermen terug; in bewerkbare uitvoer
+gebruik je `:TexttoolsTerug` of je gewone bufferkiezer. Meerdere gegenereerde
+artikelen blijven afzonderlijk beschikbaar. Handmatige splits blijven intact.
+Alleen de bewuste vergelijkingen bij `<leader>an` en publicatieherstel blijven
+naast elkaar staan. Zoeken/vervangen toont zijn livevoorbeeld in de tekst,
+zonder apart voorbeeldvenster.
 
 Ook rechtstreeks plaatsen met `<leader>aw`, zonder herschrijven, controleert
 de volledige metadata: korte inhoudstitel en inhoudelijke houdbaarheid. Als die
@@ -276,9 +313,9 @@ Apple-/macOS-melding. De gedeelde Python-inspectie zondert agendaverzamelingen
 uit. Het advies controleert alleen de actuele importtekst en splitst niets
 automatisch.
 
-Ga met `<C-j>` of de muis naar het paneel. `e` opent het uitgebreide logboek
-(nogmaals `e` maakt het compact), `l` opent de technische tijdlijn en `q` sluit
-echt, ook tijdens werk. De taakmeldingen blijven staan; taken worden niet
+Het logboek opent in hetzelfde venster. `e` wisselt tussen de volledige
+historie en een korte samenvatting; `l` opent de technische tijdlijn. `q` gaat
+een scherm terug, ook tijdens werk. De taakmeldingen blijven staan; taken worden niet
 ook in de logboekkop of statusbalk herhaald. De bestaande
 toets `a` markeert meldingen in de historie als gelezen, niet als opgelost;
 een niet verwijderde meldingsregel van een onopgelost aandachtspunt blijft staan.

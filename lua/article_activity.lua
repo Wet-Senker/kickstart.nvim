@@ -321,19 +321,7 @@ end
 local function close_panel(tab)
   local panel = panels[tab]
   panels[tab] = nil
-  if panel and vim.api.nvim_win_is_valid(panel.win) then
-    local normal_windows = 0
-    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
-      if vim.api.nvim_win_get_config(win).relative == '' then normal_windows = normal_windows + 1 end
-    end
-    if normal_windows == 1 then
-      -- Als de artikel-split al gesloten is, laat q geen onsluitbaar, laatste
-      -- logboekvenster achter. Het verborgen bronbuffer blijft behouden.
-      vim.api.nvim_win_set_buf(panel.win, valid(panel.source) and panel.source or vim.api.nvim_create_buf(true, false))
-    else
-      pcall(vim.api.nvim_win_close, panel.win, true)
-    end
-  end
+  if panel then require('buffer_navigation').back(panel.buf) end
 end
 
 local function acknowledge(buf)
@@ -398,7 +386,8 @@ local function panel_lines(state)
 end
 
 local function render(panel)
-  if not valid(panel.source) or not vim.api.nvim_win_is_valid(panel.win) then return end
+  if not valid(panel.source) or not vim.api.nvim_win_is_valid(panel.win)
+      or vim.api.nvim_win_get_buf(panel.win) ~= panel.buf then return end
   local state = state_for(panel.source)
   local lines, row_ids = panel_lines(state)
   local width = vim.api.nvim_win_get_width(panel.win)
@@ -413,6 +402,7 @@ local function render(panel)
     vim.bo[panel.buf].modifiable = true
     vim.api.nvim_buf_set_lines(panel.buf, 0, -1, false, lines)
     vim.bo[panel.buf].modifiable = false
+    vim.bo[panel.buf].modified = false
     if follow then
       vim.api.nvim_win_set_cursor(panel.win, { #lines, 0 })
     else
@@ -425,8 +415,6 @@ local function render(panel)
     end
   end
   panel.row_ids = row_ids
-  local height = expanded and math.max(2, math.min(12, math.floor(vim.o.lines / 3))) or 2
-  if vim.api.nvim_win_get_height(panel.win) ~= height then pcall(vim.api.nvim_win_set_height, panel.win, height) end
   vim.wo[panel.win].wrap = true
   vim.wo[panel.win].linebreak = expanded
   vim.wo[panel.win].breakindent = false
@@ -443,13 +431,15 @@ local function render(panel)
 end
 
 local function create_panel(tab, source, source_win)
+  state_for(source)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype = 'nofile'
   vim.bo[buf].bufhidden = 'wipe'
   vim.bo[buf].swapfile = false
   vim.bo[buf].filetype = 'texttools_activity'
   vim.b[buf].texttools_activity_source = source
-  local ok, win = pcall(vim.api.nvim_open_win, buf, false, { split = 'below', win = source_win, height = 2 })
+  vim.bo[buf].modifiable = false
+  local ok, win = pcall(require('buffer_navigation').show, buf, { win = source_win })
   if not ok then
     vim.api.nvim_buf_delete(buf, { force = true })
     return
@@ -462,7 +452,6 @@ local function create_panel(tab, source, source_win)
   vim.wo[win].list = false
   vim.wo[win].foldenable = false
   vim.wo[win].colorcolumn = ''
-  vim.wo[win].winfixheight = true
   vim.wo[win].winblend = 0
   vim.wo[win].winhighlight = 'Normal:Normal,NormalNC:Normal,EndOfBuffer:Normal'
   local opts = { buffer = buf, silent = true, nowait = true }
@@ -482,29 +471,14 @@ end
 refresh = function()
   if drawing or not enabled then return end
   drawing = true
-  local tab = vim.api.nvim_get_current_tabpage()
   local win = vim.api.nvim_get_current_win()
   local current = vim.api.nvim_get_current_buf()
-  -- Een dialoog mag niet door layoutwijzigingen verspringen.
-  if vim.api.nvim_win_get_config(win).relative == '' then
-    local source = M.source(current)
-    local panel = panels[tab]
-    if source and is_article(source) and visible then
-      if panel and not vim.api.nvim_win_is_valid(panel.win) then
-        panels[tab] = nil
-        panel = nil
-      end
-      if not panel then panel = create_panel(tab, source, win) end
-      if panel and panel.source ~= source then
-        panel.source, panel.rendered = source, false
-        vim.b[panel.buf].texttools_activity_source = source
-      end
-    elseif panel then
-      close_panel(tab)
-    end
-  end
+  -- Alleen toggle/expand opent het logboek. Achtergrondresultaten en een
+  -- handmatige bufferwissel mogen het huidige scherm niet vervangen.
   for panel_tab, panel in pairs(panels) do
-    if not vim.api.nvim_tabpage_is_valid(panel_tab) or not valid(panel.source) then
+    if not vim.api.nvim_win_is_valid(panel.win) or not valid(panel.buf) then
+      panels[panel_tab] = nil
+    elseif not vim.api.nvim_tabpage_is_valid(panel_tab) or not valid(panel.source) then
       close_panel(panel_tab)
     else
       render(panel)
@@ -532,11 +506,15 @@ refresh = function()
 end
 
 function M.toggle()
-  local panel = panels[vim.api.nvim_get_current_tabpage()]
-  if panel and vim.api.nvim_win_is_valid(panel.win) then
+  local tab = vim.api.nvim_get_current_tabpage()
+  local panel = panels[tab]
+  if panel and vim.api.nvim_win_is_valid(panel.win) and vim.api.nvim_win_get_buf(panel.win) == panel.buf then
     visible = false
   else
-    visible = not visible
+    local source = M.source(vim.api.nvim_get_current_buf())
+    if not source or not is_article(source) then return end
+    visible = true
+    create_panel(tab, source, vim.api.nvim_get_current_win())
   end
   if not visible then
     for tab in pairs(panels) do
@@ -549,6 +527,11 @@ end
 
 function M.expand()
   visible, expanded = true, not expanded
+  local tab = vim.api.nvim_get_current_tabpage()
+  if not panels[tab] then
+    local source = M.source(vim.api.nvim_get_current_buf())
+    if source and is_article(source) then create_panel(tab, source, vim.api.nvim_get_current_win()) end
+  end
   for _, panel in pairs(panels) do
     panel.rendered = false
   end
@@ -568,7 +551,8 @@ end
 
 function M.panel_visible(buf)
   local panel = panels[vim.api.nvim_get_current_tabpage()]
-  return panel and vim.api.nvim_win_is_valid(panel.win) and panel.source == M.source(buf) or false
+  return panel and vim.api.nvim_win_is_valid(panel.win) and vim.api.nvim_win_get_buf(panel.win) == panel.buf
+    and panel.source == M.source(buf) or false
 end
 
 function M.setup(options)

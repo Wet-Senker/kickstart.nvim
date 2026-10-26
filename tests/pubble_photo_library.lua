@@ -1,5 +1,6 @@
 -- V2 image-library results share selection/race guards, without a fake article.
 local photos = require 'pubble_photos'
+require('tests.helpers.photo_text')(photos)
 local dialog = require 'user_dialog'
 local requests, opened = {}, {}
 vim.notify = function() end

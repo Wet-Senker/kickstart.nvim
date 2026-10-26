@@ -57,24 +57,17 @@ local function open_scratch(name, lines)
   vim.bo[buf].modifiable = false
   vim.bo[buf].bufhidden = 'wipe'
   pcall(vim.api.nvim_buf_set_name, buf, name)
-  vim.cmd 'botright vsplit'
-  vim.api.nvim_win_set_buf(0, buf)
+  require('buffer_navigation').show(buf)
   return buf
 end
 
-local function open_editable(name, text, reuse_current)
+local function open_editable(name, text)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, sanitize_lines(vim.split(text, '\n', { plain = true })))
   vim.bo[buf].filetype = 'markdown'
   vim.bo[buf].bufhidden = 'hide'
   pcall(vim.api.nvim_buf_set_name, buf, name)
-  -- reuse_current zet het bericht in het huidige venster (geen extra split);
-  -- zonder die vlag opent het rechts ernaast. Bij een batch voorkomt dit dat de
-  -- oorspronkelijke (lege) buffer als eerste venster blijft staan.
-  if not reuse_current then
-    vim.cmd 'botright vsplit'
-  end
-  vim.api.nvim_win_set_buf(0, buf)
+  require('buffer_navigation').show(buf, { editable = true })
   return buf
 end
 
@@ -210,35 +203,40 @@ end
 
 function M._render_pairs(decoded)
   local lines = {
-    string.format('Eigen doublures (%s..%s)', decoded.van or '?', decoded.tot or '?'),
-    string.rep('=', 40), '',
+    'Agendadoublures',
+    'o Open artikelen  m Geen doublure  r Beoordeelde tonen/verbergen  q Terug',
+    '[ ] Nog beoordelen  [✓] Geen doublure', '',
   }
+  local function short_title(value)
+    local words = {}
+    for word in tostring(value or ''):gmatch('%S+') do
+      words[#words + 1] = word
+      if #words == 2 then break end
+    end
+    return #words > 0 and table.concat(words, ' ') or 'Zonder kop'
+  end
   local ranges = {}
   for _, e in ipairs(decoded.edities or {}) do
     if e.fout and e.fout ~= vim.NIL then
-      table.insert(lines, string.format('Editie %s: NIET gelezen — %s', e.editie, e.fout))
+      table.insert(lines, string.format('%s: NIET gelezen — %s', e.editie, e.fout))
     else
       local paren = e.paren or {}
-      table.insert(lines, string.format('Editie %s: %d item(s), %d mogelijke doublure(s)%s',
-        e.editie, e.aantal_items or 0, #paren, #paren > 0 and ':' or '.'))
+      table.insert(lines, tostring(e.editie) .. (#paren > 0 and ':' or ': geen treffers'))
       for _, p in ipairs(paren) do
         local group = e.groups and p.group_id and e.groups[p.group_id]
-        local first = #lines + 1
-        table.insert(lines, string.format('  %s (%s) ↔ %s — %s (%d%%)',
-          p.left.title, p.left.date or '?', p.right.title, p.reason, p.score or 0))
-        if p.reviewed then lines[#lines] = '  ✓ Geen doublure — ' .. lines[#lines] end
-        if group then lines[#lines] = lines[#lines] .. (' · groep %d: %d artikelen'):format(group.id, group.article_count) end
-        table.insert(lines, '      ' .. tostring(p.left.editor_url))
-        table.insert(lines, '      ' .. tostring(p.right.editor_url))
-        for row = first, #lines do ranges[row] = { pair = p, group = group } end
+        table.insert(lines, ('%s %s ↔ %s'):format(p.reviewed and '[✓]' or '[ ]',
+          short_title(p.left.title), short_title(p.right.title)))
+        if group and group.article_count > 2 then
+          lines[#lines] = lines[#lines] .. (' · %d artikelen'):format(group.article_count)
+        end
+        ranges[#lines] = { pair = p, group = group }
       end
       if (e.reviewed_hidden_count or 0) > 0 then
-        table.insert(lines, ('  %d eerder beoordeelde paren verborgen.'):format(e.reviewed_hidden_count))
+        table.insert(lines, ('  %d beoordeelde verborgen'):format(e.reviewed_hidden_count))
       end
     end
     table.insert(lines, '')
   end
-  table.insert(lines, 'o: hele doubluregroep in Pubble · m: geen doublure (dit paar) · r: beoordeelde tonen/verbergen · q: sluiten')
   return lines, ranges
 end
 
@@ -343,14 +341,25 @@ function M.import_check(opts)
 end
 
 function M.eigen_doublures(include_reviewed)
+  local source, owner = vim.api.nvim_get_current_buf(), vim.api.nvim_get_current_win()
   -- Alle eigen sites in één run (per site, niet kruislings).
   workflow('Agenda · eigen doublures zoeken (alle sites)…', vim.log.levels.INFO, { kind = 'progress' })
   local cmd = command('eigen-doublures')
   if include_reviewed then table.insert(cmd, '--include-reviewed') end
   run(cmd, nil, function(decoded)
+    if not vim.api.nvim_win_is_valid(owner) or vim.api.nvim_get_current_win() ~= owner
+        or vim.api.nvim_win_get_buf(owner) ~= source then
+      workflow('Agenda-overzicht niet geopend: je bent intussen naar een ander scherm gegaan. Start de controle opnieuw via :Agenda.',
+        vim.log.levels.INFO, { buf = source })
+      return
+    end
     local lines, ranges = M._render_pairs(decoded)
     local buf = open_scratch('Eigen doublures', lines)
     local win = vim.api.nvim_get_current_win()
+    vim.b[buf].texttools_activity_source = source
+    local function close()
+      require('buffer_navigation').back(buf)
+    end
     local pending = {}
     local function selected()
       return ranges[vim.api.nvim_win_get_cursor(win)[1]]
@@ -390,10 +399,10 @@ function M.eigen_doublures(include_reviewed)
       end)
     end, { buffer = buf, desc = 'Paar markeren als geen doublure' })
     require("user_dialog").keymap('n', 'r', function()
-      vim.api.nvim_buf_delete(buf, { force = true })
+      close()
       M.eigen_doublures(not include_reviewed)
     end, { buffer = buf, desc = 'Beoordeelde paren tonen/verbergen' })
-    require("user_dialog").keymap('n', 'q', function() vim.api.nvim_buf_delete(buf, { force = true }) end,
+    require("user_dialog").keymap('n', 'q', close,
       { buffer = buf, desc = 'Overzicht sluiten' })
   end)
 end
@@ -620,10 +629,10 @@ function M.weekendbericht()
         if result.error and result.error ~= vim.NIL then
           notifications.notify(string.format('%s: agenda niet gelezen — %s', result.edition or '?', result.error), vim.log.levels.ERROR)
         elseif type(result.message) == 'string' and result.message ~= '' then
-          -- Het eerste bericht neemt het huidige venster over; de rest opent
-          -- ernaast. Zo blijft er geen leeg eerste venster staan.
+          -- Alle versies blijven als bewerkbare buffers beschikbaar, zonder
+          -- het venster voor iedere krant verder op te delen.
           local buf = open_editable(
-            'Weekendbericht ' .. tostring(result.edition), result.message, #opened_buffers == 0
+            'Weekendbericht ' .. tostring(result.edition), result.message
           )
           if display_date then
             vim.b[buf].weekend_display_date = display_date

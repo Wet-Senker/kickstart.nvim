@@ -61,10 +61,15 @@ assert(fast_finished.outcome == 'failed' and fast_finished.detail.exit_code == 1
 local pane = vim.api.nvim_create_buf(false, true)
 vim.b[pane].texttools_activity_source = buf
 vim.api.nvim_set_current_buf(pane)
-local native_system, command = vim.system, nil
-vim.system = function(args) command = args; return {} end
+local native_system, command, callback = vim.system, nil, nil
+vim.system = function(args, _, done) command, callback = args, done; return {} end
 workflow_log.show()
 assert(command and command[#command] == token.workflow_id, 'logboekpaneel verloor de bronfilter')
+callback { code = 0, stdout = 'Veilige tijdlijn' }
+assert(vim.wait(1000, function() return vim.api.nvim_get_current_buf() ~= pane end))
+assert(#vim.api.nvim_tabpage_list_wins(0) == 1, 'technisch logboek opende een split')
+vim.fn.maparg('q', 'n', false, true).callback()
+assert(vim.api.nvim_get_current_buf() == pane, 'technisch logboek verloor zijn terugweg')
 vim.system = native_system
 
 vim.fn.delete(directory, 'rf')

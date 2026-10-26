@@ -83,7 +83,7 @@ do
   vim.opt.listchars = { tab = '» ', trail = '·', nbsp = '␣' }
 
   -- Preview substitutions live, as you type!
-  vim.o.inccommand = 'split'
+  vim.o.inccommand = 'nosplit'
 
   -- Show which line your cursor is on
   vim.o.cursorline = true
@@ -1009,6 +1009,7 @@ end
 local prose_editor = require 'prose_editor'
 prose_editor.setup()
 require('article_metadata_fold').setup()
+require('buffer_navigation').setup()
 
 -- Auto-convert non-plain-text documents (mail attachments: docx, rtf, odt, pdf)
 -- to markdown/text as soon as you open them, e.g. `:e briefing.docx`.

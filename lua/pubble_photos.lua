@@ -159,12 +159,9 @@ end
 
 local function close(s)
   dispose(s)
+  if s.buffer then require('buffer_navigation').back(s.buffer) end
   if s.buffer and vim.api.nvim_buf_is_valid(s.buffer) then
     vim.api.nvim_buf_delete(s.buffer, { force = true })
-  end
-  if s.source_win and vim.api.nvim_win_is_valid(s.source_win)
-      and vim.api.nvim_win_get_buf(s.source_win) == s.source then
-    vim.api.nvim_set_current_win(s.source_win)
   end
 end
 
@@ -240,7 +237,10 @@ local function open_browser_choice(s)
     if data.event == 'ready' and type(data.url) == 'string'
         and data.url:match('^http://127%.0%.0%.1:%d+/[%w_-]+/$') then
       session.url = data.url
-      if not browser.open_urls({ data.url }) then stop_browser(s) end
+      if not browser.open_urls({ data.url }) then
+        stop_browser(s)
+        notify('Browser kon niet openen. Probeer <leader>pf opnieuw; :PubbleFotoTekst biedt een tekstalternatief.', vim.log.levels.WARN)
+      end
     elseif data.event == 'selected' then
       for _, photo in ipairs(s.photos) do
         if photo.image_metadata_id == data.image_metadata_id then
@@ -260,12 +260,14 @@ local function open_browser_choice(s)
       ai_import(s)
     elseif data.event == 'expired' then
       stop_browser(s)
-      notify('Foto-overzicht verlopen. Druk p voor een nieuw overzicht.', vim.log.levels.INFO)
+      notify('Foto-overzicht verlopen. Open opnieuw met <leader>pf.', vim.log.levels.INFO)
     end
   end
   local cmd = { commands.bin('python'), '-m', 'texttools.pubble_photo_cli', 'browse' }
   local ok, process = pcall(notifications.system, cmd, {
     text = true, stdin = vim.json.encode({ photos = s.photos, page = s.data }),
+    -- An idle browser listener is not a long-running editorial task/spinner.
+    texttools_activity = { buf = s.source, action = 'Foto · Browserkeuze', tracked = true },
     stdout = function(err, chunk)
       if err or not chunk then return end
       session.pending = session.pending .. chunk
@@ -282,14 +284,14 @@ local function open_browser_choice(s)
       if s.browser_choice ~= session then return end
       s.browser_choice = nil
       if result.code ~= 0 then
-        notify('Browserkeuze kon niet worden geopend. Gebruik Enter in de fotolijst of probeer p opnieuw.', vim.log.levels.WARN)
+        notify('Browserkeuze kon niet worden geopend. Probeer <leader>pf opnieuw; :PubbleFotoTekst biedt een tekstalternatief.', vim.log.levels.WARN)
       end
     end)
   end)
   if ok then session.process = process
   else
     s.browser_choice = nil
-    notify('Browserkeuze kon niet starten. Gebruik Enter in de fotolijst.', vim.log.levels.WARN)
+    notify('Browserkeuze kon niet starten. Probeer <leader>pf opnieuw; :PubbleFotoTekst biedt een tekstalternatief.', vim.log.levels.WARN)
   end
 end
 
@@ -456,17 +458,18 @@ render = function(s, data)
   s.data = data
   if data.query then s.query = data.query end
   if data.editor_text then s.editor_text = data.editor_text end
+  s.photos = data.photos or {}
+  if not s.text_mode then return end
   if not s.buffer or not vim.api.nvim_buf_is_valid(s.buffer) then
     if s.source_win and vim.api.nvim_win_is_valid(s.source_win)
         and vim.api.nvim_win_get_buf(s.source_win) == s.source then
       vim.api.nvim_set_current_win(s.source_win)
     end
-    vim.cmd('botright vsplit')
     s.buffer = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_win_set_buf(0, s.buffer)
     vim.bo[s.buffer].buftype = 'nofile'
     vim.bo[s.buffer].bufhidden = 'wipe'
     vim.bo[s.buffer].filetype = 'text'
+    require('buffer_navigation').show(s.buffer)
     vim.b[s.buffer].pubble_photo_source = s.source
     vim.api.nvim_create_autocmd('BufWipeout', { buffer = s.buffer, once = true, callback = function()
       dispose(s)
@@ -546,10 +549,12 @@ search = function(s, query, offset)
   run(s, args, input, function(data)
     if offset == 0 then s.expanded = {} end
     render(s, data)
+    if not s.text_mode then open_browser_choice(s) end
   end)
 end
 
-function M.open(buf)
+function M.open(buf, options)
+  options = options or {}
   buf = buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
   buf = vim.b[buf].pubble_photo_source or vim.b[buf].user_dialog_source or buf
@@ -575,6 +580,13 @@ function M.open(buf)
     return
   end
   local existing = sessions[buf]
+  if existing and current(existing) and options.text and not existing.text_mode
+      and existing.data and not existing.busy and not existing.stock_form_open then
+    stop_browser(existing)
+    existing.text_mode = true
+    render(existing, existing.data)
+    return
+  end
   if existing and current(existing) and existing.input_win and vim.api.nvim_win_is_valid(existing.input_win) then
     vim.api.nvim_set_current_win(existing.input_win)
     return
@@ -584,15 +596,20 @@ function M.open(buf)
       notify('De fotokeuze is al actief.', vim.log.levels.INFO)
       return
     end
+    if not existing.text_mode and existing.data then
+      open_browser_choice(existing)
+      return
+    end
     if existing.buffer and vim.api.nvim_buf_is_valid(existing.buffer) then
       local win = vim.fn.bufwinid(existing.buffer)
-      if win ~= -1 then vim.api.nvim_set_current_win(win) end
+      if win ~= -1 then vim.api.nvim_set_current_win(win)
+      else require('buffer_navigation').show(existing.buffer) end
       return
     end
   end
   if existing then close(existing) end
   local source_win = vim.api.nvim_get_current_buf() == buf and vim.api.nvim_get_current_win() or vim.fn.bufwinid(buf)
-  local s = { source = buf, source_win = source_win, hidden = {}, expanded = {} }
+  local s = { source = buf, source_win = source_win, hidden = {}, expanded = {}, text_mode = options.text == true }
   sessions[buf] = s
   run(s, { 'suggest' }, text(buf), function(data)
     s.structured = type(data.editor_text) == 'string'
@@ -607,6 +624,8 @@ function M.setup()
     for _, s in pairs(sessions) do stop_browser(s) end
   end })
   vim.api.nvim_create_user_command('PubbleFoto', function() M.open() end, { desc = 'Bestaande Pubble-foto zoeken en kiezen' })
+  vim.api.nvim_create_user_command('PubbleFotoTekst', function() M.open(nil, { text = true }) end,
+    { desc = 'Fotozoeker als tekstalternatief zonder automatische browser' })
   vim.keymap.set('n', '<leader>pf', function() M.open() end, { desc = '[P]ubble: [F]oto zoeken en kiezen' })
 end
 

@@ -1,5 +1,6 @@
 -- Compact photo results, source switching and editable search fields.
 local photos = require 'pubble_photos'
+require('tests.helpers.photo_text')(photos)
 local dialog = require 'user_dialog'
 local real_input = dialog.input
 local requests, defaults = {}, {}

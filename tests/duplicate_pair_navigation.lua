@@ -40,10 +40,19 @@ local function row_containing(text)
 end
 
 local sites = require 'site_duplicates'
+local original = vim.api.nvim_get_current_buf()
 sites.run('all', { open_browser = true }) -- Legacy flag must NOT revive bulk opening.
 assert(vim.wait(1000, function() return vim.api.nvim_buf_get_name(0):find('Webartikel-doublures', 1, true) end))
 assert(#opened == 0, 'webscan opende automatisch tabbladen')
 local buf = vim.api.nvim_get_current_buf()
+assert(#vim.api.nvim_tabpage_list_wins(0) == 1, 'webscan opende een split')
+row_containing('Rechts')
+local selected_row = vim.api.nvim_win_get_cursor(0)
+key(buf, '<CR>')
+local detail = vim.api.nvim_get_current_buf()
+assert(detail ~= buf and #vim.api.nvim_tabpage_list_wins(0) == 1, 'detail opende een split')
+key(detail, 'q')
+assert(vim.api.nvim_get_current_buf() == buf and vim.deep_equal(selected_row, vim.api.nvim_win_get_cursor(0)))
 row_containing('gelijke inhoud')
 key(buf, 'o')
 assert(vim.deep_equal(opened[1], selected_urls), 'o moet alle vier groepsartikelen eenmaal openen, niet de andere groep')
@@ -53,6 +62,7 @@ assert(vim.deep_equal(opened[2], selected_urls), 'o op rechterartikel moet dezel
 key(buf, 'm')
 assert(pending_mark, 'webbeoordeling moet naar Python')
 key(buf, 'q')
+assert(vim.api.nvim_get_current_buf() == original, 'webscan herstelde de bron niet')
 pending_mark { code = 0, stdout = '{"schema_version":1,"marked_count":1}' }
 vim.wait(20, function() return false end) -- Callback after close may not recreate/modify report.
 assert(not vim.api.nvim_buf_is_valid(buf))
@@ -67,7 +77,7 @@ assert(vim.deep_equal(opened[3], selected_urls), 'agendagroep werd afgekapt op t
 key(buf, 'm')
 pending_mark { code = 0, stdout = '{"schema_version":1,"marked_count":1}' }
 assert(vim.wait(1000, function()
-  return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n'):find('✓ Geen doublure', 1, true)
+  return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n'):find('[✓] Links', 1, true)
 end))
 key(buf, 'q')
 
