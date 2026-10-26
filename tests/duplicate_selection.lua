@@ -52,8 +52,8 @@ end
 local buf, result = source(), nil
 ai._check_duplicate_stage(buf, { 'B', 'SW' }, 'verzenden', function(ok) result = ok end)
 local dialog = vim.api.nvim_get_current_buf()
-assert(text(dialog):find('Bestaand webartikel:', 1, true), 'bestaande webtekst niet herkenbaar gelabeld')
-assert(text(dialog):find('Jouw huidige bericht: 18-11-2099', 1, true)
+assert(text(dialog):find('Web:', 1, true), 'bestaande webtekst niet herkenbaar gelabeld')
+assert(text(dialog):find('Jouw bericht: 18-11-2099', 1, true)
   and text(dialog):find(')  Concert', 1, true),
   'huidig bericht mist een duidelijk vergelijkingslabel of dezelfde datumweergave')
 assert(not text(dialog):find('dezelfde toets nogmaals', 1, true), 'overbodige toetsuitleg bleef in overzicht')
@@ -132,10 +132,10 @@ require('duplicate_selection_ui').show(agenda_report, function() end, {
   end,
 })
 dialog = vim.api.nvim_get_current_buf()
-assert(row_contains('Bestaand agenda-item:'):find('05-11-2026', 1, true))
-assert(row_contains('Jouw huidige bericht:'):find('05-11-2026', 1, true))
+assert(row_contains('Agenda:'):find('05-11-2026', 1, true))
+assert(row_contains('Jouw bericht:'):find('05-11-2026', 1, true))
 key(dialog, 'n')
-assert(row_contains('Bestaand agenda-item:'):find('[≠]', 1, true), 'vergelijkingsregel verloor koppeling met bestaand item')
+assert(row_contains('Agenda:'):find('[≠]', 1, true), 'vergelijkingsregel verloor koppeling met bestaand item')
 key(dialog, 'q')
 assert(selected_choices['agenda-pair'] == 'different', 'labels veranderden de opgeslagen keuze')
 

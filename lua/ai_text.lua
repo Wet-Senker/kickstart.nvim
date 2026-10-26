@@ -9208,6 +9208,10 @@ local help_categories = {
     label = "Uitvoeringslogboek",
     action = function() workflow_log.show() end,
   },
+  {
+    label = "Technische artikelgegevens bekijken",
+    action = function() require('article_metadata_fold').show() end,
+  },
 }
 
 local function insert_snippet_above_cursor(text)

@@ -121,13 +121,17 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 
 ## Leaders
 
-Het technische YAML-blok boven een artikel of agendapagina is standaard
-ingeklapt tot **Technische gegevens**. Zet de cursor op die regel en druk `zo`
-om het te bekijken; `zc` klapt het weer dicht. Dit werkt ook als metadata later
-op de achtergrond wordt toegevoegd. `e:`, `wijk:`, fotoregels, meldingen en het
-leesbare `## Kalender` blijven zichtbaar. Het bestand bevat nog steeds alle
-gegevens: inklappen verandert niets aan opslaan, verzenden of herstel.
-Een bewust geopende vouw blijft tijdens gewone tekstbewerking open.
+Het technische YAML-blok boven een artikel of agendapagina blijft ingeklapt
+tot **Gegevens verborgen · :ArtikelMetadata**. Met `:ArtikelMetadata` of
+**Technische artikelgegevens bekijken** in `<leader>ah` open je een apart,
+alleen-lezen kijkvenster; `q` of Escape sluit het. Dit is een momentopname:
+open het opnieuw voor de nieuwste gegevens. Zoeken of `zR` laat de technische
+gegevens niet blijvend tussen de werktekst staan. Dit werkt ook als metadata
+op de achtergrond wordt toegevoegd en na de leesbare verzendbevestiging met
+Pubble-link. `e:`, `wijk:`, fotoregels, meldingen en het leesbare `## Kalender`
+blijven zichtbaar. Het bestand bewaart alle gegevens; de weergave verandert
+niets aan opslaan, undo, verzenden of herstel. Gewone Markdownopmaak en andere
+bestanden blijven ongewijzigd.
 
 **Direct plaatsen en datumcontrole:** een lege planning wordt nu als lege
 datummapping doorgegeven, ook bij hervatten met `<leader>aw` na een krantreview
@@ -140,6 +144,8 @@ Lua-workaround is dan niet meer nodig. Er wordt niets automatisch gepubliceerd.
 
 Het invoerscherm **Mogelijke doublures** zet het nieuwe bericht apart en toont
 bestaande treffers met Agenda/Web, krantnaam en uitgelijnde Europese datum.
+De trefferregels gebruiken kort `Web:` of `Agenda:`, gevolgd door datum, tijd,
+dagafstand, titel en maker. Het venster past zich aan de hoeveelheid tekst aan.
 Web en agenda worden vóór de beoordeling samen opgehaald en in één overzicht
 getoond. `m` markeert **wel doublure**, `n` **geen doublure**; dezelfde toets
 nogmaals wist alleen die keuze. De markeringen zijn per krant en onderdeel:
@@ -149,7 +155,9 @@ Een fout in één controle verbergt de andere treffers niet.
 Enter/dubbelklik bekijkt alleen tekst/details in NVIM; `o` opent de geselecteerde
 treffer in Pubble. `q` bewaart de keuzes en brengt je terug naar bewerken,
 ook vanuit aw; daarna is opnieuw bewust `<leader>aw` nodig om te publiceren.
-Ctrl-c stelt uit zonder wijzigingen en pauzeert de automatische agenda.
+Control+c sluit zonder de nieuwe keuzes te bewaren; eerder opgeslagen keuzes
+blijven staan. Dit pauzeert ook de automatische agenda. Zonder nieuwe markeringen
+is het verschil in opgeslagen doublurekeuzes met q dus klein.
 Zonder markeringen wordt niets als doublure bevestigd. Geen aparte `v` meer.
 Keuzes staan duurzaam in het werkdocument; boven het artikel staat een samenvatting.
 Een hercontrole laat bevestigde uitsluitingen zien en kan ze wissen. Verwijder

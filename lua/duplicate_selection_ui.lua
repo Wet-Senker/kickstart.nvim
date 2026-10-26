@@ -38,6 +38,9 @@ function M.show(report, callback, options)
   options = options or {}
   local today = options.today or os.date('%Y-%m-%d')
   local function display_date(value) return date(value, today) end
+  local function compact_date(value)
+    return display_date(value):gsub(' om (%d%d?)[%.:](%d%d) uur', ', %1.%2')
+  end
   local entries, choices = {}, {}
   for _, candidate in ipairs(report.candidates or {}) do
     for _, variant in ipairs(candidate.variants or {}) do
@@ -85,9 +88,9 @@ function M.show(report, callback, options)
         'Pubble: ' .. flat(v.editor_url), '',
         flat(v.location), flat(v.city), '' }
       vim.list_extend(lines, vim.split(v.text or v.lead or 'Geen tekst beschikbaar; gebruik o voor Pubble.', '\n', { plain = true }))
-      vim.list_extend(lines, { '', 'Enter / q  Terug naar het overzicht; nog geen keuzes toepassen.' })
+      vim.list_extend(lines, { '', 'Enter / q  Terug' })
     else
-      lines = { '[ ] Onbeoordeeld   [=] Wel doublure   [≠] Geen doublure', '' }
+      lines = { '[ ] Onbeoordeeld   [=] Wel doublure   [≠] Geen doublure' }
       for _, message in ipairs(report.errors or {}) do lines[#lines + 1] = 'LET OP: ' .. flat(message) end
       local previous
       for _, entry in ipairs(entries) do
@@ -96,28 +99,31 @@ function M.show(report, callback, options)
         if publication ~= previous then lines[#lines + 1] = ''; lines[#lines + 1] = publication; previous = publication end
         local choice = entry.target and choices[entry.target.id]
         local marker = choice == 'duplicate' and '[=]' or choice == 'different' and '[≠]' or '[ ]'
-        local kind = (v.kind or entry.candidate.kind) == 'agenda'
-          and 'Bestaand agenda-item:' or 'Bestaand webartikel:'
-        lines[#lines + 1] = marker .. ' ' .. kind .. '  '
-          .. display_date(nonempty(v.display_date_short, v.display_date_label)) .. '  ' .. flat(v.headline)
+        local kind = (v.kind or entry.candidate.kind) == 'agenda' and 'Agenda:' or 'Web:'
+        lines[#lines + 1] = marker .. ' ' .. ('%-7s '):format(kind)
+          .. compact_date(nonempty(v.display_date_short, v.display_date_label)) .. '  ' .. flat(v.headline)
           .. (nonempty(v.created_by_label, v.created_by) and (' · ' .. nonempty(v.created_by_label, v.created_by)) or '')
           .. (entry.selectable and '' or '  (alleen bekijken: geen gekozen doelkrant)')
         rows[#lines] = entry
         local comparison = entry.candidate.comparison
         if comparison then
-          lines[#lines + 1] = '    Jouw huidige bericht: ' .. display_date(comparison.date) .. '  ' .. flat(comparison.headline)
+          lines[#lines + 1] = '    Jouw bericht: ' .. compact_date(comparison.date) .. '  ' .. flat(comparison.headline)
           rows[#lines] = entry
         end
       end
-      vim.list_extend(lines, { '', 'Enter / dubbelklik  Tekst bekijken   o  Openen in Pubble',
-        'm  Wel doublure   n  Geen doublure',
-        'q  Keuzes bewaren en verder bewerken',
-        'Control + c  Later beoordelen (keuzes niet bewaren)',
-        '', 'Onbeoordeeld is geen besluit. Dit scherm publiceert niets.' })
+      vim.list_extend(lines, { '', 'Enter / dubbelklik  Tekst   o  Pubble   m  Wel doublure   n  Geen doublure',
+        'q  Keuzes bewaren en sluiten' })
     end
     vim.bo[buf].modifiable = true
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     vim.bo[buf].modifiable = false
+    if win and vim.api.nvim_win_is_valid(win) then
+      local maximum = math.max(4, vim.o.lines - 6)
+      local height = vim.api.nvim_win_text_height(win, {
+        start_row = 0, end_row = math.min(#lines, maximum) - 1,
+      }).all
+      vim.api.nvim_win_set_height(win, math.min(math.max(1, height), maximum))
+    end
   end
   local function toggle(value)
     if applying then return end
@@ -180,7 +186,7 @@ function M.show(report, callback, options)
       'Een bevestiging geldt alleen voor deze krant en Web of dit afzonderlijke agenda-item.',
       'Enter: tekst bekijken/terug. o: bestaand bericht openen.',
       'q: opslaan en verder bewerken. Daarna bewust <leader>aw voor verzending.',
-      'Control + c: houd Control ingedrukt en druk op c; sluit zonder keuzes te bewaren.',
+      'Control+c: sluit zonder nieuwe keuzes te bewaren; eerder opgeslagen keuzes blijven staan.',
       'Bij uitstellen wacht de automatische voorbereiding van het agenda-item.',
       'Een verwijderde meldingsregel wist geen opgeslagen doublurekeuze; heropen de controle.',
     } } },
