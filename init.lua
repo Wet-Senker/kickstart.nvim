@@ -299,6 +299,7 @@ do
       { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } }, -- Enable gitsigns recommended keymaps first
       { '<leader>a', group = '[A]rtikel / Pubble' },
       { '<leader>k', group = '[K]rant' },
+      { '<leader>v', group = '5 [V]ragen aan' },
       { '<leader>p', group = '[P]ubble-archief' },
       { '<leader>o', group = '[O]bsidian' },
       { 'gr', group = 'LSP Actions', mode = { 'n' } },
@@ -1239,6 +1240,14 @@ vim.keymap.set('n', '<leader>m',
 )
 
 vim.keymap.set('n', '<leader>kt', function() require('krant').menu() end, { desc = '[K]rant [T]emplate kiezen' })
+
+-- Rubriek '5 vragen aan': vragen → kop/intro → voorgevulde mail (losse stappen).
+require('user_dialog').keymap('n', '<leader>vv', function() require('vragen_aan').questions() end,
+  { desc = '5 [V]ragen aan: [V]ragen genereren' })
+require('user_dialog').keymap('n', '<leader>vi', function() require('vragen_aan').intro() end,
+  { desc = '5 [V]ragen aan: kop + [I]ntro' })
+require('user_dialog').keymap('n', '<leader>vm', function() require('vragen_aan').mail() end,
+  { desc = '5 [V]ragen aan: [M]ail opstellen' })
 
 require("ai_text")
 require("teams_redactie").setup()
