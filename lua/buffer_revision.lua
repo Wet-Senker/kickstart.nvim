@@ -1,5 +1,5 @@
 -- Clientrevisies: alle bron-/workflowvelden tellen mee, alleen expliciete
--- Melding:-regels en witruimte in het zichtbare kopblok zijn presentatieruis.
+-- Tijd-/oude Melding:-regels en witruimte in het zichtbare kopblok zijn presentatieruis.
 -- YAML en artikel-/staartwitruimte blijven deel van de bronrevisie.
 local M = {}
 local notices = require('article_notices')

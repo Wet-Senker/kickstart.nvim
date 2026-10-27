@@ -129,6 +129,8 @@ local publication
 ai._check_agenda_duplicates(fresh, { 'B' }, function(ok) publication = ok end, nil, true)
 vim.api.nvim_buf_set_lines(fresh, -1, -1, false, { 'Nieuwere tekst' })
 callback(data)
+assert(publication == nil and answer, 'leescontrole brak af in plaats van de treffers te tonen')
+answer(true)
 assert(publication == false, 'verzending ging verder na bronwijziging tijdens controle')
 
 -- Een mislukte uitlezing zonder kandidaten is geen stilzwijgend groen licht.

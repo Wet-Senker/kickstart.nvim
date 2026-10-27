@@ -91,6 +91,19 @@ wait(function() return applied ~= nil end)
 assert(not applied and text(buf):find('Nieuwste eigen tekst.', 1, true))
 assert(not text(buf):find('duplicate_selection:', 1, true))
 
+-- De scan/review zelf mag wel na edits afronden. De expliciete keuze wordt
+-- op de huidige tekst opgeslagen, zonder die met de oude bron te vervangen.
+buf, result = source(), nil
+ai._check_duplicate_stage(buf, { 'B', 'SW' }, 'importeren', function(ok) result = ok end)
+dialog = vim.api.nvim_get_current_buf()
+vim.api.nvim_buf_set_lines(buf, -1, -1, false, { 'Tijdens de scan verder geredigeerd.' })
+row_contains('Concert Brug'); key(dialog, 'm'); key(dialog, 'q')
+vim.api.nvim_buf_set_lines(buf, -1, -1, false, { 'Nieuwste regel tijdens het opslaan van de keuze.' })
+wait(function() return result ~= nil end)
+assert(result and text(buf):find('Tijdens de scan verder geredigeerd.', 1, true))
+assert(text(buf):find('Nieuwste regel tijdens het opslaan van de keuze.', 1, true))
+assert(text(buf):find('decision: duplicate', 1, true) and not ai._duplicate_check_is_current(buf))
+
 -- Explicit pause cancels automatic agenda continuation and stores no choices.
 buf, result = source(), nil
 ai._check_duplicate_stage(buf, { 'B', 'SW' }, 'importeren', function(ok) result = ok end)

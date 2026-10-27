@@ -1503,8 +1503,8 @@ end
 -- Alleen Python bepaalt of het branchbeleid een netwerkcontrole vereist.
 -- Import, herschrijven en verzenden gebruiken
 -- dezelfde runner en dezelfde bufferstate; alleen een werkelijk afgeronde
--- controle wordt onthouden. Pubble zelf wordt altijd over alle zes sites
--- doorzocht door de Python-actie.
+-- controle wordt onthouden. Python beperkt de zoeksites tot de gekozen en
+-- zichtbaar voorgestelde kranten, los van publicatierechten.
 -- De controle wordt onthouden per artikeltekst, niet per buffer. Zo beschermt de
 -- controle bij import tegen een zinloze herschrijving, zonder een latere
 -- controle te blokkeren: zodra de tekst verandert — en na een herschrijving is
@@ -1512,10 +1512,21 @@ end
 -- importmail vol opmaak heel andere zoekwoorden oplevert dan het afgeronde
 -- artikel; de ruis verdringt dan juist de woorden waarmee je het verhaal vindt.
 -- De garantie is daarmee: de tekst die gepubliceerd wordt, is gecontroleerd.
+function M._duplicate_scope_hint(lines)
+  local _, controls = split_article_parts(lines)
+  for _, line in ipairs(controls) do
+    local key = vim.trim(line):match('^([%a]+)%s*:')
+    if key and (key:lower() == 'e' or key:lower() == 'editie') then return vim.trim(line) end
+  end
+  return ''
+end
+
 local function duplicate_check_is_current(buf)
   local checked = vim.b[buf].pubble_duplicate_checked_body
   if type(checked) ~= "string" then return false end
-  return checked == editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local scope = vim.b[buf].pubble_duplicate_checked_scope
+  return checked == editorial_body_text(lines) and (scope == nil or scope == M._duplicate_scope_hint(lines))
 end
 
 M._duplicate_check_is_current = duplicate_check_is_current
@@ -1527,6 +1538,7 @@ M._mark_duplicate_check_done = function(buf)
   if not vim.api.nvim_buf_is_valid(buf) then return end
   vim.b[buf].pubble_duplicate_checked_body =
     editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+  vim.b[buf].pubble_duplicate_checked_scope = M._duplicate_scope_hint(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
 end
 
 local function ignored_duplicate_keys(buf)
@@ -1545,8 +1557,8 @@ local function ignored_duplicate_keys(buf)
 end
 M._ignored_duplicate_keys = ignored_duplicate_keys
 
--- Bronbinding van de gezamenlijke UI: tags, artikel, YAML en Kalender tellen
--- mee; een parallel aangevulde socialtekst is geen wijziging van deze review.
+-- Vergelijk de scanmomentopname voor cache/publicatie, niet om een leesvenster
+-- af te breken. Een parallelle social is geen wijziging van artikel/Kalender.
 function M._duplicate_review_revision(lines)
   local fm, controls, body, sections = split_article_parts(require('article_notices').content_lines(lines))
   local calendar, inside = {}, false
@@ -1563,6 +1575,7 @@ end
 function M._duplicate_editing_revision(buf, codes)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   return { editions = table.concat(codes, ','), body = editorial_body_text(lines),
+    scope = M._duplicate_scope_hint(lines),
     calendar = M._duplicate_review_revision(lines)[4] }
 end
 
@@ -1606,11 +1619,15 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
   local temporary = existing_file == nil
   local file = existing_file or (vim.fn.tempname() .. ".md")
   local snapshot = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local function is_current()
+  local checked_body = editorial_body_text(snapshot)
+  local function same_source()
     if not vim.api.nvim_buf_is_valid(buf) then return false end
     local current = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
     return vim.deep_equal(M._duplicate_review_revision(snapshot), M._duplicate_review_revision(current))
   end
+  -- Een scan is een leesactie op een momentopname, geen schrijfactie op de body.
+  -- Laat de scan/beoordeling afronden terwijl de redacteur verder typt.
+  local function is_current() return vim.api.nvim_buf_is_valid(buf) end
   if temporary then
     if vim.fn.writefile(snapshot, file) ~= 0 then
       notify_workflow("Doublurecontrole kon geen tijdelijk artikel maken.", vim.log.levels.WARN)
@@ -1642,22 +1659,18 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
       if settled then return end
       settled = true
       if temporary then vim.fn.delete(file) end
+      local unchanged = same_source()
       if not is_current() then
         approved, data = false, nil
-        if vim.api.nvim_buf_is_valid(buf) then
-          notify_workflow(
-            "Artikel gewijzigd tijdens de doublurecontrole; controleer opnieuw bij herschrijven of verzenden.",
-            vim.log.levels.INFO
-          )
-        end
       end
       local continue_editing = early and is_current()
       local editing_only = early and type(data) == 'table' and data.editing_only == true
       if vim.api.nvim_buf_is_valid(buf) then
         vim.b[buf].pubble_duplicate_check_running = false
+        if not unchanged then vim.b[buf].send_requested = false end
         if not approved and not continue_editing then vim.b[buf].send_requested = false end
         if type(data) == 'table' and data.combined then
-          if data.agenda_decision == 'skip' then
+          if data.agenda_decision == 'skip' and unchanged then
             vim.b[buf].agenda_duplicate_rejected = true
             M.reject_calendar(buf, 'Agenda overgeslagen voor dit artikel. Web en krant gaan door.')
           elseif not approved then
@@ -1667,30 +1680,39 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
             end
           end
           local agenda = data.checks and data.checks.agenda
-          if approved and agenda and agenda.complete and agenda.requested then
-            vim.b[buf].agenda_duplicate_checked_fingerprint = vim.fn.sha256(table.concat(codes, ',') .. '\n'
-              .. table.concat(require('article_notices').content_lines(vim.api.nvim_buf_get_lines(buf, 0, -1, false)), '\n'))
+          if unchanged and approved and agenda and agenda.complete and agenda.requested then
+            vim.b[buf].agenda_duplicate_checked_fingerprint = M._agenda_duplicate_fingerprint(
+              vim.api.nvim_buf_get_lines(buf, 0, -1, false), codes)
             vim.b[buf].agenda_duplicate_editions = codes
             vim.b[buf].agenda_duplicate_check_source = agenda.bron
             vim.b[buf].agenda_review_cancelled = false
           end
         end
-        if approved and editing_only then
+        if (approved and editing_only) or (continue_editing and not unchanged) then
           -- Voorkom dezelfde vroege vraag opnieuw bij ar na import. Dit
           -- bewerkingsakkoord wordt nooit door de verzendpoort gebruikt.
           vim.b[buf].pubble_duplicate_editing_review = M._duplicate_editing_revision(buf, codes)
         end
-        if approved and not editing_only and not (data and data.selection_applied) then remember_ignored_duplicates(buf, data) end
+        if unchanged and approved and not editing_only and not (data and data.selection_applied) then remember_ignored_duplicates(buf, data) end
         local web = type(data) == 'table' and data.checks and data.checks.web
         if approved and not editing_only and type(data) == "table" and ((web and web.complete and web.requested and web.performed ~= false)
             or (not data.combined and data.performed ~= false)) then
-          -- De gecontroleerde tekst, niet de huidige: bij een wijziging tijdens
-          -- het ophalen is `approved` al op false gezet.
-          vim.b[buf].pubble_duplicate_checked_body = editorial_body_text(snapshot)
+          -- Alleen de werkelijk doorzochte tekst krijgt deze markering.
+          vim.b[buf].pubble_duplicate_checked_body = checked_body
+          vim.b[buf].pubble_duplicate_checked_scope = M._duplicate_scope_hint(snapshot)
         end
         settle_duplicate_calendar_gate(buf, approved == true or continue_editing)
       end
       finish_buffer_job(job)
+      if not early and not unchanged and is_current() then
+        -- Niet de controle afbreken, maar nooit een oud verzendsnapshot
+        -- publiceren terwijl de gebruiker inmiddels een nieuw artikel heeft.
+        vim.b[buf].send_requested = false
+        notify_workflow('Doublurecontrole afgerond. Je wijzigingen zijn behouden; druk opnieuw <leader>aw om de actuele tekst te verzenden.',
+          vim.log.levels.INFO, { buf = buf })
+        if done then done(false) end
+        return
+      end
       -- A selection review returns to editing even when opened by aw. The
       -- next explicit aw uses the saved exclusions; closing never publishes.
       if done then done((approved == true or continue_editing)
@@ -1706,11 +1728,10 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
         if not is_current() then applied(false); return end
         require('duplicate_review').apply(buf, report, selections, function(ok)
           if ok then
-            snapshot = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
             vim.b[buf].send_requested = false
           end
           applied(ok)
-        end)
+        end, table.concat(snapshot, '\n'), true)
       end,
       on_mark = function(candidate, marked)
         if candidate.kind == 'agenda' then
@@ -1718,7 +1739,7 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
           require('duplicate_review').mark_agenda(candidate.review_key, marked)
           return
         end
-        if is_current() then remember_ignored_duplicates(buf, { candidates = { candidate } }) end
+        if same_source() then remember_ignored_duplicates(buf, { candidates = { candidate } }) end
         marked(is_current())
       end,
       automatic = early,
@@ -2024,12 +2045,15 @@ end
 -- Eén asynchrone toegang tot de Python-resolver. De editor dupliceert de
 -- verspreidingsgebiedentabel dus niet en de hoofdthread blijft ook op oudere
 -- Macs vrij.
-local function resolve_editions_for_content(buf, content, done)
+local function resolve_editions_for_content(buf, content, done, review_only)
   local tmp = vim.fn.tempname() .. ".md"
   vim.fn.writefile(vim.split(content, "\n", { plain = true }), tmp)
   local job = start_buffer_job(buf, 'Artikel · Edities bepalen')
+  local command = review_only
+    and { pubble_duplicates_command, tmp, '--resolve-editions', '--json', '--require-article-boundary' }
+    or { pubble_send, tmp, '--resolve-editions', '--require-article-boundary' }
   workflow_system(
-    { pubble_send, tmp, "--resolve-editions", "--require-article-boundary" },
+    command,
     { text = true },
     function(res)
     notifications.schedule(function()
@@ -3077,7 +3101,7 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
   local saved_fm, saved_ctrl, body_lines, saved_sections, saved_boundary =
     split_article_parts(lines)
   local source_body = table.concat(body_lines, "\n")
-  local resolve_tick = vim.api.nvim_buf_get_changedtick(buf)
+  local resolve_body = editorial_body_text(lines)
   if has_edition_versions_block(saved_sections) then
     if M._edition_versions_regenerate_confirm() ~= 1 then
       notify_workflow("Herschrijven geannuleerd; bestaande krantversies zijn behouden.", vim.log.levels.INFO)
@@ -3189,13 +3213,10 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
       local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
       local current_fm, current_ctrl, _, current_sections, current_boundary =
         split_article_parts(current_lines)
-      local final_fm = #current_fm > 0 and current_fm or saved_fm
-      local final_ctrl = #current_ctrl > 0 and current_ctrl or saved_ctrl
+      local final_fm = current_fm
+      local final_ctrl = current_ctrl
       final_ctrl = add_media_controls(final_ctrl, media_controls)
       local final_sections = current_sections
-      if #current_sections == 0 and _agenda_mode_from_lines(current_lines) ~= 'off' then
-        final_sections = saved_sections
-      end
       final_sections = drop_edition_versions_block(final_sections)
       local rewritten_body_str = table.concat(new_lines, "\n")
       new_lines = reassemble_article(
@@ -3253,7 +3274,7 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
   -- AI-call vallen, zodat de algemene versie rechtstreeks het origineel krijgt.
   local function with_resolved(resolved)
     if not vim.api.nvim_buf_is_valid(buf) then return end
-    if vim.api.nvim_buf_get_changedtick(buf) ~= resolve_tick then
+    if editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) ~= resolve_body then
       notify_workflow("Herschrijven geannuleerd: de buffer is tijdens de editiecheck gewijzigd. Start opnieuw.", vim.log.levels.WARN)
       return
     end
@@ -3262,7 +3283,7 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
     local strategy = resolved and resolved.rewrite_strategies
     local function continue_after_mode_choice(choice)
       if not vim.api.nvim_buf_is_valid(buf) then return end
-      if vim.api.nvim_buf_get_changedtick(buf) ~= resolve_tick then
+      if editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) ~= resolve_body then
         notify_workflow("Herschrijven geannuleerd: de buffer is tijdens de keuze gewijzigd. Start opnieuw.", vim.log.levels.WARN)
         return
       end
@@ -3296,7 +3317,12 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
         return
       end
       check_duplicate_stage(buf, codes, "herschrijven", function(approved)
-        if approved then run_rewrite() end
+        if not approved or not vim.api.nvim_buf_is_valid(buf) then return end
+        if editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) ~= resolve_body then
+          -- Tijdens de leescontrole mag worden geredigeerd. Start de echte
+          -- rewrite op de nieuwste bron, zonder deze scan opnieuw te draaien.
+          vim.api.nvim_buf_call(buf, function() M.rewrite_article_buffer(force_general, true) end)
+        else run_rewrite() end
       end)
     end
     if #codes >= 2 then
@@ -3334,7 +3360,7 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
       apply_edition_suggestions(buf, codes, resolved)
       local _, fresh_ctrl = split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
       saved_ctrl = fresh_ctrl
-      resolve_tick = vim.api.nvim_buf_get_changedtick(buf)
+      resolve_body = editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
       with_resolved(resolved)
       return
     end
@@ -3346,7 +3372,7 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
     local fresh_fm, fresh_ctrl, fresh_body, _, fresh_boundary =
       split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
     saved_ctrl = fresh_ctrl
-    resolve_tick = vim.api.nvim_buf_get_changedtick(buf)
+    resolve_body = editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
     notify_workflow(
       "Bestemming aangevuld: " .. edition_names(merged) .. ".",
       vim.log.levels.INFO
@@ -3372,7 +3398,8 @@ end
 -- gewoon door, precies zoals reject_calendar() al regelt.
 local function agenda_duplicate_candidates(buf, codes, done, prepared_lines)
   local file = vim.fn.tempname() .. ".md"
-  if vim.fn.writefile(prepared_lines or vim.api.nvim_buf_get_lines(buf, 0, -1, false), file) ~= 0 then
+  local reviewed_lines = prepared_lines or vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  if vim.fn.writefile(reviewed_lines, file) ~= 0 then
     done(nil)
     return
   end
@@ -3396,7 +3423,7 @@ local function agenda_duplicate_candidates(buf, codes, done, prepared_lines)
         return
       end
       workflow_log.finish(trace, 'succeeded', { exit_code = result.code })
-      if prepared_lines then data.reviewed_markdown = table.concat(prepared_lines, '\n') end
+      data.reviewed_markdown = table.concat(reviewed_lines, '\n')
       done(data)
     end)
   end
@@ -3406,24 +3433,27 @@ local function agenda_duplicate_candidates(buf, codes, done, prepared_lines)
 end
 
 local function agenda_comparison_text(buf)
-  return table.concat(require('article_notices').content_lines(vim.api.nvim_buf_get_lines(buf, 0, -1, false)), '\n')
+  local revision = M._duplicate_review_revision(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+  return vim.json.encode({ revision[3], revision[4] })
+end
+
+function M._agenda_duplicate_fingerprint(lines, codes)
+  local revision = M._duplicate_review_revision(lines)
+  return vim.fn.sha256(vim.json.encode({ codes or {}, M._duplicate_scope_hint(lines), revision[3], revision[4] }))
 end
 
 local function agenda_duplicate_prompt(buf, data, done, publication)
-  local snapshot = agenda_comparison_text(buf)
+  local snapshot = data.reviewed_markdown or table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
   if type(data.selection_report) == 'table' and data.selection_report.review_version == 1 then
     pubble_duplicates.show(data.selection_report, function(accepted)
       -- nil preserves the existing safe cancellation path, including aw.
       done(accepted and true or nil, accepted and data.selection_report.selection_applied)
     end, {
       selection_review = true,
-      is_current = function() return vim.api.nvim_buf_is_valid(buf) and agenda_comparison_text(buf) == snapshot end,
+      is_current = function() return vim.api.nvim_buf_is_valid(buf) end,
       on_apply = function(report, selections, applied)
-        if not vim.api.nvim_buf_is_valid(buf) or agenda_comparison_text(buf) ~= snapshot then applied(false); return end
-        require('duplicate_review').apply(buf, report, selections, function(ok)
-          if ok then snapshot = agenda_comparison_text(buf) end
-          applied(ok)
-        end, data.reviewed_markdown)
+        if not vim.api.nvim_buf_is_valid(buf) then applied(false); return end
+        require('duplicate_review').apply(buf, report, selections, applied, snapshot, true)
       end,
     })
     return
@@ -3463,7 +3493,6 @@ local function agenda_duplicate_prompt(buf, data, done, publication)
     end,
     is_current = function()
       return vim.api.nvim_buf_is_valid(buf)
-        and agenda_comparison_text(buf) == snapshot
     end,
   })
 end
@@ -3474,8 +3503,7 @@ M._agenda_duplicate_confirm = agenda_duplicate_prompt
 function M._agenda_duplicate_is_current(buf, codes)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   if _agenda_mode_from_lines(lines) == 'off' then return true end
-  local fingerprint = vim.fn.sha256(table.concat(codes, ',') .. '\n'
-    .. table.concat(require('article_notices').content_lines(lines), '\n'))
+  local fingerprint = M._agenda_duplicate_fingerprint(lines, codes)
   return vim.b[buf].agenda_duplicate_checked_fingerprint == fingerprint
     or vim.b[buf].agenda_duplicate_accepted_fingerprint == fingerprint
 end
@@ -3501,6 +3529,7 @@ function M._check_agenda_duplicates(buf, codes, done, prepared_lines, publicatio
     return
   end
   local source_snapshot = vim.api.nvim_buf_is_valid(buf) and agenda_comparison_text(buf) or nil
+  local publication_revision = publication and vim.api.nvim_buf_is_valid(buf) and require('buffer_revision').capture(buf) or nil
   local review_generation = vim.api.nvim_buf_is_valid(buf) and vim.b[buf].manual_calendar_generation or nil
   local fingerprint = nil
   if vim.api.nvim_buf_is_valid(buf) and type(codes) == "table" and #codes > 0 then
@@ -3509,8 +3538,7 @@ function M._check_agenda_duplicates(buf, codes, done, prepared_lines, publicatio
       done(true) -- Een geweigerd agenda-item hoeft niet op doublures te worden gecontroleerd.
       return
     end
-    local current = table.concat(require('article_notices').content_lines(current_lines), "\n")
-    fingerprint = vim.fn.sha256(table.concat(codes, ",") .. "\n" .. current)
+    fingerprint = M._agenda_duplicate_fingerprint(current_lines, codes)
   end
   if not vim.api.nvim_buf_is_valid(buf)
       or type(codes) ~= "table" or #codes == 0
@@ -3526,14 +3554,9 @@ function M._check_agenda_duplicates(buf, codes, done, prepared_lines, publicatio
       return
     end
     if vim.b[buf].manual_calendar_generation ~= review_generation then done(false); return end
-    if agenda_comparison_text(buf) ~= source_snapshot then
-      notify_workflow(
-        "Artikel gewijzigd tijdens de agenda-doublurecontrole; controleer opnieuw.",
-        vim.log.levels.WARN
-      )
-      done(not publication)
-      return
-    end
+    local source_changed = agenda_comparison_text(buf) ~= source_snapshot
+      or (publication_revision and not require('buffer_revision').matches(buf, publication_revision))
+    if source_changed then vim.b[buf].send_requested = false end
     local errors = type(data) == "table" and (data.errors or {}) or {}
     local check_complete = #errors == 0
     if type(data) == "table" and data.performed == true then
@@ -3565,19 +3588,15 @@ function M._check_agenda_duplicates(buf, codes, done, prepared_lines, publicatio
         done(false)
         return
       end
-      done(true)
+      done(not publication or not source_changed)
       return
     end
     M._agenda_duplicate_confirm(buf, data, function(keuze, selection_applied)
       if not vim.api.nvim_buf_is_valid(buf) then done(false); return end
       if vim.b[buf].manual_calendar_generation ~= review_generation then done(false); return end
-      if selection_applied then source_snapshot = agenda_comparison_text(buf) end
-      if agenda_comparison_text(buf) ~= source_snapshot then
-        notify_workflow('Artikel gewijzigd tijdens beoordeling; controleer opnieuw. Er is geen besluit toegepast.',
-          vim.log.levels.WARN, { buf = buf })
-        done(false)
-        return
-      end
+      source_changed = source_changed or agenda_comparison_text(buf) ~= source_snapshot
+        or (publication_revision and not require('buffer_revision').matches(buf, publication_revision))
+      if source_changed then vim.b[buf].send_requested = false end
       if keuze == nil then
         M._cancel_calendar_preparation(buf)
         notify_workflow(
@@ -3588,8 +3607,8 @@ function M._check_agenda_duplicates(buf, codes, done, prepared_lines, publicatio
         done(not publication)
         return
       elseif selection_applied then
-        if check_complete then
-          vim.b[buf].agenda_duplicate_accepted_fingerprint = vim.fn.sha256(table.concat(codes, ',') .. '\n' .. source_snapshot)
+        if check_complete and not source_changed then
+          vim.b[buf].agenda_duplicate_accepted_fingerprint = fingerprint
         end
         vim.b[buf].send_requested = false
         done(not publication)
@@ -3610,7 +3629,7 @@ function M._check_agenda_duplicates(buf, codes, done, prepared_lines, publicatio
           "Agenda overgeslagen voor dit artikel. Web en krant gaan door."
         )
       end
-      done(true)
+      done(not publication or not source_changed)
     end, publication)
   end, prepared_lines)
 end
@@ -3627,8 +3646,15 @@ function M.recheck_duplicates(buf)
     return
   end
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
-  resolve_editions_for_content(buf, text, function(resolved)
+  M._calendar_edition_resolver(buf, text, function(resolved, err)
     if not vim.api.nvim_buf_is_valid(buf) then return end
+    if type(resolved) ~= 'table' or type(resolved.editions) ~= 'table' then
+      local reason = type(err) == 'string' and vim.trim(err) or ''
+      notify_workflow('Doublurecontrole niet gestart: '
+        .. (reason ~= '' and reason or 'editiebepaling gaf geen geldig resultaat.')
+        .. ' Controleer de invoer en probeer opnieuw met <leader>ad.', vim.log.levels.WARN, { buf = buf })
+      return
+    end
     local codes = resolved and type(resolved.editions) == "table" and resolved.editions or {}
     if #codes == 0 then
       notify_workflow(
@@ -3639,12 +3665,10 @@ function M.recheck_duplicates(buf)
     end
     vim.b[buf].pubble_duplicate_checked_body = nil
     vim.b[buf].pubble_duplicate_editing_review = nil
-    check_duplicate_stage(buf, codes, "hercontroleren", function(approved)
-      if approved and vim.api.nvim_buf_is_valid(buf) then
-        notify_workflow("Doublurecontrole opnieuw gedraaid.", vim.log.levels.INFO)
-      end
-    end)
-  end)
+    -- De gedeelde runner toont de echte kanaaluitkomst; geen tweede generieke
+    -- 'opnieuw gedraaid'-melding die succes suggereert na uitstel/deelfout.
+    M._check_duplicate_stage(buf, codes, "hercontroleren", function() end, nil, true)
+  end, true)
 end
 
 require("user_dialog").keymap("n", "<leader>ad", function() M.recheck_duplicates() end, {
@@ -3801,10 +3825,12 @@ local function extract_calendar_items(lines)
             local key, val = line:match("^    ([%w_]+):%s*(.*)$")
             if key then
               list_key = nil
-              if (key == "recurrence_days" or key == "missing_event_fields")
+              if (key == "recurrence_days" or key == "missing_event_fields" or key == "editions")
                   and (val == "" or val == "[]") then
                 current[key] = {}
                 if val == "" then list_key = key end
+              elseif key == "editions" and (val == "null" or val == "~") then
+                current.editions = "kiezen"
               else
                 local scalar = yaml_scalar(val)
                 if scalar then current[key] = scalar end
@@ -3875,6 +3901,11 @@ local function build_calendar_section_lines(lines)
   end
 
   local function add_item(target, item)
+    if type(item.editions) == "table" then
+      add(target, "Editie", #item.editions > 0 and table.concat(item.editions, ", ") or "geen")
+    elseif item.editions then
+      add(target, "Editie", item.editions)
+    end
     add(target, "Titel",       item.calendar_title or item.event_title, true)
     add(target, "Datum",       item.event_date, true)
     add(target, "Einddatum",   item.event_end_date)
@@ -4034,13 +4065,19 @@ end
 -- Alleen transport en veilige toepassing van de gedeelde, AI-vrije actie.
 -- Python bezit blijvende kalenderkeuzes; bufferflags zijn uitsluitend adapters.
 function M._calendar_transition_needed(buf)
-  if vim.b[buf].calendar_transition_tick == vim.api.nvim_buf_get_changedtick(buf) then return false end
+  local revisions = require('buffer_revision')
+  local previous = vim.b[buf].calendar_transition_revision
+  if previous and revisions.matches(buf, previous) then return false end
+  if vim.b[buf].calendar_transition_tick == vim.api.nvim_buf_get_changedtick(buf) then
+    vim.b[buf].calendar_transition_revision = revisions.capture(buf)
+    return false
+  end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   return vim.b[buf].calendar_section_seen == true or has_calendar_section(lines)
     or table.concat(lines, '\n'):find('\ncalendar_preparation:', 1, true) ~= nil
 end
 
-function M._calendar_transition(buf, action, values, done, guard)
+function M._calendar_transition(buf, action, values, done, guard, attempt)
   if not vim.api.nvim_buf_is_valid(buf) then done(nil); return end
   local snapshot = require('buffer_revision').capture(buf)
   local payload = vim.tbl_extend('force', {}, values or {}, {
@@ -4061,6 +4098,14 @@ function M._calendar_transition(buf, action, values, done, guard)
             .. ' Je tekst is behouden. Probeer opnieuw met <leader>ac.', vim.log.levels.ERROR, { buf = buf })
           done(nil)
         elseif not require('buffer_revision').matches(buf, snapshot) then
+          local before = M._duplicate_review_revision(snapshot.lines)
+          local after = M._duplicate_review_revision(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+          if vim.deep_equal(before[3], after[3]) and vim.deep_equal(before[4], after[4]) and (attempt or 0) < 2 then
+            -- De kleine lokale mutatie opnieuw op de huidige header/socials
+            -- uitvoeren; nooit een volledig oud werkdocument terugschrijven.
+            M._calendar_transition(buf, action, values, done, guard, (attempt or 0) + 1)
+            return
+          end
           vim.b[buf].send_requested = false
           notifications.notify('Tekst gewijzigd tijdens kalenderverwerking. Je wijzigingen zijn behouden; probeer opnieuw met <leader>ac.',
             vim.log.levels.WARN, { buf = buf })
@@ -4068,6 +4113,7 @@ function M._calendar_transition(buf, action, values, done, guard)
         else
           require('article_notices').replace_content(buf, vim.split(data.markdown, '\n', { plain = true }))
           vim.b[buf].calendar_transition_tick = vim.api.nvim_buf_get_changedtick(buf)
+          vim.b[buf].calendar_transition_revision = require('buffer_revision').capture(buf)
           if data.status == 'removed' or data.status == 'declined' or data.status == 'skipped' or data.status == 'allowed' then
             vim.b[buf].cached_calendar_metadata = nil
             vim.b[buf].cached_calendar_metadata_source = nil
@@ -4272,7 +4318,10 @@ _apply_articlemeta_calendar_result = function(buf, result, calendar_tick, explic
   -- bewaren, en aanhechten raakt de body niet. Bewaar het en hecht het aan
   -- zodra alle lopende AI-taken klaar zijn, zodat het als laatste wordt
   -- toegevoegd en geen recentere bewerking overschrijft (ARCHITECTUUR §9).
-  if vim.api.nvim_buf_get_changedtick(buf) ~= calendar_tick then
+  local same_article = type(calendar_tick) == 'table'
+    and editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) == calendar_tick.article_body
+    or (type(calendar_tick) == 'number' and vim.api.nvim_buf_get_changedtick(buf) == calendar_tick)
+  if not same_article then
     vim.b[buf].pending_calendar_meta_lines = meta_lines
     vim.b[buf].pending_calendar_explicit_request = explicit_request == true
     vim.b[buf].pending_calendar_task_scope = task_scope
@@ -4349,7 +4398,7 @@ function _run_articlemeta_calendar(buf, explicit_request)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local input = table.concat(lines, "\n")
 
-  local calendar_tick = vim.api.nvim_buf_get_changedtick(buf)
+  local calendar_tick = { article_body = editorial_body_text(lines) }
   local generation = vim.b[buf].calendar_request_generation
   vim.b[buf].calendar_request_source = input
   local command = { articlemeta, '--calendar' }
@@ -5292,6 +5341,21 @@ local function late_newspaper_codes(buf, mode)
   return type(decision.editions) == "table" and decision.editions or {}
 end
 
+-- Een gecontroleerde systeemwijziging (uitsluiting of aparte reviewsectie)
+-- maakt een geldig besluit niet oud. Eerdere echte bronedits blijven ongeldig.
+function M._advance_newspaper_decision(buf, before)
+  local decision = vim.b[buf].late_newspaper_decision
+  if type(decision) ~= 'table' then return end
+  local revisions = require('buffer_revision')
+  local transition = { before = before, after = revisions.capture(buf) }
+  for _, field in ipairs({ 'revision', 'use_web_revision' }) do
+    if type(decision[field]) == 'table' then
+      decision[field] = revisions.advance(decision[field], transition)
+    elseif decision[field] == before.tick then decision[field] = transition.after end
+  end
+  vim.b[buf].late_newspaper_decision = decision
+end
+
 -- Maak een per-editie-webkeuze zichtbaar én herstelbaar. De Python-parser
 -- vertaalt deze controleregels naar newspaper.skip_editions/skip_reasons; de
 -- Neovim-buffer en het reeds voorbereide tijdelijke verzendbestand krijgen
@@ -5325,7 +5389,11 @@ function M._record_newspaper_exclusions(buf, file, codes, reason)
   local buffer_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local changed = add(buffer_lines)
   if changed == nil then return false end
-  if changed then vim.api.nvim_buf_set_lines(buf, 0, -1, false, buffer_lines) end
+  if changed then
+    local before = require('buffer_revision').capture(buf)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, buffer_lines)
+    M._advance_newspaper_decision(buf, before)
+  end
   if type(file) == "string" and file ~= "" and vim.fn.filereadable(file) == 1 then
     local file_lines = vim.fn.readfile(file)
     if add(file_lines) then vim.fn.writefile(file_lines, file) end
@@ -5369,11 +5437,9 @@ end
 
 M._late_newspaper_message = late_newspaper_message
 M._late_newspaper_confirm = function(review, done)
-  local action_period = review.planning_basis == 'action_period'
-    and review.action_period_ends_before_newspaper ~= true
-  local rewrite = review.publication_timing == 'date_bound' and not action_period
+  local rewrite = review.publication_timing == 'date_bound'
   local newspaper_choice = rewrite and 'Herschrijven voor krant [h]'
-    or (action_period and 'Webtekst naar krant, zonder herschrijven [t]' or 'Toch ook naar de krant [t]')
+    or 'Toch ook naar de krant [t]'
   local shortcuts = { w = 1, W = 1, t = 2, T = 2, a = 3, A = 3 }
   local items = { 'Alleen website voor deze krant(en) [w]', newspaper_choice }
   if rewrite then
@@ -5388,7 +5454,7 @@ M._late_newspaper_confirm = function(review, done)
   }, function(_, index)
     -- Bestaand callbackcontract: 1 web, 2 herschrijven, 3 annuleren;
     -- nieuwe expliciete keuze 4 behoudt de webtekst.
-    if (rewrite and index == 3) or (action_period and index == 2) then done(4)
+    if rewrite and index == 3 then done(4)
     elseif rewrite and index == 4 then done(3)
     else done(index) end
   end)
@@ -5427,7 +5493,15 @@ local function review_late_newspapers(buf, review, done)
   local signature = (type(review.signature) == "string" and review.signature or "")
     .. ":" .. table.concat(pending, ",")
   local remembered = vim.b[buf].late_newspaper_decision
-  if type(remembered) == "table" and remembered.signature == signature then
+  local same_plan = type(remembered) == 'table' and remembered.review_signature ~= nil
+    and remembered.review_signature == review.signature
+  if same_plan then
+    for _, code in ipairs(pending) do
+      if not vim.tbl_contains(remembered.editions or {}, code) then same_plan = false; break end
+    end
+  end
+  if type(remembered) == "table" and (remembered.signature == signature or same_plan)
+      and (not remembered.revision or require('buffer_revision').matches(buf, remembered.revision)) then
     done(remembered.mode == "website" or remembered.mode == "force")
     return
   end
@@ -5436,43 +5510,75 @@ local function review_late_newspapers(buf, review, done)
     done(false)
     return
   end
-  local tick = vim.api.nvim_buf_get_changedtick(buf)
+  local revision = require('buffer_revision').capture(buf)
   vim.b[buf].late_newspaper_review_pending = true
-  M._late_newspaper_confirm(filtered_review, function(choice)
+  local function complete(choices, err)
     if not vim.api.nvim_buf_is_valid(buf) then done(false); return end
     vim.b[buf].late_newspaper_review_pending = nil
-    if vim.api.nvim_buf_get_changedtick(buf) ~= tick then
-      notify_workflow("Artikel gewijzigd tijdens de keuze; start de verzending opnieuw.", vim.log.levels.WARN)
+    if err or not require('buffer_revision').matches(buf, revision) then
+      notify_workflow(err or "Artikel gewijzigd tijdens de keuze; start de verzending opnieuw.", vim.log.levels.WARN)
       done(false)
       return
     end
-    if choice == 1 or choice == 2 or choice == 4 then
-      if choice == 1 then
+    if choices then
+      local website, allowed, keep = {}, {}, {}
+      for _, code in ipairs(pending) do
+        local choice = choices[code]
+        if choice == 'website' then table.insert(website, code)
+        elseif choice == 'rewrite' or choice == 'use_web' then
+          table.insert(allowed, code)
+          if choice == 'use_web' then table.insert(keep, code) end
+        else done(false); return end
+      end
+      if #website > 0 then
         if not M._record_newspaper_exclusions(
-            buf, nil, pending, "inhoudelijke krantdeadline verstreken"
+            buf, nil, website, "inhoudelijke krantdeadline verstreken"
           ) then
           done(false)
           return
         end
         vim.b[buf].skip_newspaper_editions = merged_edition_codes(
-          effective_skipped_newspapers(buf), pending
+          effective_skipped_newspapers(buf), website
         )
       end
+      local final_revision = require('buffer_revision').capture(buf)
       vim.b[buf].late_newspaper_decision = {
         signature = signature,
-        mode = choice == 1 and "website" or "force",
-        editions = pending,
-        use_web_editions = choice == 4 and pending or {},
-        use_web_revision = choice == 4 and require('buffer_revision').capture(buf) or nil,
+        review_signature = review.signature,
+        mode = #allowed == 0 and 'website' or 'force',
+        editions = #allowed == 0 and website or allowed,
+        use_web_editions = keep,
+        use_web_revision = #keep > 0 and final_revision or nil,
+        revision = final_revision,
       }
-      require('workflow_log').decision(buf, 'Krantdeadline', choice == 1 and 'website'
-        or (choice == 4 and 'use_web_text' or 'force'), pending)
+      for _, code in ipairs(pending) do
+        local choice = choices[code]
+        require('workflow_log').decision(buf, 'Krantdeadline', choice == 'use_web' and 'use_web_text'
+          or (choice == 'rewrite' and 'force' or 'website'), { code })
+      end
       done(true)
     else
       require('workflow_log').decision(buf, 'Krantdeadline', 'cancel', pending)
       done(false)
     end
-  end)
+  end
+  if type(review.choice_plan) == 'table' then
+    local plan, needed = vim.deepcopy(review.choice_plan), {}
+    for _, code in ipairs(pending) do needed[code] = true end
+    plan.items = vim.tbl_filter(function(item) return needed[item.edition] end, plan.items or {})
+    if #plan.items ~= #pending then complete(nil, 'Onvolledig krantkeuzeplan'); return end
+    require('newspaper_review').collect(plan, {
+      buf = buf, valid = function() return require('buffer_revision').matches(buf, revision) end,
+    }, complete)
+  else
+    -- Oudere kern zonder keuzeplan: behoud het bestaande callbackcontract.
+    M._late_newspaper_confirm(filtered_review, function(choice)
+      local action = ({ [1] = 'website', [2] = 'rewrite', [4] = 'use_web' })[choice or 0]
+      local choices = action and {} or nil
+      if choices then for _, code in ipairs(pending) do choices[code] = action end end
+      complete(choices)
+    end)
+  end
 end
 
 M._review_late_newspapers = review_late_newspapers
@@ -5511,10 +5617,12 @@ function M._resume_newspaper_deadline_review(buf, status, planning, done)
           local kept_web = merged_edition_codes(previous_web, current.use_web_editions)
           vim.b[buf].late_newspaper_decision = {
             mode = 'force', editions = remaining, signature = current.signature,
+            review_signature = current.review_signature,
             use_web_editions = kept_web,
             -- De eigen, gecontroleerde web-only-kopregel mag een bestaande
             -- behoudkeuze voor andere edities niet ongeldig maken.
             use_web_revision = #kept_web > 0 and require('buffer_revision').capture(buf) or nil,
+            revision = require('buffer_revision').capture(buf),
           }
         end
       end
@@ -7646,10 +7754,12 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
         -- Python blijft dezelfde inhoud bij iedere verzendpoging strikt toetsen.
         if type(payload.validation_issues) == 'table' and #payload.validation_issues > 0 then
           if payload.changed == true then
+            local before = require('buffer_revision').capture(buf)
             if type(payload.section) ~= 'string' or not apply_timing_versions_section(buf, payload.section) then
               done(false, 'Krantvoorstel kon niet veilig in de buffer worden gezet.')
               return
             end
+            M._advance_newspaper_decision(buf, before)
             vim.fn.writefile(vim.split(payload.markdown:gsub('\n$', ''), '\n', { plain = true }), file)
           end
           local messages = { 'Krantvoorstel controleren bij ## Kranttijdsversies; daarna <leader>aw. Nog niets verzonden.' }
@@ -7663,6 +7773,65 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
           return
         end
 
+        -- Nieuwe kern: dezelfde asynchrone, per-krant-keuzeronde voor deadline
+        -- én datumcontext. Geen generatie, uitsluiting of opslag halverwege.
+        if not confirmed and type(payload.choice_plan) == 'table'
+            and (payload.decision_required == true or payload.requires_review == true) then
+          vim.b[buf].print_timing_reentry = nil
+          local pending = timing_target_editions(unapproved_targets(payload.targets), false)
+          if #pending == 0 then run(true, false, true); return end
+          local plan, needed = vim.deepcopy(payload.choice_plan), {}
+          for _, code in ipairs(pending) do needed[code] = true end
+          plan.items = vim.tbl_filter(function(item) return needed[item.edition] end, plan.items or {})
+          if #plan.items ~= #pending then
+            done(false, 'Onvolledig krantkeuzeplan; start opnieuw.')
+            return
+          end
+          require('newspaper_review').collect(plan, {
+            buf = buf, valid = function()
+              return vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_get_changedtick(buf) == input_tick
+            end,
+          }, function(choices, err)
+            if not choices then
+              require('workflow_log').decision(buf, 'Kranttijdsversie', 'cancel', pending)
+              done(false, err or AI_CANCELLED)
+              return
+            end
+            local excluded, keep = {}, {}
+            for _, code in ipairs(pending) do
+              if choices[code] == 'website' then table.insert(excluded, code)
+              elseif choices[code] == 'use_web' then table.insert(keep, code)
+              elseif choices[code] ~= 'rewrite' then done(false, 'Onvolledige krantkeuzes.'); return end
+            end
+            if #excluded > 0 then
+              if not M._record_newspaper_exclusions(buf, file, excluded, 'alleen website gekozen bij kranttijdcontrole') then
+                done(false, 'Krantuitzondering kon niet worden vastgelegd')
+                return
+              end
+              vim.b[buf].skip_newspaper_editions = merged_edition_codes(effective_skipped_newspapers(buf), excluded)
+              input_tick = vim.api.nvim_buf_get_changedtick(buf)
+            end
+            use_web_editions = merged_edition_codes(use_web_editions, keep)
+            for _, code in ipairs(pending) do
+              require('workflow_log').decision(buf, 'Kranttijdsversie',
+                choices[code] == 'use_web' and 'use_web_text' or choices[code], { code })
+            end
+            local remaining = {}
+            for _, code in ipairs(edition_codes) do
+              if not vim.tbl_contains(excluded, code) then table.insert(remaining, code) end
+            end
+            edition_codes = remaining
+            local targets_remain = false
+            for _, target in ipairs(payload.targets or {}) do
+              if vim.tbl_contains(remaining, target.edition) then targets_remain = true end
+            end
+            if targets_remain then run(true, false, true)
+            else done(true, nil, false, effective_skipped_newspapers(buf)) end
+          end)
+          return
+        end
+
+        -- Compatibiliteit met oudere cores zonder per-krant-keuzeplan.
         if payload.decision_required == true then
           local pending_targets = unapproved_targets(payload.targets)
           local past_target_editions = timing_target_editions(pending_targets, true)
@@ -7800,6 +7969,7 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
         end
 
         if payload.changed == true then
+          local before = require('buffer_revision').capture(buf)
           vim.fn.writefile(
             vim.split(payload.markdown:gsub("\n$", ""), "\n", { plain = true }),
             file
@@ -7809,6 +7979,7 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
             done(false, "Kranttijdversie kon niet veilig in de buffer worden gezet")
             return
           end
+          M._advance_newspaper_decision(buf, before)
         end
         local skipped = type(payload.skipped_newspaper_editions) == "table"
             and payload.skipped_newspaper_editions or {}
@@ -7825,8 +7996,7 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
   -- Alleen de aparte evenementkeuze mag alle kranttijdversies overslaan.
   -- Een te-late-editie die web-only wordt, blijft editie-specifiek en mag
   -- daarom niet via deze globale boolean ook andere kranten uitschakelen.
-  local remembered_skip = vim.b[buf].skip_newspaper_editions
-  run(false, type(remembered_skip) == "table" and #remembered_skip > 0, false)
+  run(false, false, false)
 end
 
 M._temporal_print_prepare = temporal_print_prepare
@@ -8267,7 +8437,6 @@ require("user_dialog").keymap("n", "<leader>al", M.generate_linkedin, {
 -- pubble-send automatisch gestript, dus hoeven nooit opgeruimd te worden).
 function M.tekstcheck()
   local buf = vim.api.nvim_get_current_buf()
-  local tick = vim.api.nvim_buf_get_changedtick(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
   sections = drop_suggestions_block(sections)
@@ -8278,7 +8447,7 @@ function M.tekstcheck()
     function(result)
       notifications.schedule(function()
         if not vim.api.nvim_buf_is_valid(buf) then return end
-        if vim.api.nvim_buf_get_changedtick(buf) ~= tick then
+        if editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) ~= vim.trim(table.concat(body, '\n')) then
           notify_workflow('Tekstcheck niet toegepast: de tekst is tijdens de controle gewijzigd. Start de controle opnieuw met <leader>ao.', vim.log.levels.WARN,
             { buf = buf, task_outcome = 'not_applied' })
           return
@@ -8294,8 +8463,10 @@ function M.tekstcheck()
           notifications.notify('Tekstcheck gaf geen bruikbaar resultaat terug. Je tekst is behouden; probeer opnieuw met <leader>ao.', vim.log.levels.ERROR, { buf = buf })
           return
         end
+        local current_fm, current_ctrl, _, current_sections, boundary =
+          split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
         require('article_notices').replace_content(buf,
-          reassemble_article(fm, ctrl, new_body, sections, has_boundary))
+          reassemble_article(current_fm, current_ctrl, new_body, drop_suggestions_block(current_sections), boundary))
         local unchanged = table.concat(new_body, '\n') == table.concat(body, '\n'):gsub('\n+$', '')
         notify_workflow(unchanged and 'Tekstcheck afgerond: geen correcties of suggesties.'
           or 'Tekstcheck afgerond: resultaat toegepast. Controleer de tekst.', vim.log.levels.INFO,
@@ -8325,22 +8496,25 @@ function M.journalistic_neutralize()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local fm, ctrl, body, sections, has_boundary = split_article_parts(lines)
   local original_content = table.concat(lines, "\n")
-  local requested_tick = vim.api.nvim_buf_get_changedtick(buf)
   local generation = (vim.b[buf].an_request_generation or 0) + 1
   vim.b[buf].an_request_generation = generation
   local source_body = table.concat(body, '\n')
   local function is_current()
     return vim.api.nvim_buf_is_valid(buf)
-      and vim.api.nvim_buf_get_changedtick(buf) == requested_tick
+      and editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) == vim.trim(source_body)
       and vim.b[buf].an_request_generation == generation
   end
   local function apply(new_body, reviewed)
     if not is_current() then return end
-    local new_lines = reassemble_article(fm, ctrl, new_body, sections, has_boundary)
+    -- Buiten de artikeltekst bezit deze taak niets: lees de nieuwste kopdata
+    -- en staartsecties terug, ook bij een later geaccepteerd AN-voorstel.
+    local current_fm, current_ctrl, _, current_sections, boundary =
+      split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+    local new_lines = reassemble_article(current_fm, current_ctrl, new_body, current_sections, boundary)
     require('article_notices').replace_content(buf, new_lines)
     M._post_full_article_rewrite({
       buf = buf, document = table.concat(new_lines, '\n'),
-      body = table.concat(new_body, '\n'), controls = ctrl, original_content = original_content,
+      body = table.concat(new_body, '\n'), controls = current_ctrl, original_content = original_content,
       after_start = function()
         if vim.api.nvim_buf_is_valid(buf) then mark_ai_neutrality_completed(buf) end
       end,
@@ -8943,7 +9117,7 @@ function M.ai_prompt_rewrite()
   local fm, ctrl, body, sections, has_boundary = split_article_parts(article_lines)
   local original_content = table.concat(article_lines, "\n")
   local is_112_template = _parse_112_template(body)
-  local requested_tick = vim.api.nvim_buf_get_changedtick(buf)
+  local requested_body = editorial_body_text(article_lines)
 
   local rewrite_command = { aichat, prompt, "--mode", "rewrite" }
   append_reference_date(rewrite_command, buf)
@@ -8953,7 +9127,10 @@ function M.ai_prompt_rewrite()
     function(result)
       notifications.schedule(function()
         if not vim.api.nvim_buf_is_valid(buf) then return end
-        if vim.api.nvim_buf_get_changedtick(buf) ~= requested_tick then
+        local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        local current_article = split_on_prompt_marker(current_lines)
+        local current_body = editorial_body_text(current_article and vim.split(current_article, '\n', { plain = true }) or current_lines)
+        if current_body ~= requested_body then
           notify_workflow("Herschrijving niet toegepast: de tekst is intussen gewijzigd.", vim.log.levels.WARN,
             { buf = buf, task_outcome = 'not_applied' })
           return
@@ -8970,15 +9147,17 @@ function M.ai_prompt_rewrite()
           return
         end
         local new_body = vim.split(output, "\n", { plain = true })
+        local current_fm, current_ctrl, _, current_sections, boundary =
+          split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
         require('article_notices').replace_content(buf,
-          reassemble_article(fm, ctrl, new_body, sections, has_boundary))
+          reassemble_article(current_fm, current_ctrl, new_body, current_sections, boundary))
         mark_ai_rewrite_completed(buf)
         local rewritten_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
         M._post_full_article_rewrite({
           buf = buf,
           document = table.concat(rewritten_lines, "\n"),
           body = table.concat(new_body, "\n"),
-          controls = ctrl,
+          controls = current_ctrl,
           original_content = original_content,
           is_112_template = is_112_template ~= nil,
         })

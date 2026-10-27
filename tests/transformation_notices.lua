@@ -1,3 +1,4 @@
+dofile('tests/helpers/notice_clock.lua')
 local activity = require('article_activity')
 activity.setup { preferences = vim.fn.tempname() .. '/activity.json' }
 local ai, krant = require('ai_text'), require('krant')
@@ -6,7 +7,7 @@ local buf = vim.api.nvim_create_buf(true, false)
 vim.api.nvim_set_current_buf(buf)
 local original_body = "'t Is maar wat in disse stad.\n\nEen gewone alinea.\n\nAppien Floep"
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
-  'Melding: Importbewerking (zonder AI): afgebroken regels samengevoegd.', '',
+  '[12:34] Importbewerking (zonder AI): afgebroken regels samengevoegd.', '',
   '=== ARTIKEL ===', '',
 })
 local function text() return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n') end
@@ -22,8 +23,8 @@ vim.system = function(command, options, done)
   return native_system(command, options, done)
 end
 krant.apply_detected_rubric('leugenbankien', buf, { normalized_body = original_body }, function() end)
-wait(function() return text():find('Melding: Rubriek: Leugenbankien.', 1, true) end)
-assert(text():find('Melding: Import opgeschoond (zonder AI)', 1, true), 'template verloor importmelding')
+wait(function() return text():find('[12:34] Rubriek: Leugenbankien.', 1, true) end)
+assert(text():find('[12:34] Import opgeschoond (zonder AI)', 1, true), 'template verloor importmelding')
 assert(text():find('Appien Floep', 1, true), 'template verloor broninhoud')
 local function correction(value)
   activity.record(buf, value, vim.log.levels.INFO, {
@@ -31,14 +32,14 @@ local function correction(value)
   })
 end
 correction('Tekstcheck: spelling en grammatica gecontroleerd; correcties toegepast.')
-wait(function() return text():find('Melding: Tekstcheck:', 1, true) end)
+wait(function() return text():find('[12:34] Tekstcheck:', 1, true) end)
 correction('Tekstcheck: nieuwe correcties toegepast.')
-wait(function() return text():find('Melding: Tekstcheck: nieuwe correcties toegepast.', 1, true) end)
+wait(function() return text():find('[12:34] Tekstcheck: nieuwe correcties toegepast.', 1, true) end)
 assert(not text():find('spelling en grammatica gecontroleerd', 1, true), 'oude groepsmelding stapelt op')
 assert(#activity.snapshot(buf).entries >= 3, 'samenvatting verwijderde historie')
 vim.system = function(command, opts, done)
   if command[2] == 'tekstcheck' then
-    assert(not opts.stdin:find('Melding:', 1, true), 'werkregels kwamen in AI-input')
+    assert(not opts.stdin:find('[12:34]', 1, true), 'werkregels kwamen in AI-input')
     done { code = 0, stdout = opts.stdin:gsub('gewone alinea', 'gecorrigeerde alinea'), stderr = '' }
     return { kill = function() end }
   end
@@ -68,7 +69,7 @@ ai.tussenkopjes_streamer { automatic = true, buf = format_buf,
   headline = { has_headline = true, automatic_structure = true } }
 assert(vim.wait(2000, function()
   local value = table.concat(vim.api.nvim_buf_get_lines(format_buf, 0, -1, false), '\n')
-  return value:find('Melding: Opmaak: tussenkopjes toegevoegd; streamer toegevoegd.', 1, true)
+  return value:find('[12:34] Opmaak: tussenkopjes toegevoegd; streamer toegevoegd.', 1, true)
 end, 10), 'opmaakmelding ontbreekt')
 assert(not table.concat(vim.api.nvim_buf_get_lines(format_buf, 0, -1, false), '\n'):find('kop aangepast', 1, true))
 

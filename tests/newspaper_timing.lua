@@ -206,9 +206,9 @@ vim.fn.maparg('a', 'n', false, true).callback()
 assert(selected == 3, 'annuleren werd behoudkeuze')
 dated_review.planning_basis = 'action_period'
 ai._late_newspaper_confirm(dated_review, function(value) selected = value end)
-assert(vim.wait(500, function() return type(vim.fn.maparg('t', 'n', false, true).callback) == 'function' end, 5))
-assert(not table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n'):find('Herschrijven voor krant', 1, true))
-vim.fn.maparg('t', 'n', false, true).callback()
+assert(vim.wait(500, function() return type(vim.fn.maparg('b', 'n', false, true).callback) == 'function' end, 5))
+assert(table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n'):find('Herschrijven voor krant', 1, true))
+vim.fn.maparg('b', 'n', false, true).callback()
 assert(selected == 4, 'actieperiode ging alsnog herschrijven')
 vim.fn.confirm = native_confirm
 

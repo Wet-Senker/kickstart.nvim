@@ -1,3 +1,4 @@
+dofile('tests/helpers/notice_clock.lua')
 -- Alleen de getypeerde kalenderwerkactie draait echt; geen AI, CMS of browser.
 local ai = require 'ai_text'
 local activity = require 'article_activity'
@@ -38,7 +39,7 @@ local notice = ai._calendar_notice(proposed)
 assert(notice == message and not ai._build_calendar_section_lines(proposed))
 ai._apply_articlemeta_calendar_result(buf, { code = 0, stdout = table.concat(proposed, '\n') },
   vim.api.nvim_buf_get_changedtick(buf), true, nil, 1)
-wait(function() return text(buf):find('Melding: LET OP: ' .. message, 1, true) end)
+wait(function() return text(buf):find('[12:34] LET OP: ' .. message, 1, true) end)
 assert(not text(buf):find('## Kalender', 1, true) and text(buf):find('agenda: nee', 1, true))
 assert(text(buf):find('@ Graag controleren.', 1, true) and text(buf):find('Een eigen socialtekst.', 1, true))
 assert(text(buf):find('WAPENVELD - De tocht begint', 1, true))

@@ -4,6 +4,22 @@ local M = { namespace = vim.api.nvim_create_namespace 'texttools_article_notices
 local marks, attached = {}, {}
 local literal = {}
 
+-- Alleen het gedeelde werkregelformaat herkennen, uitsluitend in het kopblok.
+-- Oude bestanden hebben geen betrouwbare handelingstijd: niet alsnog 'nu' tonen.
+function M.parse_line(line)
+  local legacy = line:match('^%s*[Mm][Ee][Ll][Dd][Ii][Nn][Gg]%s*:%s*(.*)$')
+  if legacy ~= nil then return legacy end
+  local time, message = line:match('^%s*%[([^%]]+)%](.*)$')
+  if not time or (message ~= '' and not message:match('^%s')) then return nil end
+  local hour, minute = time:match('^(%d%d):(%d%d)$')
+  if time ~= '--:--' and (not hour or tonumber(hour) > 23 or tonumber(minute) > 59) then return nil end
+  return message:gsub('^%s+', ''), time
+end
+
+function M.is_line(line) return M.parse_line(line) ~= nil end
+
+local function stamped(message, time) return '[' .. (time or '--:--') .. '] ' .. message end
+
 local function setup_styles()
   for name, source in pairs { TexttoolsNotice = 'Comment', TexttoolsNoticeWarning = 'WarningMsg', TexttoolsNoticeError = 'ErrorMsg' } do
     local color = vim.api.nvim_get_hl(0, { name = source, link = false })
@@ -153,12 +169,11 @@ local function show_virtual(buf, issues, changed)
     return
   end
   table.sort(notices, function(a, b)
-    if a.level ~= b.level then return a.level > b.level end
     return a.id < b.id
   end)
   local columns, row, fallback = width(buf), anchor(buf)
   local previous, ids = marks[buf], {}
-  for _, notice in ipairs(notices) do ids[#ids + 1] = notice.id end
+  for _, notice in ipairs(notices) do ids[#ids + 1] = tostring(notice.id) .. ':' .. (notice.time or '') end
   if previous and previous.width == columns and vim.deep_equal(previous.ids, ids) then
     -- Tekstbewerkingen verplaatsen het extmark zelf. Alleen een vervangen
     -- grens vraagt een nieuwe tekenpositie; niet iedere toets opnieuw wrappen.
@@ -182,7 +197,7 @@ local function show_virtual(buf, issues, changed)
       or (notice.level >= vim.log.levels.WARN and 'LET OP: ' or '')
     if summary:find('LET OP:', 1, true) or summary:match('^FOUT:') then prefix = '' end
     local notice_style = style(notice.level)
-    local lines = wrap(prefix .. summary, columns)
+    local lines = wrap(stamped(prefix .. summary, notice.time), columns)
     local maximum = math.min(8, #lines)
     for line = 1, maximum do rows[#rows + 1] = { { lines[line], notice_style } } end
     if #lines > maximum then
@@ -224,7 +239,7 @@ local function show_virtual(buf, issues, changed)
   end
 end
 
--- Echte, verwijderbare werkregels. Het expliciete Melding:-contract wordt
+-- Echte, verwijderbare werkregels. Het expliciete [HH:MM]-contract wordt
 -- door Python alleen boven een artikelgrens geaccepteerd en nooit gepubliceerd.
 M.line_namespace = vim.api.nvim_create_namespace 'texttools_notice_lines'
 
@@ -239,7 +254,7 @@ local function header_start(lines, last)
 end
 
 -- Alleen representatieruis uit vergelijkingssnapshots halen. Zonder expliciete
--- grens is "Melding:" mogelijk gewone bron-/artikeltekst en blijft ze intact.
+-- grens zijn tijdregels en "Melding:" mogelijk gewone artikeltekst: intact laten.
 function M.content_lines(lines)
   local last
   for index, line in ipairs(lines) do if boundary(line) then last = index; break end end
@@ -250,7 +265,7 @@ function M.content_lines(lines)
     -- Witruimte tussen instellingen en meldingen is eveneens presentatie.
     -- YAML (ook meerregelige waarden) en alle artikelwitruimte blijven exact.
     if index < first or index >= last
-      or (not line:match('^%s*$') and not line:lower():match('^%s*melding%s*:')) then
+      or (not line:match('^%s*$') and not M.is_line(line)) then
       clean[#clean + 1] = line
     end
   end
@@ -270,7 +285,7 @@ local function line_text(notice)
   elseif notice.level >= vim.log.levels.WARN and not message:find('LET OP:', 1, true) then
     message = 'LET OP: ' .. message
   end
-  return 'Melding: ' .. message
+  return stamped(message, notice.time)
 end
 
 local function line_mark(buf, at, style, id)
@@ -284,9 +299,10 @@ local function highlight_header(buf, lines, first)
   vim.api.nvim_buf_clear_namespace(buf, M.style_namespace, 0, -1)
   for index = first, #lines do
     local text = lines[index]
-    if text:lower():match('^%s*melding%s*:') then
-      local level = text:find('Melding: FOUT:', 1, true) and vim.log.levels.ERROR
-        or (text:find('LET OP:', 1, true) and vim.log.levels.WARN or vim.log.levels.INFO)
+    local message = M.parse_line(text)
+    if message ~= nil then
+      local level = message:match('^FOUT:') and vim.log.levels.ERROR
+        or (message:find('LET OP:', 1, true) and vim.log.levels.WARN or vim.log.levels.INFO)
       vim.api.nvim_buf_set_extmark(buf, M.style_namespace, index - 1, 0, {
         end_row = index, end_col = 0, hl_group = style(level), hl_mode = 'replace', priority = 250,
       })
@@ -322,9 +338,9 @@ local function organize_header(buf, state)
   local controls, notices, positions = {}, {}, {}
   for index = first, row do
     local line = before[index]
-    if line:lower():match('^%s*melding%s*:') then
-      local message = line:match('^%s*[Mm][Ee][Ll][Dd][Ii][Nn][Gg]%s*:%s*(.*)$')
-      notices[#notices + 1] = { text = 'Melding: ' .. M.summary(message, false), index = index }
+    local message, time = M.parse_line(line)
+    if message ~= nil then
+      notices[#notices + 1] = { text = stamped(M.summary(message, false), time), index = index }
     elseif not line:match('^%s*$') then
       controls[#controls + 1] = { text = line, index = index }
     end
@@ -392,7 +408,7 @@ function M.show(buf, issues, changed, may_edit)
     end
     if not finished then return end
     for index = header_start(lines, #lines), #lines - 1 do
-      if lines[index]:lower():match('^%s*melding%s*:') then found = true; break end
+      if M.is_line(lines[index]) then found = true; break end
     end
     if not found then return end
   end
@@ -446,7 +462,7 @@ function M.show(buf, issues, changed, may_edit)
   for _, notice in pairs(issues or {}) do
     current[notice.id] = notice
     ordered[#ordered + 1] = notice
-    signature[notice.id] = { notice.message, notice.level }
+    signature[notice.id] = { notice.message, notice.level, notice.time }
   end
   table.sort(ordered, function(a, b) return a.id < b.id end)
   -- Na undo/redo ook bij BufEnter/resize/logboekdetails de herstelde tekst
@@ -480,6 +496,15 @@ function M.show(buf, issues, changed, may_edit)
       state.dismissed[id] = true
     elseif not current[id] then
       vim.api.nvim_buf_set_lines(buf, at, at + 1, false, {})
+    else
+      -- Een herhaalde echte handeling kan dezelfde uitkomst-ID hergebruiken.
+      -- Alleen de nieuwe uitkomsttijd bijwerken; refresh/openen gebruikt geen klok.
+      local text = line_text(current[id])
+      if text ~= entry.text then
+        vim.api.nvim_buf_set_lines(buf, at, at + 1, false, { text })
+        entry.text = text
+        entry.mark = line_mark(buf, at, entry.style or 'TexttoolsNotice', entry.mark)
+      end
     end
     if not same or not current[id] then
       vim.api.nvim_buf_del_extmark(buf, M.line_namespace, entry.mark)

@@ -1,3 +1,4 @@
+dofile('tests/helpers/notice_clock.lua')
 local activity = require 'article_activity'
 activity.setup { preferences = vim.fn.tempname() .. '/activity.json' }
 local function article()
@@ -9,7 +10,7 @@ end
 local function text(buf) return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n') end
 local function count(buf)
   local n = 0
-  for _, line in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do if line:match('^Melding:') then n = n + 1 end end
+  for _, line in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do if line:match('^%[12:34%]') then n = n + 1 end end
   return n
 end
 local function row(buf, needle)
@@ -23,12 +24,12 @@ local ai = require 'ai_text'
 local body = ai._editorial_body_text(vim.api.nvim_buf_get_lines(a, 0, -1, false))
 activity.record(a, 'Kalendergegevens toegevoegd.', nil, { inline = true, notice_key = 'calendar', kind = 'success' })
 wait(function() return count(a) == 1 end)
-assert(text(a):find('e: B\n\nMelding: Kalendergegevens toegevoegd.\n\n=== ARTIKEL ===', 1, true))
+assert(text(a):find('e: B\n\n[12:34] Kalendergegevens toegevoegd.\n\n=== ARTIKEL ===', 1, true))
 assert(not text(a):find('LET OP', 1, true), 'succes kreeg een waarschuwing')
 assert(not activity.panel_visible(a))
 assert(#vim.api.nvim_buf_get_extmarks(a, require('article_notices').namespace, 0, -1, {}) == 0, 'virtuele dubbeling')
 -- Normale yy/dd-bediening, geen nieuwe mappings of popup nodig.
-vim.api.nvim_win_set_cursor(0, { row(a, 'Melding:'), 0 })
+vim.api.nvim_win_set_cursor(0, { row(a, '[12:34]'), 0 })
 vim.cmd('normal! yy')
 assert(vim.fn.getreg('"'):find('Kalendergegevens toegevoegd.', 1, true))
 vim.cmd('normal! dd')
@@ -48,12 +49,12 @@ wait(function() return count(a) == 1 and not text(a):find('Datum ontbreekt', 1, 
 assert(not activity.snapshot(a).issues.calendar)
 assert(ai._editorial_body_text(vim.api.nvim_buf_get_lines(a, 0, -1, false)) == body)
 local normalized = require('article_notices').content_lines(vim.api.nvim_buf_get_lines(a, 0, -1, false))
-assert(not table.concat(normalized, '\n'):find('Melding:', 1, true), 'statusregel vervuilt vergelijkingssnapshot')
-assert(require('article_notices').content_lines({ 'Melding: gewone bron' })[1] == 'Melding: gewone bron')
+assert(not table.concat(normalized, '\n'):find('[12:34]', 1, true), 'statusregel vervuilt vergelijkingssnapshot')
+assert(require('article_notices').content_lines({ '[12:34] gewone bron' })[1] == '[12:34] gewone bron')
 local path = vim.fn.tempname() .. '.md'
 vim.api.nvim_buf_set_name(a, path)
 vim.cmd('silent write')
-assert(table.concat(vim.fn.readfile(path), '\n'):find('Melding:', 1, true))
+assert(table.concat(vim.fn.readfile(path), '\n'):find('[12:34]', 1, true))
 -- Automatische statusregels maken lopend werk niet verouderd.
 activity.start(a, 'running', 'Controleren')
 local tick = vim.api.nvim_buf_get_changedtick(a)
@@ -61,13 +62,13 @@ activity.record(a, 'Facebook-tekst toegevoegd.', nil, { inline = true, notice_ke
 vim.wait(20, function() return false end)
 assert(vim.api.nvim_buf_get_changedtick(a) == tick)
 activity.finish(a, 'running')
-wait(function() return text(a):find('Melding: Facebook-tekst toegevoegd.', 1, true) end)
+wait(function() return text(a):find('[12:34] Facebook-tekst toegevoegd.', 1, true) end)
 -- Weggehaalde waarschuwing verandert geen onderliggende controle.
 activity.record(a, 'Fotocredit ontbreekt. Vul c: in.', vim.log.levels.WARN, { action = 'Fotocredit' })
-wait(function() return text(a):find('Melding: LET OP: Fotocredit', 1, true) end)
-vim.api.nvim_win_set_cursor(0, { row(a, 'Melding: LET OP: Fotocredit'), 0 })
+wait(function() return text(a):find('[12:34] LET OP: Fotocredit', 1, true) end)
+vim.api.nvim_win_set_cursor(0, { row(a, '[12:34] LET OP: Fotocredit'), 0 })
 vim.cmd('normal! dd')
-wait(function() return not text(a):find('Melding: LET OP: Fotocredit', 1, true) end)
+wait(function() return not text(a):find('[12:34] LET OP: Fotocredit', 1, true) end)
 assert(activity.snapshot(a).issues.Fotocredit)
 activity.record(a, 'Foto gecontroleerd.', nil, { kind = 'success', action = 'Fotocredit' })
 wait(function() return not activity.snapshot(a).issues.Fotocredit end)
@@ -78,7 +79,7 @@ wait(function() return count(b) == 1 end)
 assert(not text(a):find('Andere bron.', 1, true))
 vim.api.nvim_buf_set_lines(b, 0, 0, false, { 'Een kopregel' })
 vim.wait(20, function() return false end)
-assert(count(b) == 1 and row(b, 'Melding:') < row(b, '=== ARTIKEL ==='))
+assert(count(b) == 1 and row(b, '[12:34]') < row(b, '=== ARTIKEL ==='))
 vim.api.nvim_buf_set_lines(b, 0, -1, false, { 'e: B', '=== ARTIKEL ===', 'Nieuwe body' })
 vim.wait(20, function() return false end)
 assert(count(b) == 0)

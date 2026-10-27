@@ -1,3 +1,4 @@
+dofile('tests/helpers/notice_clock.lua')
 local displayed, handle_serial = {}, 0
 package.preload['fidget.progress'] = function()
   return {
@@ -186,7 +187,7 @@ assert(vim.json.decode(table.concat(vim.fn.readfile(preferences), '\n')).visible
 notifications.workflow('Upload mislukt.', vim.log.levels.ERROR, { buf = b })
 pause()
 assert(not panel(), 'nieuwe fout opende alsnog het logboek')
-assert(table.concat(vim.api.nvim_buf_get_lines(b, 0, -1, false), '\n'):find('Melding: FOUT: Upload mislukt.', 1, true),
+assert(table.concat(vim.api.nvim_buf_get_lines(b, 0, -1, false), '\n'):find('[12:34] FOUT: Upload mislukt.', 1, true),
   'nieuwe fout ontbreekt boven het artikel')
 activity.toggle()
 wait_for(panel, 'logboek opende niet op verzoek')

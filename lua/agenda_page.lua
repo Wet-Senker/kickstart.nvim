@@ -247,16 +247,20 @@ local function duplicate_candidate_line(candidate)
   )
 end
 
-local function show_validation(decoded)
+local function show_validation(decoded, sending, buf)
   if decoded.valid then
     workflow(
-      string.format('Agendapagina klopt: %d dagen, %d activiteiten, editie %s.', decoded.days or 0, decoded.items or 0, decoded.edition or '?'),
-      vim.log.levels.INFO
+      type(decoded.summary) == 'string' and decoded.summary
+        or string.format('Agenda gecontroleerd: %d berichten.', decoded.items or 0),
+      vim.log.levels.INFO, { buf = buf, action = 'Agenda · Controle', resolved = true }
     )
     return true
   end
   local errors = decoded.errors or { 'Onbekende validatiefout' }
-  notifications.notify('Agendapagina nog niet verzendklaar:\n- ' .. table.concat(errors, '\n- '), vim.log.levels.WARN)
+  local summary = type(decoded.summary) == 'string' and decoded.summary
+    or ('Niet verzendklaar: ' .. (errors[1] or 'Onbekende fout'))
+  if sending then summary = summary:gsub('^Niet verzendklaar:', 'Niet verzonden:') end
+  notifications.notify(summary, vim.log.levels.WARN, { buf = buf, action = 'Agenda · Controle' })
   return false
 end
 
@@ -266,6 +270,12 @@ local function validate_buffer(buf, callback, edition)
   notifications.system(validate_command, { text = true, stdin = text }, function(result)
     notifications.schedule(function()
       if not vim.api.nvim_buf_is_valid(buf) then return end
+      if buffer_text(buf) ~= text then
+        workflow('Agendapagina gewijzigd tijdens de controle. Controleer of verzend opnieuw.',
+          vim.log.levels.WARN, { buf = buf })
+        if callback then callback(false) end
+        return
+      end
       local decoded = decode_validation(result.stdout)
       if not decoded then
         notifications.notify(vim.trim(result.stderr or '') ~= '' and vim.trim(result.stderr) or 'De agendacontrole gaf geen leesbaar resultaat.', vim.log.levels.ERROR)
@@ -279,7 +289,7 @@ local function validate_buffer(buf, callback, edition)
       if type(decoded.pubble_url) == 'string' and decoded.pubble_url ~= '' then
         vim.b[buf].agenda_page_published_url = decoded.pubble_url
       end
-      local valid = show_validation(decoded)
+      local valid = show_validation(decoded, edition ~= nil, buf)
       if callback then callback(valid, decoded) end
     end)
   end)
@@ -296,11 +306,7 @@ function M.prepare(buf)
     notifications.notify('De huidige buffer is leeg.', vim.log.levels.ERROR)
     return
   end
-  if M.is_prepared(buf) then
-    workflow('Deze agendapagina is al voorbereid. Controleer de tekst en verzend met <leader>aw.', vim.log.levels.INFO)
-    M.measure(buf)
-    return
-  end
+  local prepared = M.is_prepared(buf)
 
   -- Deze buffer is een print-agendapagina: houd 'm buiten de artikel-/online-
   -- agenda-/doubluredetectie van ai_text (die markers zijn het gedeelde
@@ -313,9 +319,9 @@ function M.prepare(buf)
 
   local original = buffer_text(buf)
   local changedtick = vim.api.nvim_buf_get_changedtick(buf)
-  local handle = progress('Agenda · Voorbereiden', buf)
+  local handle = progress(prepared and 'Agenda · Controleregels' or 'Agenda · Voorbereiden', buf)
   local process
-  process = notifications.system(command 'prepare', { text = true, stdin = original }, function(result)
+  process = notifications.system(command(prepared and 'review' or 'prepare'), { text = true, stdin = original }, function(result)
     handle:finish(result)
     active_prepare[buf] = nil
     notifications.schedule(function()
@@ -329,12 +335,11 @@ function M.prepare(buf)
         return
       end
       if vim.api.nvim_buf_get_changedtick(buf) ~= changedtick then
-        notifications.notify('De buffer veranderde tijdens de AI-bewerking; het resultaat is niet over de nieuwe tekst gezet.', vim.log.levels.WARN)
+        notifications.notify('De buffer veranderde tijdens de bewerking; het resultaat is niet over de nieuwe tekst gezet.', vim.log.levels.WARN)
         return
       end
       replace_buffer(buf, result.stdout or '')
-      workflow('Agendapagina voorbereid. Controleer de teksten en velden; verzend daarna met <leader>aw.', vim.log.levels.INFO,
-        { buf = buf })
+      -- De buffer bevat één beknopt rapport; geen tweede uitleg erboven.
       M.measure(buf, { automatic = true })
     end)
   end)
@@ -458,11 +463,9 @@ function M.send(buf)
 
       local duplicates = decoded.duplicate_candidates or {}
       if #duplicates > 0 then
-        local lines = {}
-        for _, candidate in ipairs(duplicates) do
-          table.insert(lines, '• ' .. duplicate_candidate_line(candidate))
-        end
-        notifications.notify('Mogelijke doublures gevonden:\n' .. table.concat(lines, '\n'), vim.log.levels.WARN)
+        notifications.notify(string.format('Agenda: %d %s. Bekijk de Controle:-regels.', #duplicates,
+          #duplicates == 1 and 'mogelijk doublurepaar' or 'mogelijke doublureparen'), vim.log.levels.WARN,
+          { buf = buf, action = 'Agenda · Controle' })
         vim.ui.select({
           { label = 'Annuleren', allow = false },
           { label = 'Toch verzenden', allow = true },

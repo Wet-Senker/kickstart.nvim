@@ -180,6 +180,19 @@ Een hercontrole laat bevestigde uitsluitingen zien en kan ze wissen. Verwijder
 de beschermende regel `doublures: beoordeeld` niet apart; update beide repos samen.
 De losse archiefaudits (`kd`/eigen-doublures) behouden hun eigen paarbediening.
 
+De artikelcontrole zoekt bij de kranten op `e:`, inclusief de zichtbare codes
+achter `SUGGESTIE`; ook `<leader>ad` gaat niet standaard alle zes sites langs.
+`e: B, SUGGESTIE, SW, K` zoekt dus bij B/SW/K, maar publiceert niet automatisch
+naar SW/K. Eigen Editie:-keuzes van agenda-items blijven apart geldig. Niet-
+genoemde webvarianten worden niet extra via een join opgehaald. HTTP 429 stopt
+de overige agenda-uitlezingen; de uitkomst wordt onvolledig, geen schone check.
+Verder typen tijdens ophalen/beoordelen sluit de leescontrole niet meer.
+Een aansluitende AR gebruikt de nieuwste body. AW publiceert nooit de oude
+tijdelijke tekst na een edit; rond de controle af en druk bewust opnieuw AW.
+AN/AR (ook AO/AP) kijken voor hun AI-resultaat alleen naar wijzigingen in de
+artikelbody; actuele header/social-/kalendersecties worden teruggelezen en
+behouden. Echte body-edits tijdens de AI-call blijven tegen overschrijven beschermd.
+
 **Eigen agenda: doublures zoeken (alle sites)** gebruikt hetzelfde venster,
 zonder extra split. De oorspronkelijke buffer blijft intact, ook met
 onopgeslagen werk; `q` keert terug naar die buffer en cursorpositie. Bovenaan
@@ -283,13 +296,19 @@ artikeltekst staan in [NOTIFICATIES.md](NOTIFICATIES.md).
   zonder bevestiging krijgt geen aparte voltooiingsmelding en blijft technisch gelogd. De meldingen nemen
   geen focus; tijdens een keuzescherm wijken ook deze afgeronde regels.
 - **Meldingen:** waarschuwingen, fouten en niet-zichtbare bewerkingsinformatie staan als
-  echte `Melding:`-regels bij `e:`, `c:` en de overige instellingen, direct boven
+  echte tijdregels, zoals `[14:35] Import opgeschoond (zonder AI).`, bij `e:`,
+  `c:` en de overige instellingen, direct boven
   `=== ARTIKEL ===` (ook boven `=== AGENDAPAGINA ===`). Selecteer/kopieer ze
   normaal. Alle artikelgegevens blijven bij elkaar; een witregel scheidt ze
   van het aaneengesloten meldingenblok, met weer een witregel vóór het artikel.
   Verwijder meldingen met `dd`. Ze staan in werkbestand en undo, maar nooit in
   AI-invoer of publicatie. Verwijderen verbergt alleen de regel, niet de
-  onderliggende controle. Alleen een werkelijk probleem krijgt `LET OP`, met
+  onderliggende controle. Oudste melding bovenaan, nieuwste onderaan; een nieuwe
+  uitkomst voor dezelfde handeling vervangt de oude en sluit onderaan aan.
+  De tijd hoort bij het ontstaan van de uitkomst, niet bij later openen of
+  verversen. Oude `Melding:`-regels blijven leesbaar en krijgen `[--:--]` als
+  hun oorspronkelijke tijd onbekend is. Werk de Python-kern én client bij.
+  Alleen een werkelijk probleem krijgt `LET OP`, met
   de vervolgstap. Succesvol aangemaakte agenda-/socialteksten staan al zichtbaar
   in het document en krijgen geen extra meldingsregel. Wel staat er welke
   redigeermethode is gebruikt (`ar`, `an` of `ap`). De geschiedenis van alle uitkomsten staat
@@ -325,7 +344,7 @@ actie op. Een oud resultaat kan geen nieuwere fout wissen. Meldingen zonder
 actiekoppeling worden niet door willekeurige successen gewist. De geschiedenis
 blijft beschikbaar. Keuzevensters en bestaande publicatiecontroles blijven leidend.
 
-Datumgoedkeuring en alleen een gewijzigde `Melding:`-regel veroorzaken geen
+Datumgoedkeuring en alleen een gewijzigde tijd-/oude `Melding:`-regel veroorzaken geen
 herstelconflict. Werkelijke tekst-, foto- of agendawijzigingen blijven beschermd.
 Een herstelbestand houdt ook de geplande lezersnieuwsexport vast. Achtergronden
 en het ongewijzigde regionaliseringsonderzoek staan in
@@ -350,6 +369,15 @@ Gevalideerde resultaten verschijnen als `OK:` in de geschiedenis.
 Een volledige doublurecontrole zonder treffers meldt dat expliciet, net als
 de agenda-doublurecontrole en de tekst-/datumcontrole. Overgeslagen, onvolledige
 en verouderde controles krijgen geen onterechte melding dat niets is gevonden.
+De gezamenlijke web-/agendacontrole schrijft ook boven het artikel één
+vervangbare tijdregel, bijvoorbeeld `[14:35] Doublurecontrole: web geen mogelijke
+doublures; agenda 2 mogelijke doublures.` Beide kanaaluitkomsten staan ook in
+`<leader>kl` en, met alleen status/aantallen, in `:TexttoolsLog`. 'Niet
+gecontroleerd' en 'onvolledig' zijn nadrukkelijk geen nul-treffersuitkomst.
+Een hercontrole vervangt het vorige resultaat; er volgt geen tweede generieke
+'opnieuw gedraaid'-melding. Een meldingsupdate alleen start geen nieuwe
+kalenderverwerking. Na een herstart zijn historische technische aantallen ook
+zichtbaar; bij oude runs zonder kanaalstatus wordt dat expliciet vermeld.
 Gevonden mogelijke doublures krijgen geen `OK:`. De Python-kern beschrijft
 per editie **Concept opgeslagen**, **Ingepland voor …** of **Online gepubliceerd
 volgens Pubble**, op basis van de bestaande CMS-respons, zonder extra websitecheck.
@@ -425,6 +453,20 @@ om een verder goede body alsnog volledig te herschrijven.
 
 Voor een complete papieren agendapagina plak je alle dagen en activiteiten en
 gebruik je eenmaal `<leader>ka`. Gewone items worden per activiteit geredigeerd;
+bovenaan staat één beknopt rapport zoals `Agenda: 42 berichten · 6 items te controleren.`
+bij aandachtspunten staat `Controle: ⚠ ...` direct onder de betreffende kop,
+met uitleg en vervolgstap. Zoek op `Controle:` en verwijder gelezen uitleg met
+`dd`. De Python-kern houdt die regels buiten de export, ook als je ze laat staan.
+Wissen van uitleg heft geen ontbrekend gegeven of doublurecontrole op.
+Nogmaals `<leader>ka` op een al voorbereide pagina ververst rapport/uitleg,
+zonder AI of herschrijven, en vervangt herkenbare oude globale uitleg.
+Verzendfouten tonen bovenaan één concrete blokkade met de echte itemtitel en
+het aantal andere aandachtspunten; `<leader>kh` behoudt de volledige fouten.
+De same-dayreview is ruimer: bekende dag/tijd, vergelijkbare locatie en enige
+woordoverlap zijn genoeg. Ook een venue in titel/body telt, zonder automatisch
+een ontbrekend veld in te vullen. Niets wordt automatisch samengevoegd of
+verwijderd; details staan bij de items, bovenaan alleen een telling. Gebruik de nieuwe
+Python-kern voor export van documenten met deze controleregels.
 `>>>titel<<<` is premium: de kop blijft exact staan, de body krijgt een aparte,
 behoudende journalistieke AI-taalcorrectie. Geen samenvatting of vrije
 herschrijving; bestaande tijden, locaties en adressen blijven intact, ook in
@@ -436,7 +478,14 @@ printbody geldt geen technische lengtegrens; gewone tekst wordt wel compact
 geredigeerd. Gewone koppen worden zoveel mogelijk 3–4 woorden en zijn maximaal 5
 woorden. De Pubble-uitvoer verdeelt gewone koppen over maximaal twee regels
 van 27 tekens en houdt herkenbare woordgroepen en naamverbindingen bijeen waar
-dat past. Een betrouwbaar herkend los slotblok wordt automatisch als complete
+dat past. Naam-/woordgroepen wegen zwaarder dan lengtebalans; een volle eerste
+regel is geen doel. Bijvoorbeeld `Natuurfotograaf / Karen Leeftink` en
+`Korenconcert / voor Sri Lanka`. Ook premium krijgt deze technische
+regelverdeling, maar geen enkel woord, leesteken of volgorde verandert.
+Niet passend premium blijft intact met een `Controle:`-regel voor de opmaak
+in Pubble. De 27 tekens zijn geen exacte fontbreedtemeting. Dit verandert alleen
+nieuwe exports, niet een al verzonden pagina. Geen extra AI of CMS-calls.
+Een betrouwbaar herkend los slotblok wordt automatisch als complete
 activiteit opgebouwd en onder zijn primaire datum gezet. Een volledig gewoon
 item met een ondubbelzinnige andere primaire datum verhuist ook; secundaire
 data in de body niet. Alles blijft zichtbaar ter controle. Druk daarna
@@ -649,9 +698,11 @@ mogen niet veranderen.
 Nieuwe metadata bewaart de volledige evenementperiode, ook zonder agenda-item:
 20–22 oktober is op 21 oktober nog lopend. Een brongebonden metadatacache wordt
 vóór de planning veilig met fotogegevens samengevoegd; nieuwere tekst maakt de
-cache ongeldig. Het kranttijd-overzicht toont per editie krantdatum, periode en
-fase. Je kunt alle getoonde edities herschrijven of web-only houden, of alleen
-afgelopen edities web-only houden en de overige meteen laten herschrijven.
+cache ongeldig. De kranttijdcontrole vraagt per nog te beoordelen krant een
+eigen keuze met naam en verschijningsdatum: alleen website [w], aparte kranttekst
+met behoud van web [h], of webtekst ongewijzigd naar print [b]. Eerst alle keuzes,
+dan pas uitvoeren. Terug [t] herziet de vorige krant; Annuleren [a]/Escape
+vervalt de hele ronde, zonder gedeeltelijk toegepaste keuzes of AI-werk.
 Reeds goedgekeurde edities worden niet opnieuw bevraagd. Oudere metadata zonder
 einddatum houdt de eendagsfallback totdat metadata opnieuw wordt verzameld.
 
@@ -672,6 +723,21 @@ verspreidingsgebied geeft 3; alleen provinciebrede, landelijke of niet-lokale
 inhoud geeft 4. Kies **Prioriteit aanpassen** om 1–4 te selecteren. NeoVim zet
 die keuze zichtbaar als `prio:` boven `=== ARTIKEL ===` en start dezelfde
 voorbereiding opnieuw.
+
+**Eigen editie per agenda-item:** nieuwe meervoudige `## Kalender`-blokken tonen
+per activiteit `Editie: B`, bijvoorbeeld op basis van Kampen. Wijzig de codes
+zoals `Editie: B, SW`; `Editie: geen` slaat alleen dat item over, `Editie: kiezen`
+of een leeg/gewist veld vraagt eerst een keuze. De hoofdartikelregel `e:` blijft
+apart. Doublurecontrole, `<leader>aw`, `<leader>kA` en foto volgen de itemkeuze;
+geen extra hoofdartikel op een uitsluitend voor agenda gekozen site. Oude items
+zonder selectie blijven gedeeld; nieuwe selecties vereisen de bijgewerkte
+Python-kern. Een bestaande publicatie wordt bij uitsluiten niet verwijderd.
+
+`<leader>ad` controleert web en agenda opnieuw zonder eerst goedkeuring van de
+krantversies te eisen. Alleen de reviewbestemmingen worden vooraf bepaald;
+publicatiegoedkeuring blijft een aparte verzendvoorwaarde. Een resolverfout
+toont de werkelijke reden met vervolgstap. Dit vereist ook de bijgewerkte
+Python-CLI. Wijzigingen tijdens de editieresolutie maken die uitkomst ongeldig.
 
 **Kalenderdetectie** — scoort tekst op datum/tijd/deelname-signalen. Bij score
 ≥ 8 wordt `articlemeta --calendar` gestart en een bewerkbare `## Kalender`-
@@ -736,17 +802,18 @@ kiest de bestaande metadata-call 0–2 extra wekelijkse houdbaarheidscycli. Dit 
 extra AI-call toe; `week:` blijft de handmatige override.
 
 Valt de eerstvolgende verschijning van een gekozen krant na die inhoudelijke
-grens, dan waarschuwt `<leader>aw` vóór verzending. Kies `Alleen website voor
-te late krant(en)`, `Toch ook naar de krant` of `Annuleren`. Bij toch
+grens, dan waarschuwt `<leader>aw` vóór verzending, met een eigen keuze voor
+iedere betrokken krant. Kies alleen website, een aparte kranttekst of de
+ongewijzigde webtekst voor print; de hele ronde kan worden geannuleerd. Bij toch
 doorzetten wordt het weeknummer in de krantwerktitel van die te late editie
 vervangen door `z`, zodat de bewuste uitzondering direct zichtbaar is. De
 werkelijke deadline blijft voor controles apart bewaard.
 
-Bij een datumgebonden aankondiging heet de krantkeuze direct **Herschrijven
-voor krant [h]**. Daarmee start dezelfde kranttijdvoorbereiding en volgt geen
-tweede bevestiging voor dezelfde gebeurtenis. Voor gewone houdbaarheidsgrenzen
-blijft de keuze **Toch ook naar de krant [t]**. `t` werkt ook nog bij de
-herschrijfkeuze; `w` kiest alleen website en Escape annuleert.
+Bij een datumgebonden aankondiging biedt de deadlinevraag dezelfde keuzes per
+krant, ook tijdens een nog lopende actieperiode met losse bijeenkomsten.
+**Aparte kranttekst maken [h]** start dezelfde kranttijdvoorbereiding; geen
+tweede bevestiging voor dezelfde gebeurtenis. Bij gewone houdbaarheidsgrenzen
+zonder datumcontext is geen aparte tijdsversie nodig en ontbreekt die optie.
 
 Komt de deadline pas na metadatageneratie in beeld, dan biedt `<leader>aw`
 dezelfde keuze alsnog aan. De gekozen webdatum, reeds gemaakte kranttijdtekst
@@ -754,7 +821,7 @@ en eerdere beslissingen voor andere kranten blijven bewaard. Na je keuze hervat
 de verzending zonder opnieuw te herschrijven.
 
 De krantdeadlinekeuze verschijnt asynchroon boven de tekst, met de reden voor
-de grens. Kies met `j`/`k` en Enter, 1–3 of `w`/`t`/`a`; Escape annuleert.
+de grens. Kies met `j`/`k` en Enter of de aangegeven sneltoets; Escape annuleert.
 Navigatietoetsen schrijven geen herhaalde keuzeregels. Een antwoord na een
 tekstwijziging stopt de verzending. Bij actueel nieuws krijgt iedere krant haar
 eigen eerstvolgende wekelijkse cyclus: op 6 oktober 2026 B week 42, SW week 41.

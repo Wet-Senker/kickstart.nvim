@@ -102,7 +102,7 @@ ai._check_agenda_duplicates(buf4, { 'B' }, function() end)
 assert(kandidaat_calls == 2, 'gewijzigde inhoud gebruikte een oude toestemming')
 
 -- Een open of afgebroken vraag is nog geen cache-hit. Ook na het ophalen blijft
--- de bronrevisie de grens: een laat "nee" mag geen nieuwe tekst wijzigen.
+-- de beoordeling open als de redacteur intussen verder schrijft.
 local late_buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(late_buf, 0, -1, false, { 'e: B', '', '=== ARTIKEL ===', '', 'Open dag' })
 local answer, late_result
@@ -111,9 +111,11 @@ ai._check_agenda_duplicates(late_buf, { 'B' }, function(value) late_result = val
 assert(answer and late_result == nil, 'agenda-controle wacht niet op beoordeling')
 assert(vim.b[late_buf].agenda_duplicate_checked_fingerprint == nil, 'onbeantwoorde vraag telde als afgerond')
 vim.api.nvim_buf_set_lines(late_buf, -1, -1, false, { 'Nieuwere tekst' })
-answer(false)
-assert(late_result == false, 'verouderd antwoord werd geaccepteerd')
+answer(true)
+assert(late_result == true, 'leescontrole brak af door een tussentijdse edit')
 assert(not table.concat(vim.api.nvim_buf_get_lines(late_buf, 0, -1, false), '\n'):find('agenda: nee', 1, true))
+assert(table.concat(vim.api.nvim_buf_get_lines(late_buf, 0, -1, false), '\n'):find('Nieuwere tekst', 1, true))
+assert(not ai._agenda_duplicate_is_current(late_buf, { 'B' }), 'oude momentopname werd een actueel controleakkoord')
 
 -- Handmatige ac is een expliciete werkopdracht, zonder automatische blokkade.
 local manual_buf = vim.api.nvim_create_buf(false, true)

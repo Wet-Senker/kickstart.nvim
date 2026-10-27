@@ -51,8 +51,7 @@ local function source(cached)
   vim.b[current].calendar_transition_tick = vim.api.nvim_buf_get_changedtick(current)
   ai._mark_duplicate_check_done(current)
   if cached then
-    vim.b[current].agenda_duplicate_checked_fingerprint = vim.fn.sha256('SW,B\n'
-      .. table.concat(require('article_notices').content_lines(lines), '\n'))
+    vim.b[current].agenda_duplicate_checked_fingerprint = ai._agenda_duplicate_fingerprint(lines, { 'SW', 'B' })
     assert(ai._agenda_duplicate_is_current(current, { 'SW', 'B' }))
   end
   resolver_done, duplicate_done, duplicate_options = nil, nil, nil

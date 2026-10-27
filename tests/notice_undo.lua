@@ -1,3 +1,4 @@
+dofile('tests/helpers/notice_clock.lua')
 local activity = require 'article_activity'
 local notices = require 'article_notices'
 activity.setup { preferences = vim.fn.tempname() .. '/activity.json' }
@@ -22,7 +23,7 @@ end
 local buf = vim.api.nvim_create_buf(true, false)
 vim.bo[buf].undolevels = -1
 local original = {
-  'e: SW', 'Melding: Import opgeschoond (zonder AI).', 'agenda: ja',
+  'e: SW', '[12:34] Import opgeschoond (zonder AI).', 'agenda: ja',
   '@John: Graag controleren.', '', '=== ARTIKEL ===', '', 'Kop', '', 'Oorspronkelijke tekst.',
 }
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, original)
@@ -50,13 +51,13 @@ assert(vim.deep_equal(lines(buf), original))
 sync()
 vim.api.nvim_buf_set_lines(buf, 0, 1, false, { 'e: B, SW' })
 flush()
-assert(table.concat(lines(buf), '\n'):find('e: B, SW\nagenda: ja\n@John: Graag controleren.\n\nMelding:', 1, true))
+assert(table.concat(lines(buf), '\n'):find('e: B, SW\nagenda: ja\n@John: Graag controleren.\n\n[12:34]', 1, true))
 assert(lines(buf)[#lines(buf)] == 'Oorspronkelijke tekst.')
 -- Een nieuw controleresultaat blijft zichtbaar, ook direct na undo.
 stable(buf, 'silent undo 0')
 activity.record(buf, 'Fotocredit ontbreekt.', vim.log.levels.WARN, { action = 'Foto' })
 flush()
-assert(table.concat(lines(buf), '\n'):find('Melding: LET OP: Fotocredit ontbreekt.', 1, true))
+assert(table.concat(lines(buf), '\n'):find('[12:34] LET OP: Fotocredit ontbreekt.', 1, true))
 
 -- Een ongedaan gemaakte formattering mag een nog aanwezige beheerde melding
 -- niet verdubbelen wanneer de redacteur daarna een instelling toevoegt.
@@ -75,7 +76,7 @@ vim.api.nvim_buf_set_lines(buf, 0, 1, false, { 'e: SW' })
 flush()
 local count = 0
 for _, line in ipairs(lines(buf)) do
-  if line == 'Melding: Herschreven (<leader>ar).' then count = count + 1 end
+  if line == '[12:34] Herschreven (<leader>ar).' then count = count + 1 end
 end
 assert(count == 1, 'melding verdubbeld na undo en nieuwe bewerking')
 
@@ -104,7 +105,7 @@ flush()
 assert(vim.deep_equal(lines(buf), restored), 'taakafronding ordende herstelde tekst opnieuw')
 activity.record(buf, 'Foto gecontroleerd.', nil, { action = 'Foto', kind = 'success' })
 flush()
-assert(not table.concat(lines(buf), '\n'):find('Melding: LET OP: Fotocredit ontbreekt.', 1, true))
+assert(not table.concat(lines(buf), '\n'):find('[12:34] LET OP: Fotocredit ontbreekt.', 1, true))
 -- Gewoon typen in de body veroorzaakt geen extra bufferwijziging/rendering.
 for index = 1, 10 do
   vim.api.nvim_buf_set_lines(buf, -2, -1, false, { 'Artikeltekst ' .. index .. '.' })

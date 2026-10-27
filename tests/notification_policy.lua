@@ -1,3 +1,4 @@
+dofile('tests/helpers/notice_clock.lua')
 -- Routering en uitstelgedrag met de echte adapters, zonder AI/CMS-verkeer.
 local activity = require 'article_activity'
 local notify = require 'texttools_notify'
@@ -25,7 +26,7 @@ assert(not panel(), 'logboek opende zonder verzoek')
 local function notices()
   local found = {}
   for _, line in ipairs(vim.api.nvim_buf_get_lines(source, 0, -1, false)) do
-    if line:match('^Melding:') then found[#found + 1] = line end
+    if line:match('^%[12:34%]') then found[#found + 1] = line end
   end
   return found
 end

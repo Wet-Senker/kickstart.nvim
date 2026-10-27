@@ -134,13 +134,14 @@ assert(marks[1] == 'pair456' and approved == nil)
 key(review, 'v'); idle(buf)
 assert(approved)
 
--- Gewijzigde editie/kalender tijdens de review: geen laat besluit toepassen.
+-- Gewijzigde editie tijdens de review stopt de alleen-lezen controle niet.
 buf, approved = source(), nil
 ai._check_duplicate_stage(buf, { 'B' }, 'importeren', function(ok) approved = ok end)
 review = dialog()
 vim.api.nvim_buf_set_lines(buf, 0, 1, false, { 'e: K' })
 key(review, 'v'); idle(buf)
-assert(approved == false and not ai._duplicate_check_is_current(buf))
+assert(approved == true and not ai._duplicate_check_is_current(buf))
+assert(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == 'e: K')
 
 -- De echte aw-ingang beoordeelt vóór staging. Een reeds gecontroleerd web
 -- wordt niet opnieuw uitgelezen; n wordt toegepast vóór de hervatte send.

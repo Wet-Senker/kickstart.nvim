@@ -539,7 +539,8 @@ function M.check(command, callback, options)
           error = result.code ~= 0 and 'ProcessExit' or 'InvalidResult',
         })
         local detail = vim.trim(result.stderr or result.stdout or '')
-        notifications.workflow('Doublurecontrole mislukt. Controleer opnieuw vóór verzending.', vim.log.levels.ERROR, { buf = trace_buf })
+        notifications.workflow('Doublurecontrole mislukt. Probeer opnieuw met <leader>ad vóór verzending.', vim.log.levels.ERROR,
+          { buf = trace_buf, action = 'Doublurecontrole', notice_key = 'duplicate-check', inline = true, resolved = true })
         local continue_label = options.failure_continue_label or 'Toch verzenden'
         local prompt = 'Doublurecontrole mislukt'
           .. (detail ~= '' and (': ' .. trim_text(detail, 180)) or '')
@@ -560,21 +561,42 @@ function M.check(command, callback, options)
         end)
         return
       end
+      local summary = data.summary
+      -- Technische historie bevat alleen kanaalstatus en aantallen, nooit
+      -- vrije meldtekst, kandidaatkoppen of volledige CMS-responses.
+      local log_summary
+      if type(summary) == 'table' and summary.version == 1 and type(summary.channels) == 'table' then
+        log_summary = { version = 1, channels = {} }
+        for _, kind in ipairs { 'web', 'agenda' } do
+          local channel = summary.channels[kind]
+          if type(channel) == 'table' and (channel.status == 'checked' or channel.status == 'incomplete' or channel.status == 'skipped')
+              and type(channel.candidate_count) == 'number' and channel.candidate_count >= 0
+              and channel.candidate_count == math.floor(channel.candidate_count) then
+            log_summary.channels[kind] = { status = channel.status, candidate_count = channel.candidate_count }
+          end
+        end
+      end
       finish_trace('succeeded', {
         exit_code = result.code,
         candidate_count = #data.candidates,
+        duplicate_check = log_summary,
       })
-      if data.performed == false then
-        notifications.workflow('Doublurecontrole overgeslagen; er is niet op doublures gecontroleerd.', vim.log.levels.INFO, { buf = trace_buf })
+      local report_options = { buf = trace_buf, action = 'Doublurecontrole', notice_key = 'duplicate-check',
+        inline = true, resolved = true }
+      if type(summary) == 'table' and summary.version == 1 and type(summary.message) == 'string'
+          and (summary.status == 'checked' or summary.status == 'incomplete' or summary.status == 'skipped') then
+        report_options.kind = summary.status == 'checked' and #data.candidates == 0 and 'success' or nil
+        notifications.workflow(summary.message, summary.status == 'incomplete' and vim.log.levels.WARN or vim.log.levels.INFO,
+          report_options)
+      elseif data.performed == false then
+        notifications.workflow('Doublurecontrole overgeslagen; er is niet op doublures gecontroleerd.', vim.log.levels.INFO, report_options)
       elseif data.history_complete == false then
-        notifications.workflow('Doublurecontrole onvolledig; het resultaat is geen volledige controle.', vim.log.levels.WARN, { buf = trace_buf })
+        notifications.workflow('Doublurecontrole onvolledig; controleer opnieuw met <leader>ad.', vim.log.levels.WARN, report_options)
       elseif data.performed == true or data.history_complete == true then
         local message = #data.candidates == 0 and 'Doublurecontrole afgerond: geen mogelijke doublures gevonden.'
           or ('Doublurecontrole afgerond: %d mogelijke doublure(s) gevonden.'):format(#data.candidates)
-        notifications.workflow(message, vim.log.levels.INFO, {
-          buf = trace_buf, kind = #data.candidates == 0 and 'success' or nil, resolved = true,
-          status = #data.candidates > 0 and 'Mogelijke doublures gevonden' or nil,
-        })
+        report_options.kind = #data.candidates == 0 and 'success' or nil
+        notifications.workflow(message, vim.log.levels.INFO, report_options)
       end
       if data.combined then
         local agenda = data.checks and data.checks.agenda
