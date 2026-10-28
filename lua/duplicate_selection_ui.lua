@@ -46,15 +46,20 @@ function M.show(report, callback, options)
     for _, variant in ipairs(candidate.variants or {}) do
       entries[#entries + 1] = { candidate = candidate, variant = variant,
         target = variant.review_target, selectable = variant.review_selectable }
+      if variant.review_target and variant.review_decision then
+        choices[variant.review_target.id] = variant.review_decision
+      end
     end
   end
   for _, saved in ipairs(report.saved_selections or {}) do
-    choices[saved.id] = 'duplicate'
+    if saved.decision == 'duplicate' or saved.source == report.review_source then
+      choices[saved.id] = saved.decision
+    end
     entries[#entries + 1] = { target = saved, selectable = true, variant = {
       edition = saved.edition, headline = saved.headline, editor_url = saved.url,
       kind = saved.kind, text = (saved.existing or {}).text,
       display_date_short = (saved.existing or {}).display_date_short,
-    }, candidate = { kind = saved.kind } }
+    }, candidate = { kind = saved.kind }, previous = true }
   end
   table.sort(entries, function(a, b)
     local av, bv = a.variant, b.variant
@@ -103,6 +108,7 @@ function M.show(report, callback, options)
         lines[#lines + 1] = marker .. ' ' .. ('%-7s '):format(kind)
           .. compact_date(nonempty(v.display_date_short, v.display_date_label)) .. '  ' .. flat(v.headline)
           .. (nonempty(v.created_by_label, v.created_by) and (' · ' .. nonempty(v.created_by_label, v.created_by)) or '')
+          .. (entry.previous and '  (eerdere keuze)' or '')
           .. (entry.selectable and '' or '  (alleen bekijken: geen gekozen doelkrant)')
         rows[#lines] = entry
         local comparison = entry.candidate.comparison

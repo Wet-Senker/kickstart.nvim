@@ -1,4 +1,5 @@
--- Alleen presentatie: YAML blijft letterlijk in de buffer/het bestand staan.
+-- YAML blijft letterlijk in de buffer/het bestand staan. De aansluitende
+-- compatibiliteitsmarker hoort bij dezelfde verborgen technische weergave.
 -- Eén handmatige vouw voorkomt een foldexpr over alle artikelregels en laat
 -- eventuele eigen vouwen elders in het document intact.
 local M = {}
@@ -30,7 +31,7 @@ local function metadata_end(buf, after_receipt)
     while line(first) == '' do first = first + 1 end
   end
   if line(first) ~= '---' then return nil end
-  local ending, has_key
+  local ending, has_key, legacy_marker, technical_gap
   for at = first + 1, count - 1 do
     local value = line(at)
     if not ending then
@@ -38,12 +39,17 @@ local function metadata_end(buf, after_receipt)
         return nil -- Onvolledig voorblok nooit inclusief het artikel verbergen.
       elseif value == '---' then
         ending = at + 1
+        technical_gap = true
         if not has_key then return nil end
       elseif value:match('^[%a_][%w_%-]*%s*:') then has_key = true end
     elseif value:match('^=== ARTIKEL ===%s*$') or value:match('^=== AGENDAPAGINA ===%s*$') then
-      return ending, first + 1
+      return ending, first + 1, legacy_marker
+    elseif value == 'doublures: beoordeeld' then
+      if technical_gap then ending = at + 1 else legacy_marker = true end
     elseif value ~= '' and not value:match('^%s') and not value:match('^[^:]+:') then
       return nil
+    elseif value ~= '' then
+      technical_gap = false
     end
   end
 end
@@ -99,7 +105,14 @@ end
 
 function M.refresh(buf)
   if not eligible(buf) then return end
-  local ending, first = metadata_end(buf, true)
+  local ending, first, legacy_marker = metadata_end(buf, true)
+  local state = buffers[buf]
+  if legacy_marker and not state.marker_layout_started and vim.bo[buf].modifiable and not vim.bo[buf].readonly then
+    state.marker_layout_started = true
+    require('duplicate_marker_layout').normalize(buf, function()
+      if vim.api.nvim_buf_is_valid(buf) then M.refresh(buf) end
+    end)
+  end
   buffers[buf].ending = ending
   for _, win in ipairs(vim.fn.win_findbuf(buf)) do
     vim.api.nvim_win_call(win, function()

@@ -176,8 +176,13 @@ blijven staan. Dit pauzeert ook de automatische agenda. Zonder nieuwe markeringe
 is het verschil in opgeslagen doublurekeuzes met q dus klein.
 Zonder markeringen wordt niets als doublure bevestigd. Geen aparte `v` meer.
 Keuzes staan duurzaam in het werkdocument; boven het artikel staat een samenvatting.
-Een hercontrole laat bevestigde uitsluitingen zien en kan ze wissen. Verwijder
-de beschermende regel `doublures: beoordeeld` niet apart; update beide repos samen.
+Een volledige hercontrole met `<leader>ad` toont ook eerdere afwijzingen en
+uitsluitingen opnieuw; geldige keuzes blijven gemarkeerd en zijn aanpasbaar.
+Openen/annuleren wist niets, q bewaart je keuzes zonder publicatie. De
+beschermende regel `doublures: beoordeeld` staat bij de verborgen technische
+gegevens, niet tussen de werkvelden. Oude bewerkbare bestanden krijgen bij
+openen eenmalig lokale indeling (geen inhoudelijke wijziging); sla ze op.
+Update beide repos samen voor de nieuwe `--review-all`-vlag.
 De losse archiefaudits (`kd`/eigen-doublures) behouden hun eigen paarbediening.
 
 De artikelcontrole zoekt bij de kranten op `e:`, inclusief de zichtbare codes
@@ -733,7 +738,8 @@ geen extra hoofdartikel op een uitsluitend voor agenda gekozen site. Oude items
 zonder selectie blijven gedeeld; nieuwe selecties vereisen de bijgewerkte
 Python-kern. Een bestaande publicatie wordt bij uitsluiten niet verwijderd.
 
-`<leader>ad` controleert web en agenda opnieuw zonder eerst goedkeuring van de
+`<leader>ad` controleert web en agenda volledig opnieuw, inclusief eerdere
+beoordelingen, zonder eerst goedkeuring van de
 krantversies te eisen. Alleen de reviewbestemmingen worden vooraf bepaald;
 publicatiegoedkeuring blijft een aparte verzendvoorwaarde. Een resolverfout
 toont de werkelijke reden met vervolgstap. Dit vereist ook de bijgewerkte

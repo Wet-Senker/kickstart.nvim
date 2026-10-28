@@ -24,7 +24,7 @@ local function source()
     'KAMPEN - Een concert op 18 november 2099.' })
   return buf
 end
-local function report(buf)
+local function report(buf, review_all)
   local script = [[
 import json,sys
 from texttools.duplicate_selection import annotate_report
@@ -37,9 +37,9 @@ print(json.dumps(annotate_report(source,['B','SW'],{
    'comparison':{'date':'2099-11-18','headline':'Concert'},'variants':[
    {'edition':'B','publication':'De Brug','article_id':123,'headline':'Concert Brug','text':'Een concert.'},
    {'edition':'SW','publication':'De Swollenaer','article_id':124,'headline':'Concert Zwolle','text':'Een concert.'}]}]
-})))
+},review_all=sys.argv[1]=='yes')))
 ]]
-  local result = native_system({ commands.bin('python'), '-c', script }, { text = true, stdin = text(buf) }):wait()
+  local result = native_system({ commands.bin('python'), '-c', script, review_all and 'yes' or 'no' }, { text = true, stdin = text(buf) }):wait()
   assert(result.code == 0, result.stderr)
   return vim.json.decode(result.stdout)
 end
@@ -74,6 +74,29 @@ assert(not vim.b[buf].send_requested)
 local stored = report(buf)
 assert(#stored.saved_selections == 1 and stored.saved_selections[1].edition == 'B')
 assert(#stored.candidates[1].variants == 1 and stored.candidates[1].variants[1].edition == 'SW')
+
+-- Volledig herbeoordelen toont de oude keuze, zonder die bij openen/Escape te wissen.
+local before = text(buf)
+local renewed = report(buf, true)
+require('duplicate_selection_ui').show(renewed, function() end, {})
+dialog = vim.api.nvim_get_current_buf()
+assert(row_contains('Concert Brug'):find('[=]', 1, true), 'oude bevestigde keuze ontbreekt')
+key(dialog, '<C-c>')
+assert(text(buf) == before, 'sluiten wiste een eerdere publicatie-uitsluiting')
+require('duplicate_selection_ui').show(renewed, function() end, {
+  on_apply = function(data, choices, done)
+    require('duplicate_review').apply(buf, data, choices, done)
+  end,
+})
+dialog = vim.api.nvim_get_current_buf()
+row_contains('Concert Brug'); key(dialog, 'n'); key(dialog, 'q')
+wait(function() return not vim.api.nvim_buf_is_valid(dialog) end)
+assert(text(buf):find('decision: different', 1, true), 'bewuste herbeoordeling is niet opgeslagen')
+renewed = report(buf, true)
+require('duplicate_selection_ui').show(renewed, function() end, {})
+dialog = vim.api.nvim_get_current_buf()
+assert(row_contains('Concert Brug'):find('[≠]', 1, true), 'oude afwijzing niet teruggevonden bij volledige controle')
+key(dialog, '<C-c>')
 
 -- Closing without marks is an editing decision, not a confirmed duplicate.
 buf, result = source(), nil

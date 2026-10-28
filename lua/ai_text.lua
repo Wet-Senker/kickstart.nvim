@@ -1016,8 +1016,15 @@ local function reassemble_article(fm, ctrl, body, sections, has_boundary)
   sections = notes_last(sections)
   local out = {}
   for _, l in ipairs(fm) do table.insert(out, l) end
+  -- Presentatie: de bestaande guard blijft direct bij de verborgen gegevens,
+  -- ook wanneer een editie- of fotoactie de zichtbare controleregels herordent.
+  if #fm > 0 then
+    for _, l in ipairs(ctrl) do if l == 'doublures: beoordeeld' then table.insert(out, l) end end
+  end
   if #fm > 0 then table.insert(out, "") end
-  for _, l in ipairs(ctrl) do table.insert(out, l) end
+  for _, l in ipairs(ctrl) do
+    if #fm == 0 or l ~= 'doublures: beoordeeld' then table.insert(out, l) end
+  end
   if #ctrl > 0 then table.insert(out, "") end
   if has_boundary then
     table.insert(out, ARTICLE_BOUNDARY)
@@ -1648,9 +1655,10 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
     table.concat(codes, ","),
     '--with-agenda',
   }
-  if duplicate_check_is_current(buf) then table.insert(command, '--skip-web') end
+  if stage == 'hercontroleren' then table.insert(command, '--review-all') end
+  if stage ~= 'hercontroleren' and duplicate_check_is_current(buf) then table.insert(command, '--skip-web') end
   if existing_file then table.insert(command, '--skip-agenda') end
-  for _, key in ipairs(ignored_duplicate_keys(buf)) do
+  for _, key in ipairs(stage ~= 'hercontroleren' and ignored_duplicate_keys(buf) or {}) do
     table.insert(command, "--ignore-key")
     table.insert(command, key)
   end
@@ -3634,10 +3642,9 @@ function M._check_agenda_duplicates(buf, codes, done, prepared_lines, publicatio
   end, prepared_lines)
 end
 
--- Handmatige hercontrole. De doublurecontrole bestaat verder alleen als fase in
--- de herschrijf- en verzendstroom: wegdrukken met q laat hem vanzelf terugkomen,
--- maar wie "toch verzenden" koos markeert de buffer als gecontroleerd en kreeg
--- hem daarna niet meer. Deze actie wist die markering bewust en draait opnieuw.
+-- Volledige handmatige hercontrole: herlees ook eerder uitgesloten kanalen en
+-- afgewezen treffers, zonder de opgeslagen keuzes vooraf te wissen. q bewaart
+-- expliciete aanpassingen, sluiten zonder bewaren verandert geen besluiten.
 function M.recheck_duplicates(buf)
   buf = buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
@@ -3672,7 +3679,7 @@ function M.recheck_duplicates(buf)
 end
 
 require("user_dialog").keymap("n", "<leader>ad", function() M.recheck_duplicates() end, {
-  desc = "Doublurecontrole opnieuw draaien voor dit artikel",
+  desc = "Volledige doublurecontrole, inclusief eerdere keuzes",
 })
 
 require("user_dialog").keymap("n", "<leader>ar", M.rewrite_article_buffer, {

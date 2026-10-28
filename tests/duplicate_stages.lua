@@ -41,6 +41,15 @@ local function settled(buf)
   end), 'pending_jobs of handmatige agendacontrole bleef hangen')
 end
 local success = { version = 1, performed = true, candidates = {} }
+-- Volledige handmatige hercontrole omzeilt sessie-ignores en kanaalcaches.
+local renewed = buffer()
+ai._mark_duplicate_check_done(renewed)
+vim.b[renewed].pubble_duplicate_ignored_keys = { 'old-key' }
+ai._check_duplicate_stage(renewed, { 'B', 'D' }, 'hercontroleren', function() end, nil, true)
+assert(vim.tbl_contains(last_command, '--review-all'))
+assert(not vim.tbl_contains(last_command, '--skip-web') and not vim.tbl_contains(last_command, '--ignore-key'))
+pending(true, success); settled(renewed)
+runs = 0
 local buf = buffer()
 local approved
 ai._check_duplicate_stage(buf, { 'B', 'D' }, 'importeren', function(ok) approved = ok end)
