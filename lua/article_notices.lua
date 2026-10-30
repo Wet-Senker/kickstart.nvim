@@ -3,6 +3,8 @@
 local M = { namespace = vim.api.nvim_create_namespace 'texttools_article_notices' }
 local marks, attached = {}, {}
 local literal = {}
+M.log_boundary = '=== LOG ==='
+function M.is_log_boundary(line) return vim.trim(line) == M.log_boundary end
 
 -- Alleen het gedeelde werkregelformaat herkennen, uitsluitend in het kopblok.
 -- Oude bestanden hebben geen betrouwbare handelingstijd: niet alsnog 'nu' tonen.
@@ -41,6 +43,9 @@ end
 -- Opgeslagen regels zonder sessiehistorie nooit willekeurig afkappen.
 function M.summary(message, full_available)
   local text = tostring(message or ''):gsub('%s+', ' ')
+  if full_available and text:find('Citaatcontrole geweigerd:', 1, true) then
+    return 'Herschrijven niet toegepast: citaat wijkt af. Bekijk <leader>kl en controleer de genoemde bronpassage.'
+  end
   if text:match('^Importbewerking %(zonder AI%):') then
     return 'Import opgeschoond (zonder AI).'
   elseif text:match('^Bewerkt met Behoudend publicatieklaar maken') then
@@ -265,7 +270,7 @@ function M.content_lines(lines)
     -- Witruimte tussen instellingen en meldingen is eveneens presentatie.
     -- YAML (ook meerregelige waarden) en alle artikelwitruimte blijven exact.
     if index < first or index >= last
-      or (not line:match('^%s*$') and not M.is_line(line)) then
+      or (not line:match('^%s*$') and not M.is_line(line) and not M.is_log_boundary(line)) then
       clean[#clean + 1] = line
     end
   end
@@ -330,35 +335,47 @@ end
 -- Uitsluitend indeling van het expliciete editor-kopblok. Geen controleregels
 -- herkennen/valideren of Python-tabellen dupliceren; alle andere regels houden
 -- hun tekst en volgorde. YAML en artikelbody worden nooit herschreven.
+local function ordered_header(before, first)
+  local controls, notices, positions, markers = {}, {}, {}, {}
+  for index = first, #before do
+    local line = before[index]
+    local message, time = M.parse_line(line)
+    if message ~= nil then
+      notices[#notices + 1] = { text = stamped(M.summary(message, false), time), index = index }
+    elseif M.is_log_boundary(line) then
+      markers[#markers + 1] = index
+    elseif not line:match('^%s*$') then
+      controls[#controls + 1] = { text = line, index = index }
+    end
+  end
+  if #notices == 0 and #markers == 0 then return before, positions end
+  local after = {}
+  for index = 1, first - 1 do after[#after + 1] = before[index] end
+  if #after > 0 then after[#after + 1] = '' end
+  for _, item in ipairs(controls) do
+    after[#after + 1] = item.text
+    positions[item.index] = #after
+  end
+  if #controls > 0 then after[#after + 1] = '' end
+  after[#after + 1] = M.log_boundary
+  for _, index in ipairs(markers) do positions[index] = #after end
+  for _, item in ipairs(notices) do
+    after[#after + 1] = item.text
+    positions[item.index] = #after
+  end
+  return after, positions
+end
+
+-- Helpers voor clientproducenten; uitsluitend het zichtbare kopblok aanleveren.
+function M.order_header(lines) return (ordered_header(lines, 1)) end
+
 local function organize_header(buf, state)
   local row = position(buf, state.boundary)
   if not row then return end
   local before = vim.api.nvim_buf_get_lines(buf, 0, row, false)
   local first = header_start(before, row + 1)
-  local controls, notices, positions = {}, {}, {}
-  for index = first, row do
-    local line = before[index]
-    local message, time = M.parse_line(line)
-    if message ~= nil then
-      notices[#notices + 1] = { text = stamped(M.summary(message, false), time), index = index }
-    elseif not line:match('^%s*$') then
-      controls[#controls + 1] = { text = line, index = index }
-    end
-  end
-  if #notices == 0 then
-    vim.api.nvim_buf_clear_namespace(buf, M.style_namespace, 0, -1)
-    return
-  end
-  local after = {}
-  for index = 1, first - 1 do after[#after + 1] = before[index] end
-  if #after > 0 then after[#after + 1] = '' end
-  for _, block in ipairs { controls, notices } do
-    for _, item in ipairs(block) do
-      after[#after + 1] = item.text
-      positions[item.index] = #after
-    end
-    if #block > 0 then after[#after + 1] = '' end
-  end
+  local after, positions = ordered_header(before, first)
+  if after ~= before then after[#after + 1] = '' end
   if vim.deep_equal(before, after) then
     highlight_header(buf, before, first)
     return
@@ -408,7 +425,7 @@ function M.show(buf, issues, changed, may_edit)
     end
     if not finished then return end
     for index = header_start(lines, #lines), #lines - 1 do
-      if M.is_line(lines[index]) then found = true; break end
+      if M.is_line(lines[index]) or M.is_log_boundary(lines[index]) then found = true; break end
     end
     if not found then return end
   end
@@ -501,9 +518,11 @@ function M.show(buf, issues, changed, may_edit)
       -- Alleen de nieuwe uitkomsttijd bijwerken; refresh/openen gebruikt geen klok.
       local text = line_text(current[id])
       if text ~= entry.text then
-        vim.api.nvim_buf_set_lines(buf, at, at + 1, false, { text })
-        entry.text = text
-        entry.mark = line_mark(buf, at, entry.style or 'TexttoolsNotice', entry.mark)
+        -- Een nieuw resultaat hoort onderaan, niet op de oude plek tussen
+        -- gebeurtenissen. De geordende invoegronde hieronder zet het terug.
+        vim.api.nvim_buf_set_lines(buf, at, at + 1, false, {})
+        vim.api.nvim_buf_del_extmark(buf, M.line_namespace, entry.mark)
+        state.entries[id] = nil
       end
     end
     if not same or not current[id] then

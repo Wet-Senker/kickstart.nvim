@@ -46,7 +46,8 @@ local function metadata_end(buf, after_receipt)
       return ending, first + 1, legacy_marker
     elseif value == 'doublures: beoordeeld' then
       if technical_gap then ending = at + 1 else legacy_marker = true end
-    elseif value ~= '' and not value:match('^%s') and not value:match('^[^:]+:') then
+    elseif value ~= '' and not require('article_notices').is_log_boundary(value)
+        and not value:match('^%s') and not value:match('^[^:]+:') then
       return nil
     elseif value ~= '' then
       technical_gap = false

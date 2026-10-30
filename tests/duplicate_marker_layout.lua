@@ -32,6 +32,8 @@ require('ai_text')._set_edition_codes(buf, { 'B', 'SW' })
 wait(function() return vim.fn.foldclosedend(1) == 4 end)
 assert(vim.api.nvim_buf_get_lines(buf, 3, 4, false)[1] == 'doublures: beoordeeld')
 assert(calls == 1, 'editiewijziging maakte weer een zichtbare guard of een proces')
+assert(content(buf):find('e: B, SW\nc: Jan Jansen\n\n=== LOG ===\n[09:18] Import opgeschoond.', 1, true),
+  'logscheiding ontbreekt of mengt instellingen; technische fold moet gesloten blijven')
 vim.api.nvim_buf_set_lines(buf, -1, -1, false, { 'Nieuwe eigen regel.' })
 assert(content(buf):find('Nieuwe eigen regel.', 1, true))
 

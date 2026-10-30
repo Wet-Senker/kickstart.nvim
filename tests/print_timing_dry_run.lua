@@ -96,6 +96,7 @@ calls, done_args = run_prepare({
   ok_result { requires_review = true, targets = { {} } },
   ok_result {
     requires_review = true, changed = true, ai_call_count = 1,
+    review_message = 'Controleer ## Kranttijdsversies voor De Brug (15-09-2026); daarna <leader>aw.',
     markdown = 'e: B\n\n=== ARTIKEL ===\n\nKop\n\nKAMPEN - Tekst.\n\n---\n\n## Kranttijdsversies\n',
     section = '## Kranttijdsversies\n',
   },
@@ -106,6 +107,9 @@ assert(not vim.tbl_contains(calls[2], '--dry-run'),
   'de bevestigde generatie liep nog steeds als dry-run')
 assert(done_args[1] == true and done_args[3] == true,
   'na echte generatie hoort requires_review/review-voltooid waar te zijn')
+assert(done_args[5] == nil and type(done_args[6]) == 'table'
+  and done_args[7] == 'Controleer ## Kranttijdsversies voor De Brug (15-09-2026); daarna <leader>aw.',
+  'reviewuitleg ontbreekt of wordt verward met validatiefout/revisietransitie')
 
 -- 3b. De bevestigde generatie kan terecht niets wijzigen (de AI besliste dat
 -- de brontekst al klopt). Python meldt dan requires_review=false, ook al is

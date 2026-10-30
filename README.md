@@ -13,6 +13,16 @@ daarna de terminal en Neovim. De twee doublure-testbranches blijven beschikbaar.
 
 ## Workflow
 
+Werkvelden zoals `e:`, `c:` en `wijk:` blijven bij elkaar boven `=== LOG ===`.
+Daaronder volgen de korte tijdregels, oudste bovenaan en nieuwste onderaan;
+een nieuwe uitkomst van dezelfde handeling sluit weer onderaan aan. `dd`
+verwijdert een meldingsregel, zonder een onderliggende controle goed te keuren.
+De scheiding en meldingen tellen niet als artikelwijziging en worden niet
+gepubliceerd. Werk kern én client bij en herstart Neovim voor deze indeling.
+Een nieuwe kranttijdsversie vermeldt welke krant/datum je moet controleren bij
+`## Kranttijdsversies`; daarna kun je opnieuw `<leader>aw` gebruiken. Dit betekent
+dat er een voorstel klaarstaat, niet dat je zelf de bron hebt veranderd.
+
 Bestaande foto uit Pubble nodig? Gebruik `<leader>pf` / `:PubbleFoto`, of
 **Foto zoeken** bij de fotocontrole van `<leader>aw`. Bron en Zoekwoorden
 staan in een tijdelijke Vim-buffer. Kies bij Bron tussen
@@ -814,6 +824,41 @@ ongewijzigde webtekst voor print; de hele ronde kan worden geannuleerd. Bij toch
 doorzetten wordt het weeknummer in de krantwerktitel van die te late editie
 vervangen door `z`, zodat de bewuste uitzondering direct zichtbaar is. De
 werkelijke deadline blijft voor controles apart bewaard.
+
+**Webtekst ongewijzigd naar deze krant [b]** bewaart alleen de keuze in de
+verborgen gegevens. Er verschijnt geen tweede kopie van het artikel. Bij een
+latere tekst- of planningswijziging moet de keuze opnieuw beoordeeld worden.
+Een werkelijk herschreven kranttekst blijft wel apart zichtbaar.
+Eigen voorbereidingswijzigingen houden de verzendbevestiging en artikel-link
+niet meer tegen. Jouw tussentijdse edits blijven beschermd en bewerkbaar.
+Hiervoor moeten Texttools en deze configuratie samen bijgewerkt zijn;
+herstart Neovim om de clientcorrectie te laden.
+
+Bij afgewezen citaatwijzigingen toont AR boven het artikel kort wat er misging.
+Met `<leader>kl` lees je de volledige genoemde passage en vervolgstap. De bron
+blijft behouden; een nieuwe poging staat opnieuw in de historie. Een oude
+importfout met een sluitend aanhalingsteken in een automatische weblink wordt
+door de kern als opmaak behandeld. Echte gewijzigde citaatwoorden blijven
+afgewezen, ook wanneer het om een spelfout in het broncitaat gaat.
+
+Vrije AR/AP mogen een letterlijk deelcitaat van minstens vijf volledige woorden
+overnemen uit één broncitaat. Gewijzigde woorden of samengeplakte fragmenten
+blijven afgewezen. AN en kranttijd behouden hun striktere regels. Iedere
+misgelopen poging blijft apart in de historie en het technische log, ook binnen
+dezelfde minuut; boven het artikel staat de actuele foutmelding.
+
+Bij een echte citaatafwijking in AR/AP blijft het voorstel nu beschikbaar in
+een vergelijkingstab: links de beschermde bron, rechts het bewerkbare voorstel.
+Specifieke citaatregels zijn gemarkeerd. Herstel rechts; `<leader>aY` controleert
+lokaal opnieuw en neemt alleen een geldig voorstel over. `q` behoudt de bron,
+`?` geeft uitleg. Escape behoudt zijn gewone werking. Bij meerdere kranten komen
+deze vergelijkingen één voor één. Tijdens zo'n beoordeling is AW op de bron
+geblokkeerd; er wordt niets automatisch verzonden. Nieuwe kopgegevens/socials
+blijven behouden; echte bodywijzigingen blokkeren een oud voorstel.
+Technische fouten geven hun eigen foutmelding, zonder broncorrectie te vragen.
+De prompt expliciteert citaatbehoud; dat is preventie zonder nieuwe AI-call.
+Alleen een handmatige aY-hercontrole start één extra lokaal Pythonproces, zonder
+AI of Pubble. De vergelijking is tijdelijk: sluiten/herstart behoudt de bron.
 
 Bij een datumgebonden aankondiging biedt de deadlinevraag dezelfde keuzes per
 krant, ook tijdens een nog lopende actieperiode met losse bijeenkomsten.

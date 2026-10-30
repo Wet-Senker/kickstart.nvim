@@ -1,5 +1,7 @@
 dofile('tests/helpers/notice_clock.lua')
 local activity = require 'article_activity'
+assert(require('article_notices').summary('Herschrijven niet toegepast. Citaatcontrole geweigerd: de herschrijving maakte een nieuw citaat.', true)
+  == 'Herschrijven niet toegepast: citaat wijkt af. Bekijk <leader>kl en controleer de genoemde bronpassage.')
 activity.setup { preferences = vim.fn.tempname() .. '/activity.json' }
 local function article()
   local buf = vim.api.nvim_create_buf(true, false)
@@ -24,7 +26,7 @@ local ai = require 'ai_text'
 local body = ai._editorial_body_text(vim.api.nvim_buf_get_lines(a, 0, -1, false))
 activity.record(a, 'Kalendergegevens toegevoegd.', nil, { inline = true, notice_key = 'calendar', kind = 'success' })
 wait(function() return count(a) == 1 end)
-assert(text(a):find('e: B\n\n[12:34] Kalendergegevens toegevoegd.\n\n=== ARTIKEL ===', 1, true))
+assert(text(a):find('e: B\n\n=== LOG ===\n[12:34] Kalendergegevens toegevoegd.\n\n=== ARTIKEL ===', 1, true))
 assert(not text(a):find('LET OP', 1, true), 'succes kreeg een waarschuwing')
 assert(not activity.panel_visible(a))
 assert(#vim.api.nvim_buf_get_extmarks(a, require('article_notices').namespace, 0, -1, {}) == 0, 'virtuele dubbeling')

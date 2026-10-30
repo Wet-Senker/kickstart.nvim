@@ -13,6 +13,7 @@ recognition.rubric_decision = function() return {} end
 local codes = { 'B', 'SW', 'ST', 'Z', 'D', 'K' }
 local serial = 0
 local function run_case(stage)
+  local timing = stage == 'timing' or stage == 'preparation_timing'
   serial = serial + 1
   local file = directory .. '/werk/artikel-' .. serial .. '.md'
   local buf = vim.api.nvim_create_buf(true, false)
@@ -22,7 +23,7 @@ local function run_case(stage)
   vim.fn.writefile(original, file)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, original)
   vim.b[buf].publication_review_state = {
-    editions = codes, display_dates = {}, skip_newspaper_editions = codes,
+    editions = codes, display_dates = {}, skip_newspaper_editions = timing and {} or codes,
   }
   ai._mark_duplicate_check_done(buf)
   local newer
@@ -32,7 +33,11 @@ local function run_case(stage)
     newer = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   end
   require('publication_dates').review = function(_, _, _, _, done)
-    if stage == 'preparation' or stage == 'preparation_approval' then change() end
+    if stage == 'preparation' or stage == 'preparation_approval' or stage == 'preparation_timing' then change() end
+    if timing then
+      vim.b[buf].late_newspaper_decision = { mode = 'force', editions = codes,
+        use_web_editions = codes, use_web_revision = require('buffer_revision').capture(buf) }
+    end
     if stage == 'approval' or stage == 'preparation_approval' then
       local revisions = require('buffer_revision')
       local before = revisions.capture(buf)
@@ -46,11 +51,29 @@ local function run_case(stage)
   end
   local export_done
   require('layout_export').finalize_with_media = function(_, _, done) export_done = done end
-  local calls, callback, sending_file = {}, nil, nil
+  local calls, callback, sending_file, timing_calls, opened = {}, nil, nil, 0, false
   local archive = directory .. '/archief-' .. serial .. '.md'
   local old_system = vim.system
-  vim.system = function(command, _, done)
+  vim.system = function(command, opts, done)
+    if command[1] == '/usr/bin/open' then
+      assert(command[3] == 'https://example.test/123')
+      opened = true
+      vim.schedule(function() done({ code = 0 }) end)
+      return {}
+    end
     table.insert(calls, command)
+    if command[1]:match('pubble%-print%-timing$') then
+      timing_calls = timing_calls + 1
+      assert(timing and vim.tbl_contains(command, '--buffer-stdin'))
+      local patch = '---\nnewspaper_timing:\n  version: 1\n  keep_web: {}\n---\n' .. opts.stdin
+      local payload = { markdown = patch, changed = timing_calls == 2, section = vim.NIL,
+        buffer_markdown = patch, requires_review = timing_calls == 1,
+        targets = { { edition = 'B', transitions = {} } }, ai_call_count = 0 }
+      if timing_calls == 1 then assert(vim.tbl_contains(command, '--dry-run'))
+      else assert(not vim.tbl_contains(command, '--dry-run')) end
+      vim.schedule(function() done({ code = 0, stdout = vim.json.encode(payload) }) end)
+      return { kill = function() end }
+    end
     if command[1]:match('pubble%-send$') then
       assert(vim.tbl_contains(command, '--create'))
       sending_file, callback = command[2], done
@@ -69,12 +92,14 @@ local function run_case(stage)
   local hooks = 0
   ai.set_publication_success_hook(buf, function() hooks = hooks + 1 end)
   ai.pubble_send(buf)
-  assert(#calls == 1 and callback, 'send niet eenmaal gestart')
+  assert(vim.wait(1000, function() return callback ~= nil end), 'send niet gestart')
+  assert(#calls == (timing and 3 or 1), 'send niet eenmaal gestart')
+  if stage == 'preparation_timing' then newer = vim.api.nvim_buf_get_lines(buf, 0, -1, false) end
   if stage == 'sending' then change() end
   if stage == 'notice' then
     vim.api.nvim_buf_set_lines(buf, 3, 3, false, { 'Melding: Facebook-tekst toegevoegd.' })
   end
-  callback({ code = 0, signal = 0, stderr = '', stdout = 'PUBBLE_RESULT_JSON: '
+  callback({ code = 0, signal = 0, stderr = '', stdout = (timing and 'Pubble article: https://example.test/123\n' or '') .. 'PUBBLE_RESULT_JSON: '
     .. vim.json.encode({ mode = 'published', outcome = 'success', phases = {
       { name = 'web', status = 'succeeded' },
     } }) })
@@ -82,8 +107,10 @@ local function run_case(stage)
   if stage == 'export' then change() end
   export_done(nil)
   assert(vim.wait(1000, function() return vim.b[buf].publication_in_progress == false end))
-  assert(#calls == 2 and hooks == 1, 'extra calls of ontbrekende succes-hook')
-  if stage and stage ~= 'approval' and stage ~= 'notice' then
+  local expected_calls = timing and 4 or 2
+  assert(#calls == expected_calls and hooks == 1, 'extra calls of ontbrekende succes-hook')
+  if timing then assert(opened and timing_calls == 2, 'link of timingaanroep ontbreekt') end
+  if stage and stage ~= 'approval' and stage ~= 'notice' and stage ~= 'timing' then
     assert(vim.deep_equal(vim.api.nvim_buf_get_lines(buf, 0, -1, false), newer),
       'nieuwere tekst/agenda/controleregels gewijzigd: ' .. stage)
     assert(vim.bo[buf].modified and vim.bo[buf].modifiable and not vim.bo[buf].readonly)
@@ -92,10 +119,16 @@ local function run_case(stage)
     -- Ook na verlies van vluchtige b:-state blokkeert aw vóór ieder subprocess.
     vim.b[buf].failed_send_conflict = nil
     ai.pubble_send(buf)
-    assert(#calls == 2 and recovery.review_conflict(buf), 'duplicaat mogelijk: ' .. stage)
+    assert(#calls == expected_calls and recovery.review_conflict(buf), 'duplicaat mogelijk: ' .. stage)
   else
     assert(vim.fn.filereadable(file) == 0 and vim.bo[buf].buftype == 'nofile',
       'normale afronding veranderd')
+    if timing then
+      local visible = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+      assert(visible:find('Verstuurd naar Pubble', 1, true) and visible:find('https://example.test/123', 1, true),
+        'eigen kranttijdvoorbereiding blokkeert de bevestiging of link')
+      assert(not visible:find('## Kranttijdsversies', 1, true), 'dubbele kranttekst getoond')
+    end
   end
   assert(vim.fn.filereadable(archive) == 1, 'gepubliceerde versie ontbreekt')
   vim.system = old_system
@@ -108,5 +141,7 @@ run_case('preparation')
 run_case('sending')
 run_case('export')
 run_case('archiving')
+run_case('timing')
+run_case('preparation_timing')
 vim.fn.delete(directory, 'rf')
 print('publication success edits: OK')

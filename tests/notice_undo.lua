@@ -51,7 +51,7 @@ assert(vim.deep_equal(lines(buf), original))
 sync()
 vim.api.nvim_buf_set_lines(buf, 0, 1, false, { 'e: B, SW' })
 flush()
-assert(table.concat(lines(buf), '\n'):find('e: B, SW\nagenda: ja\n@John: Graag controleren.\n\n[12:34]', 1, true))
+assert(table.concat(lines(buf), '\n'):find('e: B, SW\nagenda: ja\n@John: Graag controleren.\n\n=== LOG ===\n[12:34]', 1, true))
 assert(lines(buf)[#lines(buf)] == 'Oorspronkelijke tekst.')
 -- Een nieuw controleresultaat blijft zichtbaar, ook direct na undo.
 stable(buf, 'silent undo 0')

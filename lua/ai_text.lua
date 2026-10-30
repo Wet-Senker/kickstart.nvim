@@ -268,6 +268,8 @@ local function ai_system(cmd, opts, callback, title, job_buf, on_cancel)
     trace_buf = vim.api.nvim_get_current_buf()
   end
   local action = title or ('Texttools · ' .. vim.fn.fnamemodify(tostring(cmd[1] or 'taak'), ':t'))
+  local quote_source_hash = vim.tbl_contains(cmd, '--quote-review-json') and type(opts.stdin) == 'string'
+    and vim.fn.sha256(opts.stdin) or nil
   local trace = workflow_log.start(trace_buf, action, {
     command = vim.fn.fnamemodify(tostring(cmd[1] or ''), ':t'),
   })
@@ -303,10 +305,17 @@ local function ai_system(cmd, opts, callback, title, job_buf, on_cancel)
           notifications.notify("Achtergrondtaak gaf een Lua-fout: " .. tostring(err), vim.log.levels.ERROR)
         end)
       else
-        workflow_log.finish(trace, result.code == 0 and 'succeeded' or 'failed', {
+        local needs_review = false
+        if result.code == 3 and quote_source_hash then
+          local decoded, report = pcall(vim.json.decode, result.stdout or '')
+          needs_review = decoded and type(report) == 'table' and report.version == 1
+            and report.kind == 'quote_review' and report.status == 'needs_review'
+            and report.source_sha256 == quote_source_hash
+        end
+        workflow_log.finish(trace, needs_review and 'needs_review' or (result.code == 0 and 'succeeded' or 'failed'), {
           exit_code = result.code,
           signal = result.signal,
-          error = result.code ~= 0 and 'ProcessExit' or nil,
+          error = result.code ~= 0 and not needs_review and 'ProcessExit' or nil,
         })
       end
     end
@@ -1022,9 +1031,12 @@ local function reassemble_article(fm, ctrl, body, sections, has_boundary)
     for _, l in ipairs(ctrl) do if l == 'doublures: beoordeeld' then table.insert(out, l) end end
   end
   if #fm > 0 then table.insert(out, "") end
+  local visible_ctrl = {}
   for _, l in ipairs(ctrl) do
-    if #fm == 0 or l ~= 'doublures: beoordeeld' then table.insert(out, l) end
+    if #fm == 0 or l ~= 'doublures: beoordeeld' then table.insert(visible_ctrl, l) end
   end
+  if has_boundary then visible_ctrl = require('article_notices').order_header(visible_ctrl) end
+  for _, l in ipairs(visible_ctrl) do table.insert(out, l) end
   if #ctrl > 0 then table.insert(out, "") end
   if has_boundary then
     table.insert(out, ARTICLE_BOUNDARY)
@@ -2688,6 +2700,8 @@ M._edition_versions_regenerate_confirm = function()
 end
 
 M._edition_variant_runner = function(buf, code, source, done, task)
+  local review_body = editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+  local review_generation = vim.b[buf].editorial_rewrite_generation
   -- JSON null wordt vim.NIL en is truthy in Lua. Alleen een echte marker
   -- activeert de lokale afwijsoptie; algemene/provinciale taken hebben null.
   local local_angle_marker = task and type(task.no_local_angle_marker) == 'string'
@@ -2710,11 +2724,16 @@ M._edition_variant_runner = function(buf, code, source, done, task)
   if task and (task.edit_mode == 'preserve' or task.edit_mode == 'auto') then
     vim.list_extend(command, { '--edit-mode', task.edit_mode })
   end
-  ai_system(
-    command,
-    { text = true, stdin = source },
-    function(result)
+  table.insert(command, '--quote-review-json')
+  local function receive(result)
     notifications.schedule(function()
+      if require('quote_review').handle(result, { buf = buf, source = source, label = 'Krant ' .. code,
+        is_current = function() return vim.api.nvim_buf_is_valid(buf)
+          and vim.b[buf].editorial_rewrite_generation == review_generation
+          and editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) == review_body end,
+        ready = function(text) receive({ code = 0, stdout = text }) end,
+        fail = function(err) done(false, nil, err) end,
+      }) then return end
       if result.code ~= 0 then
         done(false, nil, vim.trim(result.stderr or ""))
         return
@@ -2731,7 +2750,11 @@ M._edition_variant_runner = function(buf, code, source, done, task)
       end
       done(true, variant, nil)
     end)
-    end,
+  end
+  ai_system(
+    command,
+    { text = true, stdin = source },
+    receive,
     "AI · Krantversie " .. code,
     buf,
     function() notifications.schedule(function() done(false, nil, "krantversie geannuleerd") end) end
@@ -3095,6 +3118,10 @@ M._post_full_article_rewrite = post_full_article_rewrite
 function M.rewrite_article_buffer(force_general, calendar_reconciled)
   force_general = force_general == true
   local buf = vim.api.nvim_get_current_buf()
+  if vim.b[buf].texttools_proposal_review or vim.b[buf].texttools_pending_quote_review then
+    notify_workflow('Beoordeel eerst het citaatvoorstel: herstel rechts en gebruik <leader>aY, of behoud de bron met q.', vim.log.levels.WARN)
+    return
+  end
   if not calendar_reconciled and M._calendar_transition_needed(buf) then
     M._calendar_transition(buf, 'reconcile', { seen = vim.b[buf].calendar_section_seen == true }, function(data)
       if data then vim.api.nvim_buf_call(buf, function() M.rewrite_article_buffer(force_general, true) end) end
@@ -3102,6 +3129,8 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
     return
   end
   require('article_activity').clear_instruction(buf)
+  local generation = (vim.b[buf].editorial_rewrite_generation or 0) + 1
+  vim.b[buf].editorial_rewrite_generation = generation
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 
   -- Eén canonieke split: frontmatter, tagblok, grens en staartsecties blijven
@@ -3149,7 +3178,8 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
   local function source_body_unchanged()
     if not vim.api.nvim_buf_is_valid(buf) then return false end
     local _, _, current_body = split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
-    if table.concat(current_body, "\n") == source_body then return true end
+    if table.concat(current_body, "\n") == source_body
+        and vim.b[buf].editorial_rewrite_generation == generation then return true end
     notify_workflow("Herschrijven niet toegepast: de brontekst is intussen gewijzigd. Start opnieuw.", vim.log.levels.WARN,
       { buf = buf, task_outcome = 'not_applied' })
     return false
@@ -3162,8 +3192,17 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
       -- of handmatig sluiten verdwijnen. Een laat resultaat heeft dan geen doel.
       if not vim.api.nvim_buf_is_valid(buf) then return end
       if not source_body_unchanged() then return end
+      if require('quote_review').handle(result, { buf = buf, source = input,
+        is_current = function() return vim.api.nvim_buf_is_valid(buf)
+          and vim.b[buf].editorial_rewrite_generation == generation
+          and editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) == vim.trim(source_body) end,
+        ready = function(text) receive_rewrite({ code = 0, stdout = text }) end,
+        fail = function(err) notify_workflow(err, vim.log.levels.WARN, { buf = buf, task_outcome = 'not_applied' }) end,
+      }) then return end
       if result.code ~= 0 then
-        notifications.notify("AI rewrite mislukt: " .. (result.stderr or ""), vim.log.levels.ERROR)
+        notify_workflow("Herschrijven kon niet worden afgerond. " .. vim.trim(result.stderr or "")
+          .. ' Je tekst is behouden. Bekijk de fout met <leader>kl of :TexttoolsLog; probeer daarna <leader>ar opnieuw.',
+          vim.log.levels.ERROR, { buf = buf, task_outcome = 'failed' })
         return
       end
       if vim.trim(result.stdout or '') == '' then
@@ -3273,6 +3312,7 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
     vim.list_extend(rewrite_cmd, rewrite_args)
     append_seo_context(rewrite_cmd, seo_context)
     vim.list_extend(rewrite_cmd, { '--edit-mode', edit_mode })
+    table.insert(rewrite_cmd, '--quote-review-json')
     append_reference_date(rewrite_cmd, buf)
     ai_system(rewrite_cmd, { text = true, stdin = input }, receive_rewrite, "AI · Herschrijven", buf)
   end
@@ -5737,6 +5777,11 @@ end
 function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
   local buf = target_buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  if vim.b[buf].texttools_pending_quote_review then
+    notify_workflow('Beoordeel eerst het citaatvoorstel. Herstel rechts en gebruik <leader>aY, of behoud het origineel met q.',
+      vim.log.levels.WARN, { buf = buf })
+    return
+  end
   if vim.b[buf].texttools_proposal_review then
     notifications.notify('Dit is een vergelijkingsvoorstel, geen verzendartikel. '
       .. 'Neem de bewerking eerst over met <leader>aY, of behoud het origineel met q.', vim.log.levels.WARN)
@@ -6788,7 +6833,9 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
           temp_file,
           display_dates,
           resolved_editions,
-          function(ok, err, timing_prepared, skipped_newspapers, timing_problem)
+          function(ok, err, timing_prepared, skipped_newspapers, timing_problem, transition, review_message)
+            staged_input_tick = require('buffer_revision').advance(staged_input_tick, transition)
+            send_input_tick = require('buffer_revision').advance(send_input_tick, transition)
             if not ok then
               vim.b[buf].publication_in_progress = false
               discard_unpublished_temp()
@@ -6811,8 +6858,8 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
               }
               discard_unpublished_temp()
               notify_workflow(
-                timing_problem or ("De bron of planning veranderde. Controleer de vernieuwde "
-                  .. "kranttijdsversie en druk daarna opnieuw <leader>aw."),
+                timing_problem or review_message or ("Controleer de aparte kranttekst bij ## Kranttijdsversies; "
+                  .. "druk daarna <leader>aw. Nog niets verzonden."),
                 timing_problem and vim.log.levels.WARN or vim.log.levels.INFO, { buf = buf, attention = true }
               )
               return
@@ -6849,7 +6896,9 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
         temp_file,
         display_dates,
         resolved_editions,
-        function(ok, err, timing_prepared, skipped_newspapers, timing_problem)
+        function(ok, err, timing_prepared, skipped_newspapers, timing_problem, transition, review_message)
+          staged_input_tick = require('buffer_revision').advance(staged_input_tick, transition)
+          send_input_tick = require('buffer_revision').advance(send_input_tick, transition)
           if not ok then
             vim.b[buf].publication_in_progress = false
             discard_unpublished_temp()
@@ -6898,8 +6947,9 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
                 what = "de vervolgteksten"
               end
               notify_workflow(
-                "Controleer of bewerk " .. what
-                  .. "; druk daarna opnieuw <leader>aw om alles samen te publiceren.",
+                (timing_prepared and not event_prepared and review_message)
+                  or ("Controleer of bewerk " .. what
+                    .. "; druk daarna opnieuw <leader>aw om alles samen te publiceren."),
                 vim.log.levels.INFO, { buf = buf, attention = true }
               )
               return
@@ -7632,6 +7682,13 @@ M._past_timing_confirm = function(targets)
 end
 
 temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
+  local original_done = done
+  local initial_revision = require('buffer_revision').capture(buf)
+  done = function(ok, err, prepared, skipped, problem, review_message)
+    local transition = ok and vim.api.nvim_buf_is_valid(buf)
+      and { before = initial_revision, after = require('buffer_revision').capture(buf) } or nil
+    original_done(ok, err, prepared, skipped, problem, transition, review_message)
+  end
   local input_tick = vim.api.nvim_buf_get_changedtick(buf)
   -- Een web-only editie (krant: nee, of "alleen website" bij een te late
   -- krant) heeft nooit een kranttijdsversie nodig: er gaat niets naar de krant.
@@ -7735,7 +7792,9 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
       not confirmed,
       use_web_editions
     )
-    ai_system(command, { text = true }, function(result)
+    table.insert(command, '--buffer-stdin')
+    local buffer_input = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+    ai_system(command, { text = true, stdin = buffer_input }, function(result)
       notifications.schedule(function()
         if not vim.api.nvim_buf_is_valid(buf) then
           done(false, "Artikelbuffer bestaat niet meer")
@@ -7762,7 +7821,9 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
         if type(payload.validation_issues) == 'table' and #payload.validation_issues > 0 then
           if payload.changed == true then
             local before = require('buffer_revision').capture(buf)
-            if type(payload.section) ~= 'string' or not apply_timing_versions_section(buf, payload.section) then
+            if type(payload.buffer_markdown) == 'string' then
+              require('article_notices').replace_content(buf, vim.split(payload.buffer_markdown:gsub('\n$', ''), '\n', { plain = true }))
+            elseif type(payload.section) ~= 'string' or not apply_timing_versions_section(buf, payload.section) then
               done(false, 'Krantvoorstel kon niet veilig in de buffer worden gezet.')
               return
             end
@@ -7982,7 +8043,9 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
             file
           )
           local section = type(payload.section) == "string" and payload.section or nil
-          if not apply_timing_versions_section(buf, section) then
+          if type(payload.buffer_markdown) == 'string' then
+            require('article_notices').replace_content(buf, vim.split(payload.buffer_markdown:gsub('\n$', ''), '\n', { plain = true }))
+          elseif not apply_timing_versions_section(buf, section) then
             done(false, "Kranttijdversie kon niet veilig in de buffer worden gezet")
             return
           end
@@ -7994,7 +8057,8 @@ temporal_print_prepare = function(buf, file, display_dates, edition_codes, done)
           skipped,
           effective_skipped_newspapers(buf)
         )
-        done(true, nil, payload.requires_review == true, skipped)
+        done(true, nil, payload.requires_review == true, skipped, nil,
+          type(payload.review_message) == 'string' and payload.review_message or nil)
       end)
     end, "Krant · Tijdsvorm controleren", buf, function()
       notifications.schedule(function() done(false, AI_CANCELLED) end)
@@ -8496,7 +8560,7 @@ require("user_dialog").keymap("n", "<leader>ao", M.tekstcheck, {
 -- bufferbewerkingen nooit overschrijven.
 function M.journalistic_neutralize()
   local buf = vim.api.nvim_get_current_buf()
-  if vim.b[buf].texttools_proposal_review then
+  if vim.b[buf].texttools_proposal_review or vim.b[buf].texttools_pending_quote_review then
     notifications.notify('Beoordeel eerst het openstaande voorstel: <leader>aY overnemen, q origineel behouden.', vim.log.levels.WARN)
     return
   end
@@ -9101,6 +9165,10 @@ end
 -- Frontmatter, kopcodes en ## secties blijven onaangeraakt (canonieke splitser).
 function M.ai_prompt_rewrite()
   local buf = vim.api.nvim_get_current_buf()
+  if vim.b[buf].texttools_proposal_review or vim.b[buf].texttools_pending_quote_review then
+    notify_workflow('Beoordeel eerst het citaatvoorstel met <leader>aY of behoud het origineel met q.', vim.log.levels.WARN)
+    return
+  end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local article_lines = {}
   do
@@ -9125,26 +9193,32 @@ function M.ai_prompt_rewrite()
   local original_content = table.concat(article_lines, "\n")
   local is_112_template = _parse_112_template(body)
   local requested_body = editorial_body_text(article_lines)
+  local generation = (vim.b[buf].editorial_rewrite_generation or 0) + 1
+  vim.b[buf].editorial_rewrite_generation = generation
 
-  local rewrite_command = { aichat, prompt, "--mode", "rewrite" }
-  append_reference_date(rewrite_command, buf)
-  ai_system(
-    rewrite_command,
-    { text = true, stdin = table.concat(body, "\n") },
-    function(result)
+  local function current()
+    if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].editorial_rewrite_generation ~= generation then return false end
+    local lines_now = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local article_now = split_on_prompt_marker(lines_now)
+    return editorial_body_text(article_now and vim.split(article_now, '\n', { plain = true }) or lines_now) == requested_body
+  end
+  local function receive(result)
       notifications.schedule(function()
         if not vim.api.nvim_buf_is_valid(buf) then return end
-        local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-        local current_article = split_on_prompt_marker(current_lines)
-        local current_body = editorial_body_text(current_article and vim.split(current_article, '\n', { plain = true }) or current_lines)
-        if current_body ~= requested_body then
+        if not current() then
           notify_workflow("Herschrijving niet toegepast: de tekst is intussen gewijzigd.", vim.log.levels.WARN,
             { buf = buf, task_outcome = 'not_applied' })
           return
         end
+        if require('quote_review').handle(result, { buf = buf, source = table.concat(body, '\n'),
+          label = 'AP', retry = '<leader>ap', is_current = current,
+          ready = function(text) receive({ code = 0, stdout = text }) end,
+          fail = function(err) notify_workflow(err, vim.log.levels.WARN, { buf = buf, task_outcome = 'not_applied' }) end,
+        }) then return end
         if result.code ~= 0 then
           local err = vim.trim(result.stderr or result.stdout or "")
-          notifications.notify("aichat error: " .. (err ~= "" and err or "unknown"), vim.log.levels.ERROR)
+          notifications.notify("Herschrijven kon niet worden afgerond: " .. (err ~= "" and err or "onbekende fout")
+            .. '. Je tekst is behouden. Bekijk :TexttoolsLog; probeer daarna <leader>ap opnieuw.', vim.log.levels.ERROR)
           return
         end
         local output = vim.trim(result.stdout or "")
@@ -9172,7 +9246,13 @@ function M.ai_prompt_rewrite()
           { buf = buf, kind = 'success', inline = true, notice_key = 'rewrite-method',
             resolved = true, task_outcome = 'applied' })
       end)
-    end,
+  end
+  local rewrite_command = { aichat, prompt, "--mode", "rewrite", '--quote-review-json' }
+  append_reference_date(rewrite_command, buf)
+  ai_system(
+    rewrite_command,
+    { text = true, stdin = table.concat(body, "\n") },
+    receive,
     "AI · Herschrijven",
     buf
   )

@@ -22,7 +22,7 @@ vim.api.nvim_buf_set_lines(buf, 0, -1, false, original)
 local revision = revisions.capture(buf)
 vim.api.nvim_set_current_buf(buf)
 local expected = vim.list_extend(vim.deepcopy(yaml), { '', 'e: B', 'c: Johan Schaart.', '',
-  '[12:34] LET OP: Datum ontbreekt.', '[12:34] Herschreven (<leader>ar).', '' })
+  '=== LOG ===', '[12:34] LET OP: Datum ontbreekt.', '[12:34] Herschreven (<leader>ar).', '' })
 vim.list_extend(expected, body)
 wait(function() return vim.deep_equal(lines(buf), expected) end)
 assert(not activity.snapshot(buf), 'heropenen verzon taak-/publicatiestatus')
@@ -38,7 +38,7 @@ vim.api.nvim_buf_set_lines(buf, boundary - 1, boundary - 1, false, { 'b: Nieuwe 
 vim.api.nvim_win_set_cursor(0, { boundary, 5 })
 wait(function() return row(buf, 'b: Nieuwe foto') < row(buf, '[12:34] LET OP: Datum ontbreekt.') end)
 assert(vim.deep_equal(vim.api.nvim_win_get_cursor(0), { row(buf, 'b: Nieuwe foto'), 5 }), 'cursor verloor de bewerkte instelling')
-assert(text(buf):find('e: B\nc: Johan Schaart.\nb: Nieuwe foto\n\n[12:34]', 1, true))
+assert(text(buf):find('e: B\nc: Johan Schaart.\nb: Nieuwe foto\n\n=== LOG ===\n[12:34]', 1, true))
 
 -- Beheerde meldingsankers overleven de verplaatsing; oplossen verwijdert
 -- alleen die melding en dd blijft een bewuste afwijzing, ook na herschikken.
@@ -70,4 +70,13 @@ assert(vim.api.nvim_buf_get_changedtick(buf) == tick)
 activity.finish(buf, 'busy')
 wait(function() return row(buf, 'prio: 2') < row(buf, '[12:34] LET OP: Datum ontbreekt.') end)
 assert(text(buf):find(table.concat(body, '\n'), 1, true))
+-- Ook als alle meldingen met dd zijn weggehaald blijft een lege logscheiding
+-- een vaste grens; later toegevoegde velden worden erboven gehouden.
+local empty = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_buf_set_lines(empty, 0, -1, false, {
+  'e: SW', '', '=== LOG ===', 'wijk: Heel Zwolle', '', '=== ARTIKEL ===', 'Zwolle.',
+})
+vim.api.nvim_set_current_buf(empty)
+wait(function() return text(empty) == 'e: SW\nwijk: Heel Zwolle\n\n=== LOG ===\n\n=== ARTIKEL ===\nZwolle.' end)
+assert(not activity.snapshot(empty), 'lege logscheiding verzon taakstatus')
 print('notice header layout: OK')

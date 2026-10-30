@@ -25,6 +25,15 @@ assert(lines[8] == 'wijk: Berkum' and lines[9] == '=== ARTIKEL ===',
 assert(wijk.set_control(buf, 'Heel Zwolle'), 'wijk niet te wijzigen')
 lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 assert(lines[8] == 'wijk: Heel Zwolle', 'bestaande wijkregel niet vervangen')
+local logged = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_buf_set_lines(logged, 0, -1, false, {
+  '---', 'note: |', '  [11:30] YAML', 'wijk: Bewaar YAML', '---', '',
+  'e: SW', '', '=== LOG ===', '[11:31] Herschreven.', '', '=== ARTIKEL ===', 'Zwolle.',
+})
+assert(wijk.set_control(logged, 'Heel Zwolle'))
+assert(table.concat(vim.api.nvim_buf_get_lines(logged, 0, -1, false), '\n') ==
+  '---\nnote: |\n  [11:30] YAML\nwijk: Bewaar YAML\n---\n\ne: SW\nwijk: Heel Zwolle\n\n=== LOG ===\n[11:31] Herschreven.\n\n=== ARTIKEL ===\nZwolle.',
+  'wijk kwam onder het log of wijzigde YAML')
 
 local old_system = vim.system
 local old_notify = vim.notify

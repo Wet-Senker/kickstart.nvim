@@ -19,14 +19,21 @@ end
 function M.set_control(buf, name)
   if not vim.api.nvim_buf_is_valid(buf) then return false end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local insert_at
+  local in_yaml = lines[1] == '---'
   for index, line in ipairs(lines) do
-    if vim.trim(line) == '=== ARTIKEL ===' then
-      vim.api.nvim_buf_set_lines(buf, index - 1, index - 1, false, { 'wijk: ' .. name })
+    if in_yaml then
+      if index > 1 and line == '---' then in_yaml = false end
+    elseif vim.trim(line) == '=== ARTIKEL ===' then
+      local at = (insert_at or index) - 1
+      vim.api.nvim_buf_set_lines(buf, at, at, false, { 'wijk: ' .. name })
       return true
-    end
-    if line:match('^%s*[Ww]ijk%s*:') then
+    elseif line:match('^%s*[Ww]ijk%s*:') then
       vim.api.nvim_buf_set_lines(buf, index - 1, index, false, { 'wijk: ' .. name })
       return true
+    elseif not insert_at and (require('article_notices').is_log_boundary(line) or require('article_notices').is_line(line)) then
+      insert_at = index
+      while insert_at > 1 and lines[insert_at - 1]:match('^%s*$') do insert_at = insert_at - 1 end
     end
   end
   return false
