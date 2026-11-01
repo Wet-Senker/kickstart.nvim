@@ -145,6 +145,11 @@ function M.show(report, callback, options)
     if detail then detail = nil; render(); return end
     if applying then return end
     if options.is_current and not options.is_current() then finish(false); return end
+    if #(report.errors or {}) > 0 or report.history_complete == false then
+      notices.notify('Doublurecontrole is onvolledig; keuzes zijn niet opgeslagen. Controleer opnieuw vóór verzending.',
+        vim.log.levels.ERROR)
+      return
+    end
     if not options.on_apply then
       notices.notify('Geen veilige opslagactie beschikbaar; werk Texttools en Neovim bij.', vim.log.levels.ERROR)
       return

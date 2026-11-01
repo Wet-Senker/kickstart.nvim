@@ -127,6 +127,28 @@ assert(result and text(buf):find('Tijdens de scan verder geredigeerd.', 1, true)
 assert(text(buf):find('Nieuwste regel tijdens het opslaan van de keuze.', 1, true))
 assert(text(buf):find('decision: duplicate', 1, true) and not ai._duplicate_check_is_current(buf))
 
+-- Een onvolledig kanaal blijft zichtbaar, maar q mag de review niet als
+-- voltooid opslaan of sluiten.
+buf, result = source(), nil
+local incomplete = report(buf)
+incomplete.errors = { 'agenda: Pubble gaf HTTP 400' }
+incomplete.history_complete = false
+ai._duplicate_stage_runner = function(_, callback, options)
+  ui.show(incomplete, function(ok) callback(ok, incomplete) end, options)
+end
+ai._check_duplicate_stage(buf, { 'B', 'SW' }, 'importeren', function(ok) result = ok end)
+dialog = vim.api.nvim_get_current_buf()
+key(dialog, 'q')
+vim.wait(50, function() return false end)
+assert(result == nil and vim.api.nvim_buf_is_valid(dialog))
+assert(not text(buf):find('duplicate_selection:', 1, true))
+key(dialog, '<C-c>')
+wait(function() return result ~= nil end)
+ai._duplicate_stage_runner = function(_, callback, options)
+  local data = report(options.buf)
+  ui.show(data, function(ok) callback(ok, data) end, options)
+end
+
 -- Explicit pause cancels automatic agenda continuation and stores no choices.
 buf, result = source(), nil
 ai._check_duplicate_stage(buf, { 'B', 'SW' }, 'importeren', function(ok) result = ok end)
