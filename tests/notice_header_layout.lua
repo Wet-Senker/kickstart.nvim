@@ -79,4 +79,24 @@ vim.api.nvim_buf_set_lines(empty, 0, -1, false, {
 vim.api.nvim_set_current_buf(empty)
 wait(function() return text(empty) == 'e: SW\nwijk: Heel Zwolle\n\n=== LOG ===\n\n=== ARTIKEL ===\nZwolle.' end)
 assert(not activity.snapshot(empty), 'lege logscheiding verzon taakstatus')
+
+-- Een nieuwe invoerregel boven het log blijft staan, ook tijdens een
+-- achtergrondrefresh en voordat de gebruiker de eerste letter kan typen.
+local typing = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_buf_set_lines(typing, 0, -1, false, {
+  'e:', '', '=== LOG ===', '[12:34] Import opgeschoond (zonder AI).', '',
+  '=== ARTIKEL ===', '', 'Kop', '', 'Artikeltekst.',
+})
+vim.api.nvim_set_current_buf(typing)
+vim.wait(30, function() return false end)
+vim.api.nvim_buf_set_lines(typing, 0, 0, false, { '' })
+vim.api.nvim_win_set_cursor(0, { 1, 0 })
+local pending = lines(typing)
+vim.wait(50, function() return false end)
+assert(vim.deep_equal(lines(typing), pending), 'lege invoerregel boven log werd weggehaald')
+assert(vim.deep_equal(vim.api.nvim_win_get_cursor(0), { 1, 0 }), 'cursor versprong uit nieuwe invoerregel')
+vim.api.nvim_buf_set_lines(typing, 0, 1, false, { '@John Graag controleren.' })
+vim.wait(30, function() return false end)
+assert(lines(typing)[1] == '@John Graag controleren.', 'nieuwe gebruikersinvoer verdween')
+assert(row(typing, 'e:') < row(typing, '=== LOG ==='))
 print('notice header layout: OK')

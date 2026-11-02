@@ -1385,7 +1385,7 @@ local function edition_control_lines(resolved)
   elseif #suggested > 0 then
     e_line = "e: SUGGESTIE, " .. table.concat(suggested, ", ")
   else
-    return {}
+    return { 'e:' } -- Zichtbaar keuzevak; nooit een stille De-Brug-keuze.
   end
   local result = { e_line }
 
@@ -1616,6 +1616,8 @@ local function remember_ignored_duplicates(buf, data)
 end
 M._remember_ignored_duplicates = remember_ignored_duplicates
 
+M._pending_duplicate_rewrites = {}
+
 local function check_duplicate_stage(buf, codes, stage, done, existing_file, review_agenda)
   if not vim.api.nvim_buf_is_valid(buf) then
     if done then done(false) end
@@ -1737,6 +1739,21 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
       -- next explicit aw uses the saved exclusions; closing never publishes.
       if done then done((approved == true or continue_editing)
         and not (not early and data and data.selection_applied)) end
+      local waiting = M._pending_duplicate_rewrites[buf]
+      M._pending_duplicate_rewrites[buf] = nil
+      if waiting and vim.api.nvim_buf_is_valid(buf) then
+        if approved == true then
+          vim.schedule(function()
+            if vim.api.nvim_buf_is_valid(buf)
+                and vim.b[buf].editorial_rewrite_generation == waiting.generation then
+              vim.api.nvim_buf_call(buf, function() M.rewrite_article_buffer(waiting.force_general) end)
+            end
+          end)
+        else
+          notify_workflow('Herschrijven niet gestart: de doublurecontrole is niet afgerond. Probeer opnieuw met <leader>ar.',
+            vim.log.levels.WARN, { buf = buf })
+        end
+      end
   end
   local started = pcall(M._duplicate_stage_runner,
     command, complete,
@@ -1800,8 +1817,8 @@ local function buffer_has_edition_control(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local _, controls = split_article_parts(lines)
   for _, line in ipairs(controls) do
-    local key = vim.trim(line):match("^([%a][%a%d_]*)%s*:")
-    if key and (key:lower() == "e" or key:lower() == "editie") then
+    local key, value = vim.trim(line):match("^([%a][%a%d_]*)%s*:%s*(.*)$")
+    if key and value ~= '' and (key:lower() == "e" or key:lower() == "editie") then
       return true
     end
   end
@@ -2403,6 +2420,7 @@ local function fill_detected_editions_line(buf, content, done)
     end
     remember_edition_places(buf, resolved)
     if resolved.has_explicit_editions == true then
+      if not buffer_has_edition_control(buf) then set_edition_codes(buf, resolved.editions) end
       adapt_editorial_address(buf, resolved.editions[1], function(ok)
         if ok then apply_edition_suggestions(buf, resolved.editions, resolved) end
         if done then done(ok) end
@@ -2417,6 +2435,9 @@ local function fill_detected_editions_line(buf, content, done)
         if done then done(ok) end
       end)
       return
+    end
+    if not buffer_has_edition_control(buf) then
+      replace_edition_control_lines(buf, edition_control_lines(resolved))
     end
     if done then done(true) end
   end)
@@ -2538,6 +2559,7 @@ local function edition_autodetect(buf, content, done)
       -- bij <leader>ar het vergelijkingspunt.
       remember_edition_places(buf, resolved)
       if resolved.has_explicit_editions == true or buffer_has_edition_control(buf) then
+        if not buffer_has_edition_control(buf) then set_edition_codes(buf, resolved.editions) end
         adapt_editorial_address(buf, resolved.editions[1], function(accepted)
         if not accepted then complete(false); return end
         apply_edition_suggestions(buf, resolved.editions, resolved)
@@ -3322,6 +3344,7 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
   -- AI-call vallen, zodat de algemene versie rechtstreeks het origineel krijgt.
   local function with_resolved(resolved)
     if not vim.api.nvim_buf_is_valid(buf) then return end
+    if vim.b[buf].editorial_rewrite_generation ~= generation then return end
     if editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) ~= resolve_body then
       notify_workflow("Herschrijven geannuleerd: de buffer is tijdens de editiecheck gewijzigd. Start opnieuw.", vim.log.levels.WARN)
       return
@@ -3331,6 +3354,7 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
     local strategy = resolved and resolved.rewrite_strategies
     local function continue_after_mode_choice(choice)
       if not vim.api.nvim_buf_is_valid(buf) then return end
+      if vim.b[buf].editorial_rewrite_generation ~= generation then return end
       if editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) ~= resolve_body then
         notify_workflow("Herschrijven geannuleerd: de buffer is tijdens de keuze gewijzigd. Start opnieuw.", vim.log.levels.WARN)
         return
@@ -3359,6 +3383,12 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
         -- journalistieke rewrite gebruiken.
         rewrite_prompt = 'krantversie'
         rewrite_args = { '--edition', codes[1] }
+      end
+      if vim.b[buf].pubble_duplicate_check_running == true then
+        M._pending_duplicate_rewrites[buf] = { generation = generation, force_general = force_general }
+        notify_workflow('Herschrijven wacht op de doublurecontrole.', vim.log.levels.INFO,
+          { buf = buf, kind = 'progress' })
+        return
       end
       if duplicate_check_is_current(buf) or #codes == 0 then
         run_rewrite()
@@ -3389,6 +3419,7 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
   -- andere kranten is gaan wijzen. Anders zou één stil herkende plaats de hele
   -- herschrijving bepalen zonder dat iemand het ziet.
   local function check_places_then(resolved)
+    if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].editorial_rewrite_generation ~= generation then return end
     local codes = resolved and type(resolved.editions) == "table" and resolved.editions or {}
     if not edition_places_need_question(vim.b[buf].edition_places_signature, resolved, codes) then
       remember_edition_places(buf, resolved)
@@ -3465,7 +3496,7 @@ local function agenda_duplicate_candidates(buf, codes, done, prepared_lines)
         -- Een mislukte controle mag de import niet blokkeren; melden volstaat.
         notify_workflow(
           "Agenda-doublurecontrole overgeslagen (controle mislukt).",
-          vim.log.levels.WARN, { buf = buf }
+          vim.log.levels.WARN, { buf = buf, action = 'Agenda · Doublurecontrole', notice_key = 'agenda-review' }
         )
         done(nil)
         return
@@ -3616,16 +3647,17 @@ function M._check_agenda_duplicates(buf, codes, done, prepared_lines, publicatio
     if #errors > 0 then
       notify_workflow(
         "Agenda-doublurecontrole was niet volledig: " .. table.concat(errors, "; "),
-        vim.log.levels.WARN
+        vim.log.levels.WARN, { buf = buf, action = 'Agenda · Doublurecontrole', notice_key = 'agenda-review' }
       )
     end
     if type(data) == 'table' and data.performed == true and check_complete then
       local count = #(data.candidates or {})
       notify_workflow(count == 0 and 'Agenda-doublurecontrole afgerond: geen mogelijke doublures gevonden.'
         or ('Agenda-doublurecontrole afgerond: %d mogelijke doublure(s) gevonden.'):format(count),
-        vim.log.levels.INFO, { buf = buf, kind = count == 0 and 'success' or nil, resolved = true, notice_key = 'agenda-review',
+        vim.log.levels.INFO, { buf = buf, action = 'Agenda · Doublurecontrole', kind = count == 0 and 'success' or nil,
+          resolved = true, notice_key = 'agenda-review',
           status = count > 0 and 'Mogelijke agenda-doublures gevonden' or nil })
-    elseif type(data) == 'table' and data.performed == false then
+    elseif type(data) == 'table' and data.performed == false and check_complete then
       notify_workflow('Agenda-doublurecontrole niet uitgevoerd: geen vergelijking nodig of controle uitgeschakeld.',
         vim.log.levels.INFO, { buf = buf })
     end
@@ -7053,6 +7085,11 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
         return
       end
       resolved_publication = resolved
+      if #resolved.editions == 0 then
+        discard_unpublished_temp()
+        notify_workflow('Geen editie gekozen. Vul e: in boven het log; daarna <leader>aw.', vim.log.levels.WARN)
+        return
+      end
       -- Vang ook een later handmatig of fuzzy ingevulde e:-keuze op. De
       -- centrale resolver levert hier canonieke codes; voeg de configureerbare
       -- 112-creditkeuzes zichtbaar toe en laat de redacteur eerst één regel

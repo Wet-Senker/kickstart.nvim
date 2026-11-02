@@ -515,6 +515,8 @@ function M.check(command, callback, options)
   if type(trace_buf) ~= 'number' or not vim.api.nvim_buf_is_valid(trace_buf) then
     trace_buf = vim.api.nvim_get_current_buf()
   end
+  local agenda_issue_ids = require('article_activity').issue_ids(trace_buf,
+    { 'agenda-review', 'Agenda · Doublurecontrole' })
   local trace = workflow_log.start(trace_buf, 'Pubble · Doublurecontrole', {
     command = vim.fn.fnamemodify(tostring(command[1] or ''), ':t'),
   })
@@ -583,6 +585,11 @@ function M.check(command, callback, options)
       })
       local report_options = { buf = trace_buf, action = 'Doublurecontrole', notice_key = 'duplicate-check',
         inline = true, resolved = true }
+      local agenda = data.combined and data.checks and data.checks.agenda
+      if agenda and agenda.performed == true and agenda.complete ~= false and #(agenda.errors or {}) == 0
+          and (not log_summary or (log_summary.channels.agenda or {}).status == 'checked') then
+        report_options.resolved_issues = agenda_issue_ids
+      end
       if type(summary) == 'table' and summary.version == 1 and type(summary.message) == 'string'
           and (summary.status == 'checked' or summary.status == 'incomplete' or summary.status == 'skipped') then
         report_options.kind = summary.status == 'checked' and #data.candidates == 0 and 'success' or nil

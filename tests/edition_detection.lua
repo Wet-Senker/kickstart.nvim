@@ -51,7 +51,8 @@ local function lelystad_lines(prefix)
 end
 
 local imported = vim.api.nvim_create_buf(false, true)
-vim.api.nvim_buf_set_lines(imported, 0, -1, false, overijssel_lines())
+vim.api.nvim_buf_set_lines(imported, 0, -1, false, overijssel_lines { 'e:', '',
+  '=== LOG ===', '[09:09] Import opgeschoond (zonder AI).', '' })
 ai._edition_autodetect(imported, buffer_text(imported))
 assert(
   vim.wait(5000, function() return buffer_text(imported):find('e: B, SW, ST, K', 1, true) ~= nil end, 20),
@@ -130,6 +131,7 @@ local default_done = false
 ai._edition_autodetect(no_dateline, buffer_text(no_dateline), function() default_done = true end)
 assert(vim.wait(5000, function() return default_done end, 20), 'defaulteditie rondde niet af')
 assert(#duplicate_runs == 6, 'altijd-beleid krijgt artikel zonder dateline niet aangeboden')
+assert(buffer_text(no_dateline):match('^e:\n'), 'onbekende editie heeft geen zichtbaar keuzevak')
 
 local local_place = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(local_place, 0, -1, false, {
@@ -295,6 +297,19 @@ assert(not ai._duplicate_check_is_current(rejected_calendar_event),
   'vroeg sluiten gaf onterecht publicatietoestemming')
 ai._duplicate_stage_runner = normal_test_runner
 ai._start_calendar_analysis = original_calendar_start
+
+-- Een oudere import met alleen een opgeslagen editie krijgt de zichtbare
+-- keuze terug; geen tweede of gegokte bestemming toevoegen.
+local stored = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(stored, 0, -1, false, {
+  '---', 'newspaper:', '  editions: D', '---', '', '=== LOG ===',
+  '[09:09] Import opgeschoond (zonder AI).', '', '=== ARTIKEL ===', '',
+  'Kop', '', 'Een bericht zonder plaatsnaam.',
+})
+local stored_done = false
+ai._edition_autodetect(stored, buffer_text(stored), function() stored_done = true end)
+assert(vim.wait(5000, function() return stored_done end, 20), 'opgeslagen editie niet afgerond')
+assert(buffer_text(stored):find('e: D\n', 1, true), 'opgeslagen editie bleef onzichtbaar')
 
 ai._duplicate_stage_runner = original_duplicate_runner
 ai._agenda_duplicate_candidates = original_agenda_candidates

@@ -1,5 +1,9 @@
 local ai_text = require("ai_text")
 
+assert(vim.deep_equal(ai_text._edition_control_lines({
+  editions = { 'B' }, detection = { confidence = 'none' }, places = {},
+}), { 'e:' }), 'geen herkenning moet een leeg editievak geven, geen B of ontbrekende regel')
+
 local lines = ai_text._edition_control_lines({
   editions = { "SW" },
   suggestions = {

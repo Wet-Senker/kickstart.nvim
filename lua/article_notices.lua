@@ -337,12 +337,15 @@ end
 -- hun tekst en volgorde. YAML en artikelbody worden nooit herschreven.
 local function ordered_header(before, first)
   local controls, notices, positions, markers = {}, {}, {}, {}
+  local log_start
   for index = first, #before do
     local line = before[index]
     local message, time = M.parse_line(line)
     if message ~= nil then
+      log_start = log_start or index
       notices[#notices + 1] = { text = stamped(M.summary(message, false), time), index = index }
     elseif M.is_log_boundary(line) then
+      log_start = log_start or index
       markers[#markers + 1] = index
     elseif not line:match('^%s*$') then
       controls[#controls + 1] = { text = line, index = index }
@@ -351,12 +354,25 @@ local function ordered_header(before, first)
   if #notices == 0 and #markers == 0 then return before, positions end
   local after = {}
   for index = 1, first - 1 do after[#after + 1] = before[index] end
-  if #after > 0 then after[#after + 1] = '' end
+  local fields_already_above = true
   for _, item in ipairs(controls) do
-    after[#after + 1] = item.text
-    positions[item.index] = #after
+    if item.index > log_start then fields_already_above = false; break end
   end
-  if #controls > 0 then after[#after + 1] = '' end
+  if fields_already_above then
+    -- Dit is de invoerruimte van de redacteur. Een lege regel (bijvoorbeeld
+    -- net met O geopend) niet tijdens het typen weg-normaliseren.
+    for index = first, log_start - 1 do
+      after[#after + 1] = before[index]
+      positions[index] = #after
+    end
+  else
+    if #after > 0 then after[#after + 1] = '' end
+    for _, item in ipairs(controls) do
+      after[#after + 1] = item.text
+      positions[item.index] = #after
+    end
+  end
+  if #after > 0 and after[#after] ~= '' then after[#after + 1] = '' end
   after[#after + 1] = M.log_boundary
   for _, index in ipairs(markers) do positions[index] = #after end
   for _, item in ipairs(notices) do
