@@ -592,7 +592,8 @@ function M.check(command, callback, options)
       end
       if type(summary) == 'table' and summary.version == 1 and type(summary.message) == 'string'
           and (summary.status == 'checked' or summary.status == 'incomplete' or summary.status == 'skipped') then
-        report_options.kind = summary.status == 'checked' and #data.candidates == 0 and 'success' or nil
+        report_options.kind = summary.status == 'checked' and #data.candidates == 0
+          and not (agenda and agenda.pending) and 'success' or nil
         notifications.workflow(summary.message, summary.status == 'incomplete' and vim.log.levels.WARN or vim.log.levels.INFO,
           report_options)
       elseif data.performed == false then

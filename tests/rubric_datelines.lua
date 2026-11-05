@@ -26,7 +26,7 @@ local function source()
   vim.api.nvim_buf_set_name(buf, tmp .. '/article-' .. buf .. '.md')
   vim.api.nvim_set_current_buf(buf)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
-    'e: B', '', '=== ARTIKEL ===', '', 'Eigen kop', '',
+    '=== ARTIKEL ===', '', 'Eigen kop', '',
     '**KAMPEN - Mijn volledige rubriektekst.**', '', '---', '',
     '## Facebook', '', 'KAMPEN - Deze socialtekst blijft.', '',
     '## Niet voor publicatie', '> KAMPEN - Privétekst.',

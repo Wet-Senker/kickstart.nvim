@@ -48,6 +48,7 @@ M.templates = {
   -- TIER 1 — plain stock text
   {
     name = 'Column Natuurvereniging',
+    edition = 'B',
     id = 'natuurvereniging',
     column = true,
     working_title = 'z - NATUURVERENIGING',
@@ -81,6 +82,7 @@ M.templates = {
 
   {
     name = 'Column Kamper Ambassadeur',
+    edition = 'B',
     column = true,
     working_title = 'x - 1 KAMPER AMBASSADEUR',
     -- Geen lezersnieuws-export: deze column gaat gewoon naar website + print.
@@ -94,6 +96,7 @@ M.templates = {
   },
   {
     name = 'Column Vogelgroep Kampen',
+    edition = 'B',
     column = true,
     working_title = 'z - VOGELGROEP KAMPEN',
     text = {
@@ -106,6 +109,7 @@ M.templates = {
   },
   {
     name = 'Uit de Kunst',
+    edition = 'B',
     column = true,
     working_title = 'z - UIT DE KUNST',
     text = {
@@ -119,6 +123,7 @@ M.templates = {
 
  {
     name = 'Stadsdichter Berber Bouma',
+    edition = 'B',
     working_title = 'z - STADSDICHTER',
     text = {
       "Stadsdichter Berber Bouma geeft woorden aan Kampen",
@@ -130,6 +135,7 @@ M.templates = {
   },
   {
     name = 'Eregalerij kampioenen',
+    edition = 'B',
     working_title = 'x - 1 EREGALERIJ',
     no_export = true,
     text = {
@@ -143,6 +149,7 @@ M.templates = {
 
   {
     name = 'Humor met een boodschap',
+    edition = 'B',
     working_title = 'x - 1 HUMOR',
     column = true,
     image = 'humor.jpg',
@@ -158,6 +165,7 @@ M.templates = {
   -- TIER 3 — wraps the article body; {{Title}} stays for you to fill
   {
     name = '112 nieuws',
+    edition = 'B',
     no_export = true,
     text = {
       '{{prefix}} {{titel}}',
@@ -173,6 +181,7 @@ M.templates = {
     -- de "disse stad"-uitdrukking + de ondertekening. Alleen een vaste kop en de
     -- tekst; geen intro-alinea. Print + web (x - 1).
     name = 'Leugenbankien',
+    edition = 'B',
     id = 'leugenbankien',
     column = true,
     no_export = true,

@@ -1702,7 +1702,7 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
             end
           end
           local agenda = data.checks and data.checks.agenda
-          if unchanged and approved and agenda and agenda.complete and agenda.requested then
+          if unchanged and approved and agenda and agenda.complete and agenda.requested and agenda.performed == true then
             vim.b[buf].agenda_duplicate_checked_fingerprint = M._agenda_duplicate_fingerprint(
               vim.api.nvim_buf_get_lines(buf, 0, -1, false), codes)
             vim.b[buf].agenda_duplicate_editions = codes
@@ -3647,6 +3647,12 @@ function M._check_agenda_duplicates(buf, codes, done, prepared_lines, publicatio
     if source_changed then vim.b[buf].send_requested = false end
     local errors = type(data) == "table" and (data.errors or {}) or {}
     local check_complete = #errors == 0
+    if type(data) == 'table' and data.pending == true then
+      notify_workflow(data.message or 'Agenda nog niet compleet. Vul aan bij ## Kalender.',
+        vim.log.levels.INFO, { buf = buf, action = 'Agenda · Doublurecontrole', notice_key = 'agenda-review' })
+      done(not publication and not source_changed)
+      return
+    end
     if type(data) == "table" and data.performed == true then
       vim.b[buf].agenda_duplicate_check_source = data.bron or "ruwe tekst"
       if check_complete and #(data.candidates or {}) == 0 then
@@ -3855,7 +3861,7 @@ local function extract_calendar_frontmatter(lines)
           local key, val = line:match("^  ([%w_]+):%s*(.*)$")
           if key then
             list_key = nil
-            if (key == "recurrence_days" or key == "missing_event_fields")
+            if (key == "recurrence_days" or key == "recurrence_excluded_dates" or key == "missing_event_fields")
                 and (val == "" or val == "[]") then
               fields[key] = {}
               if val == "" then list_key = key end
@@ -3913,7 +3919,7 @@ local function extract_calendar_items(lines)
             local key, val = line:match("^    ([%w_]+):%s*(.*)$")
             if key then
               list_key = nil
-              if (key == "recurrence_days" or key == "missing_event_fields" or key == "editions")
+              if (key == "recurrence_days" or key == "recurrence_excluded_dates" or key == "missing_event_fields" or key == "editions")
                   and (val == "" or val == "[]") then
                 current[key] = {}
                 if val == "" then list_key = key end
@@ -3975,6 +3981,9 @@ local function build_calendar_section_lines(lines)
     location_name = "Locatie (`Locatie: ...`)",
     city = "Stad (`Stad: ...`)",
     calendar_body = "agendatekst (na een lege regel onder de velden)",
+    recurrence_until = "Herhaal tot (`Herhaal tot: YYYY-MM-DD`)",
+    schedule_mode = "Openingsschema (vul Herhaling/Dagen in of kies Agendavorm: doorlopend)",
+    recurrence_exclusions_note = "Uitsluitingen (vul Uitgesloten datums in en verwijder Uitsluitingen controleren)",
   }
 
   local function add_missing_hint(target, missing)
@@ -4001,7 +4010,12 @@ local function build_calendar_section_lines(lines)
     if type(item.recurrence_days) == "table" and #item.recurrence_days > 0 then
       add(target, "Dagen", table.concat(item.recurrence_days, ", "))
     end
-    add(target, "Herhaal tot", item.recurrence_until)
+    add(target, "Herhaal tot", item.recurrence_until, item.recurrence ~= nil and item.recurrence ~= "")
+    if type(item.recurrence_excluded_dates) == "table" and #item.recurrence_excluded_dates > 0 then
+      add(target, "Uitgesloten datums", table.concat(item.recurrence_excluded_dates, ", "))
+    end
+    add(target, "Agendavorm", item.schedule_mode)
+    add(target, "Uitsluitingen controleren", item.recurrence_exclusions_note)
     add(target, "Tijd",        item.start_time, true)
     add(target, "Eindtijd",    item.end_time)
     add(target, "Locatie",     item.location_name, true)
@@ -4092,6 +4106,8 @@ local function calendar_notice(meta_lines)
     date = 'Datum', event_date = 'Datum', calendar_title = 'Titel',
     start_time = 'Tijd', location_name = 'Locatie', city = 'Plaats',
     calendar_body = 'Agendatekst',
+    recurrence_until = 'Herhaal tot', schedule_mode = 'Openingsschema',
+    recurrence_exclusions_note = 'Uitgesloten datums controleren',
   }
   local details = {}
   for index, item in ipairs(items) do

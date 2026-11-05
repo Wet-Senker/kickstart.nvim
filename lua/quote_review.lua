@@ -23,7 +23,95 @@ local function valid(report, source)
 end
 M.valid_report = valid
 
+-- Alleen weergave van het Pythonrapport; woorddiff verandert geen validatie.
+local function word_marks(buf, row, prefix, text, spans, group)
+  local words, positions = {}, {}
+  for pos, word in text:gmatch('()(%S+)') do
+    words[#words + 1], positions[#positions + 1] = word, pos - 1
+  end
+  for _, span in ipairs(spans) do
+    local first, count = span[1], span[2]
+    if count > 0 and positions[first] then
+      local last = first + count - 1
+      vim.api.nvim_buf_set_extmark(buf, ns, row, #prefix + positions[first], {
+        end_col = #prefix + positions[last] + #words[last], hl_group = group, priority = 180,
+      })
+    end
+  end
+end
+
+local function render_panel(session)
+  if not session.panel or not vim.api.nvim_buf_is_valid(session.panel) then return end
+  local report = session.quote_report
+  local differences = report.quote_differences
+  local difference = differences[session.quote_index]
+  local lines = {
+    session.status or 'Wacht op correctie: het voorstel is nog niet overgenomen.',
+    '<leader>aY: opnieuw controleren + indien geldig overnemen | q: bron behouden | ]q/[q: volgend/vorig citaat',
+    'Herstel rechts. Overzicht scrollen: Ctrl-w k, daarna j/k; terug naar voorstel: Ctrl-w p.',
+  }
+  local source, proposal
+  if difference then
+    lines[#lines + 1] = ('Citaat %d van %d · %d mogelijke bronpassage(s) · kleuren tonen woordverschillen, geen automatische correctie')
+      :format(session.quote_index, #differences, #difference.source_candidates)
+    source = difference.source_candidates[1] and difference.source_candidates[1].text
+    proposal = difference.proposal.text
+    lines[#lines + 1] = 'Bron:     ' .. (source or '(geen vergelijkbaar broncitaat gevonden)')
+    lines[#lines + 1] = 'Voorstel: ' .. proposal
+    if #difference.source_candidates > 1 then
+      lines[#lines + 1] = 'Andere mogelijke bron: ' .. difference.source_candidates[2].text
+    end
+  else
+    lines[#lines + 1] = 'Geen afzonderlijke citaatpassage gevonden. Controlepunten:'
+    for _, issue in ipairs(report.issues) do lines[#lines + 1] = issue.message:gsub('\n', ' ') end
+  end
+  vim.bo[session.panel].modifiable = true
+  vim.api.nvim_buf_set_lines(session.panel, 0, -1, false, lines)
+  vim.bo[session.panel].modifiable = false
+  vim.api.nvim_buf_clear_namespace(session.panel, ns, 0, -1)
+  if source and proposal then
+    local function tokens(text)
+      local words = {}; for word in text:gmatch('%S+') do words[#words + 1] = word end
+      return table.concat(words, '\n') .. '\n'
+    end
+    local changes = vim.diff(tokens(source), tokens(proposal), { result_type = 'indices' })
+    local removed, added = {}, {}
+    for _, change in ipairs(changes) do
+      removed[#removed + 1] = { change[1], change[2] }
+      added[#added + 1] = { change[3], change[4] }
+    end
+    word_marks(session.panel, 4, 'Bron:     ', source, removed, 'DiffDelete')
+    word_marks(session.panel, 5, 'Voorstel: ', proposal, added, 'DiffAdd')
+  end
+  if vim.api.nvim_win_is_valid(session.panel_win) then
+    vim.wo[session.panel_win].winbar = ' Citaatcontrole · nog niets overgenomen'
+    local rows = 0
+    local width = math.max(1, vim.api.nvim_win_get_width(session.panel_win))
+    for _, line in ipairs(lines) do rows = rows + math.max(1, math.ceil(vim.fn.strdisplaywidth(line) / width)) end
+    vim.api.nvim_win_set_height(session.panel_win, math.min(rows, math.max(4, math.floor(vim.o.lines / 2))))
+  end
+end
+
+local function focus_quote(session, index)
+  local differences = session.quote_report.quote_differences
+  if #differences == 0 then render_panel(session); return end
+  session.quote_index = ((index - 1) % #differences) + 1
+  local difference = differences[session.quote_index]
+  local candidate = difference.source_candidates[1]
+  local function jump(win, buf, passage)
+    if not passage or not vim.api.nvim_win_is_valid(win) then return end
+    -- Na eigen edits kunnen rapportregels verouderd zijn; hercontrole vernieuwt ze.
+    local line = math.min(passage.start_line, vim.api.nvim_buf_line_count(buf))
+    vim.api.nvim_win_set_cursor(win, { line, 0 })
+    vim.api.nvim_win_call(win, function() vim.cmd('normal! zvzt') end)
+  end
+  jump(session.original_win, session.original, candidate)
+  jump(session.proposal_win, session.proposal, difference.proposal)
+  render_panel(session)
+end
+
 local function decorate(session, report)
+  session.quote_report, session.quote_index = report, 1
   vim.api.nvim_buf_clear_namespace(session.original, ns, 0, -1)
   vim.api.nvim_buf_clear_namespace(session.proposal, ns, 0, -1)
   local function mark(buf, item, hl, note)
@@ -34,18 +122,19 @@ local function decorate(session, report)
       virt_text = { { note, hl } }, virt_text_pos = 'eol',
     })
   end
-  for _, difference in ipairs(report.quote_differences) do
-    mark(session.proposal, difference.proposal, 'DiagnosticWarn', ' ← citaat controleren')
+  for index, difference in ipairs(report.quote_differences) do
+    mark(session.proposal, difference.proposal, 'DiagnosticWarn', ' ← citaat ' .. index .. ': controleren')
     for _, candidate in ipairs(difference.source_candidates) do
-      mark(session.original, candidate, 'DiagnosticInfo', ' ← vergelijkbaar broncitaat')
+      mark(session.original, candidate, 'DiagnosticInfo', ' ← mogelijke bron voor citaat ' .. index)
     end
   end
-  local first = report.quote_differences[1]
-  if first then
-    local candidate = first.source_candidates[1]
-    if candidate then vim.api.nvim_win_set_cursor(session.windows[1], { candidate.start_line, 0 }) end
-    vim.api.nvim_win_set_cursor(session.windows[2], { first.proposal.start_line, 0 })
+  for _, buf in ipairs(session.buffers) do
+    vim.keymap.set('n', ']q', function() focus_quote(session, session.quote_index + 1) end,
+      { buffer = buf, desc = 'Volgend afwijkend citaat' })
+    vim.keymap.set('n', '[q', function() focus_quote(session, session.quote_index - 1) end,
+      { buffer = buf, desc = 'Vorig afwijkend citaat' })
   end
+  focus_quote(session, 1)
 end
 
 local function next_review(buf)
@@ -75,7 +164,7 @@ local function next_review(buf)
   local session
   session = review.open({ source_buf = buf, original = vim.split(item.source, '\n', { plain = true }),
     report = item.report, label = item.label or 'AR', retry = item.retry or '<leader>ar',
-    compact = true, decorate = decorate, is_current = item.is_current,
+    compact = true, review_panel = true, status = render_panel, decorate = decorate, is_current = item.is_current,
     validate = function(lines, done)
       local article = table.concat(lines, '\n')
       local started = pcall(notify.system, { require('texttools_commands').bin('python'), '-m', 'texttools.quote_review' },
@@ -100,8 +189,14 @@ local function next_review(buf)
     on_keep = function() item.fail('Citaatvoorstel niet overgenomen; oorspronkelijke tekst behouden.'); finish() end,
   })
   session.update = function(report) decorate(session, report) end
+  vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, {
+    buffer = session.proposal, callback = function()
+      if session.closed then return end
+      session.set_status('Voorstel gewijzigd: het overzicht toont de vorige controle. <leader>aY vernieuwt de vergelijking en controleert opnieuw.')
+    end,
+  })
   queue.session = session
-  notify.workflow('Citaat wijkt af: bron en voorstel staan naast elkaar. Herstel rechts; <leader>aY controleert en neemt over. q behoudt de bron.',
+  notify.workflow('Citaatcontrole wacht op correctie. Boven staan status en woordverschillen; herstel rechts. <leader>aY controleert opnieuw en neemt alleen bij een geslaagde controle over. q behoudt de bron.',
     vim.log.levels.WARN, { buf = buf, action = item.action or 'Citaat beoordelen', run_id = item.run_id,
       notice_key = 'quote-review', resolved = true, task_outcome = 'not_applied' })
 end

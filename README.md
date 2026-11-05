@@ -849,8 +849,16 @@ dezelfde minuut; boven het artikel staat de actuele foutmelding.
 
 Bij een echte citaatafwijking in AR/AP blijft het voorstel nu beschikbaar in
 een vergelijkingstab: links de beschermde bron, rechts het bewerkbare voorstel.
-Specifieke citaatregels zijn gemarkeerd. Herstel rechts; `<leader>aY` controleert
-lokaal opnieuw en neemt alleen een geldig voorstel over. `q` behoudt de bron,
+Boven staat een blijvend statusoverzicht: wachten op correctie, lokaal controleren,
+of nog afgekeurd. Het toont per citaat de mogelijke bronpassage en het voorstel,
+met woordverschillen in kleur. Mogelijke bronpassages zijn vergelijkingshulp,
+geen bewijs dat de gewijzigde uitspraak klopt. `]q` / `[q` springt naar het
+volgende/vorige afwijkende citaat. Lange passages kun je in het overzicht
+scrollen (`Ctrl-w k`, daarna `j/k`; `Ctrl-w p` terug naar het voorstel).
+Na een eigen wijziging vermeldt het overzicht dat de vorige controle verouderd is.
+Specifieke citaatregels zijn genummerd en gemarkeerd. Herstel rechts; `<leader>aY` controleert
+lokaal opnieuw en neemt alleen een geldig voorstel over: het is geen knop om
+een citaatafwijking toch goed te keuren. `q` behoudt de bron,
 `?` geeft uitleg. Escape behoudt zijn gewone werking. Bij meerdere kranten komen
 deze vergelijkingen één voor één. Tijdens zo'n beoordeling is AW op de bron
 geblokkeerd; er wordt niets automatisch verzonden. Nieuwe kopgegevens/socials
