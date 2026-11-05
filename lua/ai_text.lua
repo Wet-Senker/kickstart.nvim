@@ -1702,6 +1702,12 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
             end
           end
           local agenda = data.checks and data.checks.agenda
+          if approved and agenda and agenda.complete and agenda.requested and agenda.performed == true
+              and (unchanged or data.selection_applied == true) then
+            -- Python revalidates the event signature before reuse; applying
+            -- review metadata itself must not discard the completed check.
+            require('agenda_checkpoint').remember(buf, agenda)
+          end
           if unchanged and approved and agenda and agenda.complete and agenda.requested and agenda.performed == true then
             vim.b[buf].agenda_duplicate_checked_fingerprint = M._agenda_duplicate_fingerprint(
               vim.api.nvim_buf_get_lines(buf, 0, -1, false), codes)
@@ -3527,7 +3533,7 @@ end
 
 function M._agenda_duplicate_fingerprint(lines, codes)
   local revision = M._duplicate_review_revision(lines)
-  return vim.fn.sha256(vim.json.encode({ codes or {}, M._duplicate_scope_hint(lines), revision[3], revision[4] }))
+  return vim.fn.sha256(vim.json.encode({ codes or {}, M._duplicate_scope_hint(lines), revision[1], revision[3], revision[4] }))
 end
 
 local function agenda_duplicate_prompt(buf, data, done, publication)
@@ -3655,8 +3661,10 @@ function M._check_agenda_duplicates(buf, codes, done, prepared_lines, publicatio
     end
     if type(data) == "table" and data.performed == true then
       vim.b[buf].agenda_duplicate_check_source = data.bron or "ruwe tekst"
-      if check_complete and #(data.candidates or {}) == 0 then
-        vim.b[buf].agenda_duplicate_checked_fingerprint = fingerprint
+      if check_complete and not source_changed and #(data.candidates or {}) == 0 then
+        require('agenda_checkpoint').remember(buf, data)
+        vim.b[buf].agenda_duplicate_checked_fingerprint = M._agenda_duplicate_fingerprint(
+          vim.api.nvim_buf_get_lines(buf, 0, -1, false), codes)
       end
     end
     if #errors > 0 then
@@ -3702,15 +3710,19 @@ function M._check_agenda_duplicates(buf, codes, done, prepared_lines, publicatio
         done(not publication)
         return
       elseif selection_applied then
+        if check_complete then require('agenda_checkpoint').remember(buf, data) end
         if check_complete and not source_changed then
-          vim.b[buf].agenda_duplicate_accepted_fingerprint = fingerprint
+          vim.b[buf].agenda_duplicate_accepted_fingerprint = M._agenda_duplicate_fingerprint(
+            vim.api.nvim_buf_get_lines(buf, 0, -1, false), codes)
         end
         vim.b[buf].send_requested = false
         done(not publication)
         return
       elseif keuze then
-        if check_complete then
-          vim.b[buf].agenda_duplicate_accepted_fingerprint = fingerprint
+        if check_complete and not source_changed then
+          require('agenda_checkpoint').remember(buf, data)
+          vim.b[buf].agenda_duplicate_accepted_fingerprint = M._agenda_duplicate_fingerprint(
+            vim.api.nvim_buf_get_lines(buf, 0, -1, false), codes)
         end
         notify_workflow(
           publication and 'Agenda-publicatie bewust bevestigd ondanks een gelijkend item.'
