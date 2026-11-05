@@ -61,6 +61,10 @@ function M.show(report, callback, options)
       display_date_short = (saved.existing or {}).display_date_short,
     }, candidate = { kind = saved.kind }, previous = true }
   end
+  for _, offer in ipairs(report.agenda_only_offers or {}) do
+    if offer.selected then choices[offer.id] = 'different' end
+    entries[#entries + 1] = { offer = offer, variant = { edition = offer.edition, headline = offer.title } }
+  end
   table.sort(entries, function(a, b)
     local av, bv = a.variant, b.variant
     return flat(av.publication or av.edition) .. flat(av.headline)
@@ -95,13 +99,19 @@ function M.show(report, callback, options)
       vim.list_extend(lines, vim.split(v.text or v.lead or 'Geen tekst beschikbaar; gebruik o voor Pubble.', '\n', { plain = true }))
       vim.list_extend(lines, { '', 'Enter / q  Terug' })
     else
-      lines = { '[ ] Onbeoordeeld   [=] Wel doublure   [≠] Geen doublure' }
+      lines = { '[ ] Onbeoordeeld   [=] Wel doublure   [≠] Geen doublure',
+        'Webdoublure: die editie niet naar krant of website. Agendadoublure: alleen dat agenda-item.' }
       for _, message in ipairs(report.errors or {}) do lines[#lines + 1] = 'LET OP: ' .. flat(message) end
       local previous
       for _, entry in ipairs(entries) do
         local v = entry.variant
         local publication = v.publication or require('editions').name(v.edition) or v.edition or 'Onbekende krant'
         if publication ~= previous then lines[#lines + 1] = ''; lines[#lines + 1] = publication; previous = publication end
+        if entry.offer then
+          lines[#lines + 1] = (choices[entry.offer.id] and '[+]' or '[ ]')
+            .. ' Alleen agenda: ' .. flat(entry.offer.title) .. ' — geen agendadoublure gevonden [a]'
+          rows[#lines] = entry
+        else
         local choice = entry.target and choices[entry.target.id]
         local marker = choice == 'duplicate' and '[=]' or choice == 'different' and '[≠]' or '[ ]'
         local kind = (v.kind or entry.candidate.kind) == 'agenda' and 'Agenda:' or 'Web:'
@@ -116,8 +126,10 @@ function M.show(report, callback, options)
           lines[#lines + 1] = '    Jouw bericht: ' .. compact_date(comparison.date) .. '  ' .. flat(comparison.headline)
           rows[#lines] = entry
         end
+        end
       end
       vim.list_extend(lines, { '', 'Enter / dubbelklik  Tekst   o  Pubble   m  Wel doublure   n  Geen doublure',
+        'a  Alleen agenda aan/uit (bij webdoublure)',
         'q  Keuzes bewaren en sluiten' })
     end
     vim.bo[buf].modifiable = true
@@ -171,6 +183,16 @@ function M.show(report, callback, options)
   end
   vim.keymap.set('n', 'm', function() toggle('duplicate') end, { buffer = buf })
   vim.keymap.set('n', 'n', function() toggle('different') end, { buffer = buf })
+  vim.keymap.set('n', 'a', function()
+    if applying then return end
+    local entry = selected()
+    if not entry or not entry.offer then return end
+    if choices[entry.offer.id] then choices[entry.offer.id] = nil
+    else choices[entry.offer.id] = 'different' end
+    local cursor = vim.api.nvim_win_get_cursor(win)
+    render()
+    vim.api.nvim_win_set_cursor(win, cursor)
+  end, { buffer = buf })
   vim.keymap.set('n', 'q', apply, { buffer = buf })
   vim.keymap.set('n', '<C-c>', function() if not applying then finish(false) end end, { buffer = buf })
   local function inspect()

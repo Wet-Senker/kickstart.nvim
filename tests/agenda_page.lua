@@ -1,6 +1,9 @@
 package.loaded['agenda_page'] = nil
 
 local module = require 'agenda_page'
+-- De afzonderlijke capaciteitstest gebruikt de echte hertelling.
+local original_measure = module.measure
+module.measure = function() end
 
 local cmd = module._command 'prepare'
 assert(cmd[1]:match '/%.venv/bin/python$')
@@ -163,5 +166,6 @@ vim.api.nvim_buf_set_lines(route_buf, 0, -1, false, { '=== AGENDAPAGINA ===' })
 require('ai_text').pubble_send(route_buf)
 assert(routed_buf == route_buf)
 module.send = original_send
+module.measure = original_measure
 
 print 'agenda page: OK'

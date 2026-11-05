@@ -186,4 +186,16 @@ before_resume = resumed
 vim.api.nvim_buf_delete(buf, { force = true })
 resolve()
 assert(resumed == before_resume and jobs.count(buf) == 0, 'gesloten buffer werd alsnog verzonden')
+-- Geen hoofdartikelbestemming, maar wel een expliciet gekozen agenda-uitzondering.
+buf = source(false)
+ai.pubble_send(buf)
+before_resume = resumed
+resolver_done { code = 0, stdout = vim.json.encode {
+  editions = {}, agenda_only_editions = { 'SW' },
+}, stderr = '' }
+drain()
+assert(duplicate_done and vim.b[buf].calendar_send_review_pending,
+  'agenda-uitzondering werd als ontbrekende hoofdeditie geweigerd')
+duplicate_done(true, success); drain()
+assert(resumed == before_resume + 1 and jobs.count(buf) == 0)
 print('calendar send resume: OK')

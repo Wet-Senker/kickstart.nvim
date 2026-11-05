@@ -612,6 +612,7 @@ function M.check(command, callback, options)
         if not has_agenda then options.reject_label = nil end
       end
       if #data.candidates == 0 and not (options.show_saved and #(data.saved_selections or {}) > 0)
+          and #(data.agenda_only_offers or {}) == 0
           and not (data.combined and #(data.errors or {}) > 0) then
         callback(true, data)
         return

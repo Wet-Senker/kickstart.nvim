@@ -1830,7 +1830,16 @@ local function replace_edition_control_lines(buf, edition_lines)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local fm, controls, body, sections, has_boundary = split_article_parts(lines)
   local new_controls = {}
+  local duplicate_suffix
+  for _, line in ipairs(controls) do
+    if line:match('^%s*[eE]:') or line:lower():match('^%s*editie:') then
+      duplicate_suffix = line:match('%f[%a]DOUBLURE%f[%A].*$') or duplicate_suffix
+    end
+  end
   for _, line in ipairs(edition_lines or {}) do
+    if duplicate_suffix and line:match('^e:') and not line:find('DOUBLURE', 1, true) then
+      line = line:gsub('[, ]*$', '') .. ', ' .. duplicate_suffix
+    end
     table.insert(new_controls, line)
   end
   for _, line in ipairs(controls) do
@@ -5993,14 +6002,19 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
           vim.log.levels.WARN, { buf = buf })
         return
       end
-      if not resolved or type(resolved.editions) ~= 'table' or #resolved.editions == 0 then
+      if not resolved or type(resolved.editions) ~= 'table'
+          or (#resolved.editions == 0 and #(resolved.agenda_only_editions or {}) == 0) then
         vim.b[buf].calendar_send_review_pending = false
         vim.b[buf].send_requested = false
         notify_workflow('Agenda-bestemming kon niet worden bepaald. Controleer e: en probeer opnieuw met <leader>aw.',
           vim.log.levels.WARN, { buf = buf })
         return
       end
-      check_duplicate_stage(buf, resolved.editions, 'verzenden', function(approved)
+      local review_editions = vim.deepcopy(resolved.editions)
+      for _, code in ipairs(resolved.agenda_only_editions or {}) do
+        if not vim.tbl_contains(review_editions, code) then table.insert(review_editions, code) end
+      end
+      check_duplicate_stage(buf, review_editions, 'verzenden', function(approved)
         if not vim.api.nvim_buf_is_valid(buf) then return end
         if not approved then
           vim.b[buf].calendar_send_review_pending = false
@@ -7087,6 +7101,10 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
       resolved_publication = resolved
       if #resolved.editions == 0 then
         discard_unpublished_temp()
+        if #(resolved.agenda_only_editions or {}) > 0 then
+          require('agenda_menu').artikel_plaatsen(buf)
+          return
+        end
         notify_workflow('Geen editie gekozen. Vul e: in boven het log; daarna <leader>aw.', vim.log.levels.WARN)
         return
       end
