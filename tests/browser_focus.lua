@@ -7,10 +7,8 @@
 local test_file = debug.getinfo(1, 'S').source:sub(2)
 local repo_root = vim.fn.fnamemodify(test_file, ':h:h')
 
--- Uitzondering: de niet-macOS-terugval binnen open_published_url zelf.
 local allowed = {
   ['lua/ordered_browser.lua'] = true,
-  ['lua/ai_text.lua'] = 1,
 }
 
 local offenders = {}

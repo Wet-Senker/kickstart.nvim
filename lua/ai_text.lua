@@ -70,43 +70,6 @@ local function notify_workflow(message, level, options)
   notifications.workflow(message, level, options)
 end
 
-local function notify_open_error(detail)
-  detail = vim.trim(tostring(detail or ""))
-  notifications.notify(
-    "Pubble-pagina kon niet worden geopend"
-      .. (detail ~= "" and (": " .. detail) or ".")
-      .. " Open het bestaande artikel handmatig in Pubble; verzend het niet opnieuw.",
-    vim.log.levels.WARN
-  )
-end
-
-local function open_published_url(url, is_macos)
-  if is_macos == nil then is_macos = vim.fn.has("mac") == 1 end
-  if is_macos then
-    -- `open -g` gebruikt de ingestelde standaardbrowser, maar activeert hem
-    -- niet. De gebruiker kan dus doorwerken in de app die nu vooraan staat.
-    local ok, process_or_error = pcall(
-      notifications.system,
-      { "/usr/bin/open", "-g", url },
-      { text = true },
-      function(result)
-        if result.code == 0 then return end
-        notifications.schedule(function()
-          notify_open_error(result.stderr or result.stdout)
-        end)
-      end
-    )
-    if ok and process_or_error then return true end
-    notify_open_error(process_or_error)
-    return false
-  end
-
-  local ok, _, open_error = pcall(vim.ui.open, url)
-  if ok and not open_error then return true end
-  notify_open_error(open_error or _)
-  return false
-end
-
 local function is_cancellable_ai_command(cmd)
   local executable = type(cmd) == "table" and cmd[1] or nil
   if type(executable) ~= "string" then return false end
@@ -518,7 +481,6 @@ M._missing_photo_choice = function()
     2
   )
 end
-M._open_published_url = open_published_url
 
 local function shellescape(value)
   return vim.fn.shellescape(value)
@@ -6774,11 +6736,9 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
               )
             end
 
-            -- Het browsermoment is het eindsignaal: hoofdartikel, media,
-            -- eventuele vervolgen en archivering zijn nu allemaal gereed.
-            if article_url then
-              open_published_url(article_url)
-            end
+            -- Open na plaatsing geen browser of applicatie. De URL staat in
+            -- de bevestigingsbuffer en kan bewust worden geopend wanneer dat
+            -- uitkomt; de huidige app en focus blijven hierdoor ongemoeid.
 
             notify_workflow('Publicatie afgerond. ' .. msg, message_level,
               { buf = buf, kind = message_level == nil and 'success' or nil, status = 'Publicatie verwerkt en gearchiveerd' })
