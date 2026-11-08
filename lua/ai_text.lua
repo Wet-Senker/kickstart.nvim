@@ -7136,6 +7136,11 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
         notify_workflow('Geen editie gekozen. Vul e: in boven het log; daarna <leader>aw.', vim.log.levels.WARN)
         return
       end
+      -- Ook de vroege conceptroute zonder foto gebruikt de datumcontrole.
+      -- Leg daarom de centraal opgeloste edities vast vóór die route kan
+      -- starten; anders kreeg publication_dates ten onrechte --editions "".
+      resolved_editions = resolved.editions
+      editie = table.concat(resolved_editions, ", ")
       -- Vang ook een later handmatig of fuzzy ingevulde e:-keuze op. De
       -- centrale resolver levert hier canonieke codes; voeg de configureerbare
       -- 112-creditkeuzes zichtbaar toe en laat de redacteur eerst één regel
