@@ -486,7 +486,9 @@ function M.show(result, callback, options)
   -- reflexmatige Escape de controle anders per ongeluk annuleren. Sluiten/terug
   -- gaat met q.
   vim.keymap.set('n', 'q', function()
-    if state.mode == 'text' then render_report() else finish(false) end
+    if state.mode == 'text' then render_report()
+    else finish(options.continue_send == true and #(result.errors or {}) == 0
+      and result.history_complete ~= false) end
   end, { buffer = buf, silent = true, desc = 'Terug of annuleren' })
   vim.api.nvim_create_autocmd('BufWipeout', {
     buffer = buf,

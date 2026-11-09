@@ -130,7 +130,8 @@ function M.show(report, callback, options)
       end
       vim.list_extend(lines, { '', 'Enter / dubbelklik  Tekst   o  Pubble   m  Wel doublure   n  Geen doublure',
         'a  Alleen agenda aan/uit (bij webdoublure)',
-        'q  Keuzes bewaren en sluiten' })
+        options.continue_send and 'q  Keuzes bewaren en doorgaan met verzenden'
+          or 'q  Keuzes bewaren en sluiten' })
     end
     vim.bo[buf].modifiable = true
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -143,6 +144,7 @@ function M.show(report, callback, options)
       vim.api.nvim_win_set_height(win, math.min(math.max(1, height), maximum))
     end
   end
+  local apply
   local function toggle(value)
     if applying then return end
     local entry = selected()
@@ -152,8 +154,18 @@ function M.show(report, callback, options)
     local cursor = vim.api.nvim_win_get_cursor(win)
     render()
     vim.api.nvim_win_set_cursor(win, cursor)
+    if options.continue_send and value == 'different' and #(report.agenda_only_offers or {}) == 0 then
+      local count = 0
+      for _, item in ipairs(entries) do
+        if item.selectable and item.target then
+          count = count + 1
+          if choices[item.target.id] ~= 'different' then return end
+        end
+      end
+      if count > 0 then apply() end
+    end
   end
-  local function apply()
+  apply = function()
     if detail then detail = nil; render(); return end
     if applying then return end
     if options.is_current and not options.is_current() then finish(false); return end
@@ -213,12 +225,15 @@ function M.show(report, callback, options)
     if entry and entry.variant.editor_url then require('ordered_browser').open_urls { entry.variant.editor_url } end
   end, { buffer = buf })
   require('context_help').register(buf, function() return {
-    title = 'Doublurekeuzes', status = 'Keuzes worden pas met q toegepast; dit publiceert niets.',
+    title = 'Doublurekeuzes', status = options.continue_send
+      and 'q bewaart de keuzes en hervat deze verzending. Alles geen doublure: automatisch doorgaan.'
+      or 'Keuzes worden pas met q toegepast; dit publiceert niets.',
     sections = { { heading = 'Bediening', lines = {
       'm: wel doublure; n: geen doublure; dezelfde toets wist de keuze.',
       'Een bevestiging geldt alleen voor deze krant en Web of dit afzonderlijke agenda-item.',
       'Enter: tekst bekijken/terug. o: bestaand bericht openen.',
-      'q: opslaan en verder bewerken. Daarna bewust <leader>aw voor verzending.',
+      options.continue_send and 'q: opslaan en doorgaan met deze verzending.'
+        or 'q: opslaan en verder bewerken. Daarna bewust <leader>aw voor verzending.',
       'Control+c: sluit zonder nieuwe keuzes te bewaren; eerder opgeslagen keuzes blijven staan.',
       'Bij uitstellen wacht de automatische voorbereiding van het agenda-item.',
       'Een verwijderde meldingsregel wist geen opgeslagen doublurekeuze; heropen de controle.',

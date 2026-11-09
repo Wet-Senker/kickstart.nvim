@@ -1097,6 +1097,8 @@ De 112-disclaimer in het 112-template is de enige bron — `ai_text.lua` leest h
 | `lua/pubble_archive.lua` | Telescope-zoekingangen voor bestandsnaam en archiefinhoud |
 | `lua/texttools_paths.lua` | Gedeelde, configureerbare paden naar de Pubble Inbox en handmatige werkmap |
 | `lua/texttools_commands.lua` | Gedeelde, via `TEXTTOOLS_ROOT` configureerbare paden naar texttools-CLI's |
+| `lua/photo_processing_review.lua` | Presenteert de gedeelde herstelkeuze bij een uitsnedefout; alleen na akkoord hervatten met Pubbles standaarduitsnede voor deze verzending |
+| `lua/duplicate_selection_ui.lua` | Doublurekeuzes: tijdens aw hervat q dezelfde verzending; alles geen doublure bewaart en hervat automatisch. Bij import/ar/ad alleen beoordelen/bewerken |
 | `lua/texttools_socket.lua` | Veilige vaste serversocket met stale-socketherstel en race-guard |
 
 ---

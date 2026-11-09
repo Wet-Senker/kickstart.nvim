@@ -1589,6 +1589,9 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
       or (stage ~= 'verzenden' and vim.deep_equal(vim.b[buf].pubble_duplicate_editing_review,
         M._duplicate_editing_revision(buf, codes)))
       or (duplicate_check_is_current(buf) and (not review_agenda or M._agenda_duplicate_is_current(buf, codes))) then
+    workflow_log.diagnostic(buf, 'Doublurecontrole · Vervolg', {
+      status = 'reused', reason = 'current_review', request_mode = stage,
+    })
     settle_duplicate_calendar_gate(buf, true)
     if done then done(true) end
     return
@@ -1603,10 +1606,12 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
   local file = existing_file or (vim.fn.tempname() .. ".md")
   local snapshot = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local checked_body = editorial_body_text(snapshot)
+  local accepted_snapshot = snapshot
+  local selection_transition = false
   local function same_source()
     if not vim.api.nvim_buf_is_valid(buf) then return false end
     local current = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    return vim.deep_equal(M._duplicate_review_revision(snapshot), M._duplicate_review_revision(current))
+    return vim.deep_equal(M._duplicate_review_revision(accepted_snapshot), M._duplicate_review_revision(current))
   end
   -- Een scan is een leesactie op een momentopname, geen schrijfactie op de body.
   -- Laat de scan/beoordeling afronden terwijl de redacteur verder typt.
@@ -1689,7 +1694,7 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
             or (not data.combined and data.performed ~= false)) then
           -- Alleen de werkelijk doorzochte tekst krijgt deze markering.
           vim.b[buf].pubble_duplicate_checked_body = checked_body
-          vim.b[buf].pubble_duplicate_checked_scope = M._duplicate_scope_hint(snapshot)
+          vim.b[buf].pubble_duplicate_checked_scope = M._duplicate_scope_hint(accepted_snapshot)
         end
         settle_duplicate_calendar_gate(buf, approved == true or continue_editing)
       end
@@ -1700,13 +1705,21 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
         vim.b[buf].send_requested = false
         notify_workflow('Doublurecontrole afgerond. Je wijzigingen zijn behouden; druk opnieuw <leader>aw om de actuele tekst te verzenden.',
           vim.log.levels.INFO, { buf = buf })
+        workflow_log.diagnostic(buf, 'Doublurecontrole · Vervolg', {
+          status = 'stopped', reason = 'source_changed', request_mode = stage,
+        })
         if done then done(false) end
         return
       end
-      -- A selection review returns to editing even when opened by aw. The
-      -- next explicit aw uses the saved exclusions; closing never publishes.
-      if done then done((approved == true or continue_editing)
-        and not (not early and data and data.selection_applied)) end
+      -- aw already expresses publication intent. Only its own safely applied
+      -- review metadata may advance the revision; real edits still stop it.
+      local proceed = (approved == true or continue_editing)
+        and not (not early and data and data.selection_applied and not selection_transition)
+      workflow_log.diagnostic(buf, 'Doublurecontrole · Vervolg', {
+        status = proceed and (early and 'continue_editing' or 'continue_send') or 'stopped',
+        reason = selection_transition and 'review_metadata_applied' or 'review_closed', request_mode = stage,
+      })
+      if done then done(proceed) end
       local waiting = M._pending_duplicate_rewrites[buf]
       M._pending_duplicate_rewrites[buf] = nil
       if waiting and vim.api.nvim_buf_is_valid(buf) then
@@ -1728,10 +1741,24 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
     {
       is_current = is_current,
       selection_review = true,
+      continue_send = not early,
       show_saved = stage == 'hercontroleren',
       on_apply = function(report, selections, applied)
         if not is_current() then applied(false); return end
-        require('duplicate_review').apply(buf, report, selections, function(ok)
+        require('duplicate_review').apply(buf, report, selections, function(ok, transition)
+          if ok and transition and transition.review_current and transition.before and transition.after
+              and vim.deep_equal(M._duplicate_review_revision(accepted_snapshot),
+                M._duplicate_review_revision(transition.before.lines)) then
+            accepted_snapshot = transition.after.lines
+            checked_body = editorial_body_text(accepted_snapshot)
+            selection_transition = true
+            if M._duplicate_scope_hint(transition.before.lines) ~= M._duplicate_scope_hint(transition.after.lines) then
+              -- Excluding/restoring an edition changes its planning targets.
+              -- Resolve those afresh, while retaining the completed review.
+              vim.b[buf].publication_review_state = nil
+              vim.b[buf].event_review_state = nil
+            end
+          end
           if ok then
             vim.b[buf].send_requested = false
           end
@@ -1752,7 +1779,7 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
       reject_label = early and 'Verder bewerken zonder agendabericht'
         or 'Geen agenda publiceren; webtreffers blijven beoordelen',
       reject_finishes_review = early,
-      cancel_label = early and 'Sluiten en doorgaan met bewerken' or 'Verzending afbreken',
+      cancel_label = early and 'Sluiten en doorgaan met bewerken' or 'Keuzes bewaren en doorgaan met verzenden',
       failure_continue_label = early
           and "Doorgaan; later opnieuw controleren"
         or "Toch verzenden",
@@ -5976,11 +6003,18 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
     return
   end
 
-  -- Voorbereiden met ac geeft geen publicatietoestemming. Beoordeel een
-  -- zichtbaar kalenderblok vóór staging, zodat n web/krant laat doorgaan met
-  -- de actuele tekst en q uitsluitend deze verzendpoging stopt.
-  if not agenda_reviewed and has_calendar_section(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
-      and vim.b[buf].skip_calendar_once ~= true then
+  -- Review before staging, so saved exclusions and q/n are included in this
+  -- same send. aw already supplied publication intent; import/ad did not.
+  local review_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local review_calendar = has_calendar_section(review_lines)
+      and vim.b[buf].skip_calendar_once ~= true
+  if not agenda_reviewed and (review_calendar or not duplicate_check_is_current(buf)) then
+    if vim.trim(table.concat(review_lines, '\n')) == '' then
+      notifications.notify('Huidig buffer is leeg', vim.log.levels.ERROR)
+      return
+    end
+    -- Keep the explicit confirmation for unedited imports before any reader.
+    if not confirm_send_safeguard(buf, review_lines) then return end
     vim.b[buf].calendar_send_review_pending = true
     local review_revision = require('buffer_revision').capture(buf)
     M._calendar_edition_resolver(buf, table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n'), function(resolved)
@@ -6027,7 +6061,7 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
           end
           M.pubble_send(buf, true, true)
         end)
-      end, nil, true)
+      end, nil, review_calendar)
     end)
     return
   end
@@ -6451,6 +6485,8 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
       table.insert(cmd, vim.fn.json_encode(display_dates))
     end
     local web_status_reported = false
+    local execute_send
+    local standard_photo_processing = false
     local function handle_send_result(result, event_checked, event_report)
       publication_schedule(function()
         local publication_status = publication_status_from_output(
@@ -6547,6 +6583,37 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
           publication_recovery.restore(buf, temp_file, send_input_tick, true)
         end
 
+        -- A crop failure is optional; upload, rights and photo-set errors are not.
+        local crop_recovery = require('photo_processing_review').offer(publication_status)
+        if result.code ~= 0 and crop_recovery and not standard_photo_processing
+            and not vim.b[buf].failed_send_conflict then
+          send_input_tick = require('buffer_revision').capture(buf)
+          require('photo_processing_review').review(buf, crop_recovery, function(accepted)
+            publication_schedule(function()
+              if not accepted then
+                vim.b[buf].publication_in_progress = false
+                notify_workflow('Verzending gestopt. De foto en Pubble-status zijn bewaard; '
+                  .. '<leader>aw probeert het opnieuw.', vim.log.levels.WARN, { buf = buf })
+                return
+              end
+              if not require('buffer_revision').matches(buf, send_input_tick) then
+                vim.b[buf].publication_in_progress = false
+                notify_workflow('Het artikel is gewijzigd tijdens de keuze. Druk opnieuw <leader>aw; '
+                  .. 'je wijzigingen zijn behouden.', vim.log.levels.WARN, { buf = buf })
+                return
+              end
+              standard_photo_processing = true
+              table.insert(cmd, '--standard-photo-processing')
+              web_status_reported = false
+              notify_workflow('Automatische uitsnede overgeslagen voor deze verzending. '
+                .. 'Pubble bepaalt de uitsnede; controleer de foto daarna in Pubble.',
+                vim.log.levels.WARN, { buf = buf })
+              execute_send()
+            end)
+          end)
+          return
+        end
+
         -- Vervolgplaatsingen worden pas na de volledig geslaagde hoofdflow
         -- aangemaakt: dan bestaan articleJoinId, web-URL en media-ID. Pubble
         -- opent en het archief verhuist pas nadat ook deze stap klaar is.
@@ -6555,14 +6622,41 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
             handle_send_result(result, true, nil)
             return
           end
+          local event_cmd = { pubble_event, "plaats", temp_file, "--json" }
+          if standard_photo_processing then table.insert(event_cmd, '--standard-photo-processing') end
           ai_system(
-            { pubble_event, "plaats", temp_file, "--json" },
+            event_cmd,
             { text = true },
             function(event_result)
               publication_schedule(function()
                 local event_ok, event_data = pcall(
                   vim.fn.json_decode, event_result.stdout or ""
                 )
+                local offer = event_ok and require('photo_processing_review').offer(event_data)
+                if event_result.code ~= 0 and offer and not standard_photo_processing then
+                  if not require('buffer_revision').matches(buf, send_input_tick) then
+                    publication_failed('Artikel gewijzigd tijdens de verzending; eerst vergelijken.')
+                    return
+                  end
+                  require('photo_processing_review').review(buf, offer, function(accepted)
+                    publication_schedule(function()
+                      if not accepted then
+                        publication_failed('Verzending gestopt bij de foto-uitsnede.')
+                        return
+                      end
+                      if not require('buffer_revision').matches(buf, send_input_tick) then
+                        publication_failed('Artikel gewijzigd tijdens de keuze; eerst vergelijken.')
+                        return
+                      end
+                      standard_photo_processing = true
+                      notify_workflow('Automatische uitsnede overgeslagen voor de vervolgplaatsingen '
+                        .. 'van deze verzending. Controleer de foto daarna in Pubble.',
+                        vim.log.levels.WARN, { buf = buf })
+                      handle_send_result(result, false, nil)
+                    end)
+                  end)
+                  return
+                end
                 if event_result.code ~= 0 or not event_ok or type(event_data) ~= "table" then
                   finish_attempt()
                   vim.b[buf].publication_in_progress = false
@@ -6791,9 +6885,15 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
       end)
     end
 
-    local function run_main_send()
+    execute_send = function()
       send_attempt = publication_recovery.begin_attempt(buf, temp_file)
       if not send_attempt then vim.b[buf].publication_in_progress = false; return end
+      ai_system(cmd, { text = true }, function(result)
+        handle_send_result(result, false, nil)
+      end, "Pubble · Verzenden")
+    end
+
+    local function run_main_send()
       local skipped = effective_skipped_newspapers(buf)
       if type(skipped) == "table" and #skipped > 0 then
         table.insert(cmd, "--skip-newspaper-editions")
@@ -6812,9 +6912,7 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
           return
         end
       end
-      ai_system(cmd, { text = true }, function(result)
-        handle_send_result(result, false, nil)
-      end, "Pubble · Verzenden")
+      execute_send()
     end
 
     local function after_duplicate_check(next_step)

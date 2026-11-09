@@ -30,9 +30,10 @@ function M.apply(buf, report, selections, done, reviewed_markdown, allow_source_
       local summaries = data.summaries or {}
       local summary = #summaries > 0 and table.concat(summaries, '; ')
         or 'Geen onderdelen overgeslagen wegens bevestigde doublures.'
-      notifications.workflow(summary .. ' Verder bewerken kan; <leader>aw start bewust de verzending.',
+      notifications.workflow(summary,
         vim.log.levels.INFO, { buf = buf, action = 'Doublurekeuzes', notice_key = 'duplicate-selection', resolved = true })
-      done(true)
+      done(true, { before = revision, after = require('buffer_revision').capture(buf),
+        review_current = data.review_current == true })
     end)
   end
   local started, err = pcall(notifications.system, { commands.bin('python'), '-m', 'texttools.duplicate_selection' }, {
