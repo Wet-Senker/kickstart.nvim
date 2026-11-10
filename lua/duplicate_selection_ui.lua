@@ -65,16 +65,58 @@ function M.show(report, callback, options)
     if offer.selected then choices[offer.id] = 'different' end
     entries[#entries + 1] = { offer = offer, variant = { edition = offer.edition, headline = offer.title } }
   end
+  local editions = require 'editions'
+  for _, entry in ipairs(entries) do
+    local v = entry.variant
+    entry.publication = nonempty(v.publication) or editions.name(nonempty(v.edition)) or 'Onbekende krant'
+  end
   table.sort(entries, function(a, b)
-    local av, bv = a.variant, b.variant
-    return flat(av.publication or av.edition) .. flat(av.headline)
-      < flat(bv.publication or bv.edition) .. flat(bv.headline)
+    if a.publication ~= b.publication then return a.publication < b.publication end
+    return flat(a.variant.headline) < flat(b.variant.headline)
   end)
+  local groups, by_scope = {}, {}
+  for _, entry in ipairs(entries) do
+    local v = entry.variant
+    local target = entry.target or {}
+    local kind = target.kind or v.kind or entry.candidate and entry.candidate.kind or 'web'
+    local edition = nonempty(target.edition, v.edition, v.publication)
+    local event = type(target.source_event) == 'table' and target.source_event
+      or (entry.candidate or {}).source_event
+    -- Use the core's source-event identity, never a title or date on its own.
+    -- Old agenda reports without that identity keep their separate choices.
+    local scope
+    if not entry.offer and edition and kind == 'web' then
+      scope = vim.json.encode { kind, edition, entry.selectable == true }
+    elseif not entry.offer and edition and type(event) == 'table' and nonempty(event.ref) then
+      scope = vim.json.encode { kind, edition, entry.selectable == true, event.structured == true, event.ref, flat(event.date) }
+    end
+    local group = scope and by_scope[scope]
+    if not group then
+      -- Koppen zijn het primaire beoordelingsmateriaal en staan daarom meteen
+      -- open. De groepsregel blijft beschikbaar voor één gezamenlijk besluit.
+      group = { kind = kind, publication = entry.publication, entries = {}, expanded = true }
+      groups[#groups + 1] = group
+      if scope then by_scope[scope] = group end
+    end
+    group.entries[#group.entries + 1] = entry
+  end
+  local function group_choice(group)
+    local all_different = true
+    for _, entry in ipairs(group.entries) do
+      local choice = entry.target and choices[entry.target.id]
+      if choice == 'duplicate' then return choice, entry end
+      if choice ~= 'different' then all_different = false end
+    end
+    if all_different then return 'different' end
+  end
+  local function marker(choice)
+    return choice == 'duplicate' and '[=]' or choice == 'different' and '[≠]' or '[ ]'
+  end
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype, vim.bo[buf].bufhidden, vim.bo[buf].swapfile = 'nofile', 'wipe', false
   vim.bo[buf].filetype = 'markdown'
   vim.api.nvim_buf_set_name(buf, 'Pubble doublurecontrole')
-  local win, rows, done, detail, applying = nil, {}, false, nil, false
+  local win, rows, clicks, done, detail, detail_row, applying = nil, {}, {}, false, nil, nil, false
   local function finish(ok)
     if done then return end
     done = true
@@ -82,11 +124,24 @@ function M.show(report, callback, options)
     callback(ok)
   end
   local function selected()
-    return detail or rows[vim.api.nvim_win_get_cursor(win)[1]]
+    return rows[vim.api.nvim_win_get_cursor(win)[1]]
   end
   local function render()
     rows = {}
+    clicks = {}
     local lines = {}
+    local function add_no_duplicate_button(row, group, choice)
+      if not group.entries[1].selectable then return end
+      local label = choice == 'different' and '[keuze wissen]' or '[geen doublures]'
+      local prefix = lines[row] .. '  '
+      lines[row] = prefix .. label
+      clicks[row] = {
+        -- getmousepos().column is a one-based byte index, also bij [−]/[≠].
+        first = #prefix + 1,
+        last = #lines[row],
+        group = group,
+      }
+    end
     if detail then
       local v = detail.variant
       lines = { flat(v.headline), '',
@@ -96,42 +151,66 @@ function M.show(report, callback, options)
           .. ' · ' .. (nonempty(v.created_by_label, v.created_by) or 'maker onbekend'),
         'Pubble: ' .. flat(v.editor_url), '',
         flat(v.location), flat(v.city), '' }
-      vim.list_extend(lines, vim.split(v.text or v.lead or 'Geen tekst beschikbaar; gebruik o voor Pubble.', '\n', { plain = true }))
+      local content = type(v.text) == 'string' and v.text ~= '' and v.text or v.lead
+      if type(content) ~= 'string' or content == '' then content = 'Geen tekst beschikbaar; gebruik o voor Pubble.' end
+      vim.list_extend(lines, vim.split(content, '\n', { plain = true }))
       vim.list_extend(lines, { '', 'Enter / q  Terug' })
     else
       lines = { '[ ] Onbeoordeeld   [=] Wel doublure   [≠] Geen doublure',
         'Webdoublure: die editie niet naar krant of website. Agendadoublure: alleen dat agenda-item.' }
       for _, message in ipairs(report.errors or {}) do lines[#lines + 1] = 'LET OP: ' .. flat(message) end
       local previous
-      for _, entry in ipairs(entries) do
-        local v = entry.variant
-        local publication = v.publication or require('editions').name(v.edition) or v.edition or 'Onbekende krant'
-        if publication ~= previous then lines[#lines + 1] = ''; lines[#lines + 1] = publication; previous = publication end
+      for _, group in ipairs(groups) do
+        local entry = group.entries[1]
+        if group.publication ~= previous then
+          lines[#lines + 1] = ''; lines[#lines + 1] = group.publication; previous = group.publication
+        end
         if entry.offer then
           lines[#lines + 1] = (choices[entry.offer.id] and '[+]' or '[ ]')
             .. ' Alleen agenda: ' .. flat(entry.offer.title) .. ' — geen agendadoublure gevonden [a]'
-          rows[#lines] = entry
+          rows[#lines] = { entry = entry }
         else
-        local choice = entry.target and choices[entry.target.id]
-        local marker = choice == 'duplicate' and '[=]' or choice == 'different' and '[≠]' or '[ ]'
-        local kind = (v.kind or entry.candidate.kind) == 'agenda' and 'Agenda:' or 'Web:'
-        lines[#lines + 1] = marker .. ' ' .. ('%-7s '):format(kind)
-          .. compact_date(nonempty(v.display_date_short, v.display_date_label)) .. '  ' .. flat(v.headline)
-          .. (nonempty(v.created_by_label, v.created_by) and (' · ' .. nonempty(v.created_by_label, v.created_by)) or '')
-          .. (entry.previous and '  (eerdere keuze)' or '')
-          .. (entry.selectable and '' or '  (alleen bekijken: geen gekozen doelkrant)')
-        rows[#lines] = entry
-        local comparison = entry.candidate.comparison
-        if comparison then
-          lines[#lines + 1] = '    Jouw bericht: ' .. compact_date(comparison.date) .. '  ' .. flat(comparison.headline)
-          rows[#lines] = entry
-        end
+          local kind = group.kind == 'agenda' and 'Agenda:' or 'Web:'
+          local comparison = (entry.candidate or {}).comparison
+          if type(comparison) ~= 'table' then comparison = (entry.target or {}).comparison end
+          if type(comparison) ~= 'table' then comparison = nil end
+          local label = ('%-7s '):format(kind)
+          local readonly = entry.selectable and '' or '  (alleen bekijken: geen gekozen doelkrant)'
+          local choice, confirmed = group_choice(group)
+          if #group.entries > 1 then
+            local source = group.kind == 'agenda' and comparison
+              and (compact_date(comparison.date) .. '  ' .. flat(comparison.headline) .. '  ·  ') or ''
+            lines[#lines + 1] = marker(choice) .. ' ' .. label .. source
+              .. #group.entries .. ' treffers  [' .. (group.expanded and '−' or '+') .. ']' .. readonly
+            rows[#lines] = { group = group }
+            add_no_duplicate_button(#lines, group, choice)
+          end
+          if #group.entries == 1 or group.expanded then
+            for _, hit in ipairs(group.entries) do
+              local v = hit.variant
+              local prefix = #group.entries == 1 and (marker(choice) .. ' ' .. label)
+                or (hit == confirmed and '    → ' or '      ')
+              lines[#lines + 1] = prefix .. compact_date(nonempty(v.display_date_short, v.display_date_label))
+                .. '  ' .. flat(v.headline)
+                .. (nonempty(v.created_by_label, v.created_by) and (' · ' .. nonempty(v.created_by_label, v.created_by)) or '')
+                .. (hit.previous and '  (eerdere keuze)' or '') .. (#group.entries == 1 and readonly or '')
+              rows[#lines] = { group = group, entry = hit }
+              if #group.entries == 1 then add_no_duplicate_button(#lines, group, choice) end
+            end
+            if #group.entries == 1 and comparison then
+              lines[#lines + 1] = '    Jouw bericht: ' .. compact_date(comparison.date) .. '  ' .. flat(comparison.headline)
+              rows[#lines] = { group = group, entry = entry }
+            end
+          end
         end
       end
-      vim.list_extend(lines, { '', 'Enter / dubbelklik  Tekst   o  Pubble   m  Wel doublure   n  Geen doublure',
-        'a  Alleen agenda aan/uit (bij webdoublure)',
+      vim.list_extend(lines, { '', 'Enter / dubbelklik  Tekst; groepsregel in-/uitklappen   o  Pubble',
+        'Klik [geen doublures] of druk n   m  Wel doublure',
         options.continue_send and 'q  Keuzes bewaren en doorgaan met verzenden'
           or 'q  Keuzes bewaren en sluiten' })
+      if #(report.agenda_only_offers or {}) > 0 then
+        lines[#lines + 1] = 'a  Alleen agenda aan/uit (bij webdoublure)'
+      end
     end
     vim.bo[buf].modifiable = true
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -144,29 +223,58 @@ function M.show(report, callback, options)
       vim.api.nvim_win_set_height(win, math.min(math.max(1, height), maximum))
     end
   end
+  local function close_detail()
+    detail = nil
+    render()
+    vim.api.nvim_win_set_cursor(win, { detail_row, 0 })
+  end
+  local function select_hit(group)
+    local row = vim.api.nvim_win_get_cursor(win)[1]
+    group.expanded = true
+    render()
+    vim.api.nvim_win_set_cursor(win, { row + 1, 0 })
+  end
   local apply
   local function toggle(value)
-    if applying then return end
-    local entry = selected()
-    if not entry or not entry.target or not entry.selectable then return end
-    local id = entry.target.id
-    choices[id] = choices[id] ~= value and value or nil
+    if applying or detail then return end
+    local row = selected()
+    local group = row and row.group
+    if not group or not group.entries[1].selectable or not group.entries[1].target then return end
     local cursor = vim.api.nvim_win_get_cursor(win)
+    local choice, confirmed = group_choice(group)
+    if value == 'different' then
+      for _, hit in ipairs(group.entries) do
+        if hit.target then choices[hit.target.id] = choice ~= 'different' and 'different' or nil end
+      end
+    else
+      local hit = row.entry or confirmed
+      if not hit then
+        select_hit(group)
+        return
+      end
+      if not hit.target then return end
+      local duplicate = choices[hit.target.id] ~= 'duplicate'
+      for _, member in ipairs(group.entries) do
+        if member.target and choices[member.target.id] == 'duplicate' then choices[member.target.id] = nil end
+      end
+      if duplicate then choices[hit.target.id] = 'duplicate' end
+    end
     render()
     vim.api.nvim_win_set_cursor(win, cursor)
     if options.continue_send and value == 'different' and #(report.agenda_only_offers or {}) == 0 then
       local count = 0
-      for _, item in ipairs(entries) do
+      for _, decision_group in ipairs(groups) do
+        local item = decision_group.entries[1]
         if item.selectable and item.target then
           count = count + 1
-          if choices[item.target.id] ~= 'different' then return end
+          if group_choice(decision_group) ~= 'different' then return end
         end
       end
       if count > 0 then apply() end
     end
   end
   apply = function()
-    if detail then detail = nil; render(); return end
+    if detail then close_detail(); return end
     if applying then return end
     if options.is_current and not options.is_current() then finish(false); return end
     if #(report.errors or {}) > 0 or report.history_complete == false then
@@ -195,9 +303,20 @@ function M.show(report, callback, options)
   end
   vim.keymap.set('n', 'm', function() toggle('duplicate') end, { buffer = buf })
   vim.keymap.set('n', 'n', function() toggle('different') end, { buffer = buf })
+  local function mouse_target(mouse)
+    if applying or detail or mouse.winid ~= win or not mouse.line then return false end
+    if rows[mouse.line] then vim.api.nvim_win_set_cursor(win, { mouse.line, 0 }) end
+    local click = clicks[mouse.line]
+    local column = tonumber(mouse.column) or 0
+    return click ~= nil and column >= click.first and column <= click.last
+  end
+  vim.keymap.set('n', '<LeftMouse>', function()
+    if mouse_target(vim.fn.getmousepos()) then toggle('different') end
+  end, { buffer = buf })
   vim.keymap.set('n', 'a', function()
-    if applying then return end
-    local entry = selected()
+    if applying or detail then return end
+    local row = selected()
+    local entry = row and row.entry
     if not entry or not entry.offer then return end
     if choices[entry.offer.id] then choices[entry.offer.id] = nil
     else choices[entry.offer.id] = 'different' end
@@ -208,30 +327,48 @@ function M.show(report, callback, options)
   vim.keymap.set('n', 'q', apply, { buffer = buf })
   vim.keymap.set('n', '<C-c>', function() if not applying then finish(false) end end, { buffer = buf })
   local function inspect()
-    if detail then detail = nil else detail = selected() end
+    if applying then return end
+    if detail then close_detail(); return end
+    local row = selected()
+    if not row or not row.group then return end
+    local cursor = vim.api.nvim_win_get_cursor(win)
+    if row.entry then
+      detail, detail_row = row.entry, cursor[1]
+    else
+      row.group.expanded = not row.group.expanded
+    end
     render()
-    vim.api.nvim_win_set_cursor(win, { 1, 0 })
+    vim.api.nvim_win_set_cursor(win, detail and { 1, 0 } or cursor)
   end
   vim.keymap.set('n', '<CR>', inspect, { buffer = buf })
   vim.keymap.set('n', '<2-LeftMouse>', function()
     local mouse = vim.fn.getmousepos()
+    if mouse_target(mouse) then return end
     if mouse.winid == win and mouse.line then
       vim.api.nvim_win_set_cursor(win, { mouse.line, math.max(0, (mouse.column or 1) - 1) })
       inspect()
     end
   end, { buffer = buf })
   vim.keymap.set('n', 'o', function()
-    local entry = selected()
-    if entry and entry.variant.editor_url then require('ordered_browser').open_urls { entry.variant.editor_url } end
+    local row = selected()
+    local entry = detail or row and row.entry
+    if not entry and row and row.group then
+      local _, confirmed = group_choice(row.group)
+      if not confirmed then select_hit(row.group); return end
+      entry = confirmed
+    end
+    local url = entry and nonempty(entry.variant.editor_url)
+    if url then require('ordered_browser').open_urls { url } end
   end, { buffer = buf })
   require('context_help').register(buf, function() return {
     title = 'Doublurekeuzes', status = options.continue_send
       and 'q bewaart de keuzes en hervat deze verzending. Alles geen doublure: automatisch doorgaan.'
       or 'Keuzes worden pas met q toegepast; dit publiceert niets.',
     sections = { { heading = 'Bediening', lines = {
-      'm: wel doublure; n: geen doublure; dezelfde toets wist de keuze.',
-      'Een bevestiging geldt alleen voor deze krant en Web of dit afzonderlijke agenda-item.',
-      'Enter: tekst bekijken/terug. o: bestaand bericht openen.',
+      'Trefferkoppen staan standaard open; Enter op een groepsregel klapt ze in of uit.',
+      'Klik [geen doublures] of druk n: geen doublure voor deze editie of dit agenda-item bij deze editie.',
+      'm: wel doublure. Bij meerdere treffers kies je welk bestaand bericht het is.',
+      'Enter op een treffer: tekst bekijken of terug. o: bestaande treffer openen in Pubble.',
       options.continue_send and 'q: opslaan en doorgaan met deze verzending.'
         or 'q: opslaan en verder bewerken. Daarna bewust <leader>aw voor verzending.',
       'Control+c: sluit zonder nieuwe keuzes te bewaren; eerder opgeslagen keuzes blijven staan.',

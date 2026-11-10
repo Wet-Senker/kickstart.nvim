@@ -1240,6 +1240,10 @@ vim.keymap.set('n', '<leader>m',
 )
 
 vim.keymap.set('n', '<leader>kt', function() require('krant').menu() end, { desc = '[K]rant [T]emplate kiezen' })
+vim.keymap.set('n', '<leader>kq', function() require('quicktemplate').open() end,
+  { desc = '[K]rant [Q]uicktemplate Advanced' })
+vim.api.nvim_create_user_command('QuicktemplateAdvanced', function() require('quicktemplate').open() end,
+  { desc = 'Open Quicktemplate Advanced in de browser' })
 
 -- Rubriek '5 vragen aan': vragen → kop/intro → voorgevulde mail (losse stappen).
 require('user_dialog').keymap('n', '<leader>vv', function() require('vragen_aan').questions() end,

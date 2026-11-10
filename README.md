@@ -168,23 +168,27 @@ over verlopen aankondigingen en `vandaag`/`morgen` blijven beoordeling vragen.
 Na deze update: bewaar de open artikelen en herstart NeoVim; de tijdelijke
 Lua-workaround is dan niet meer nodig. Er wordt niets automatisch gepubliceerd.
 
-Het invoerscherm **Mogelijke doublures** zet het nieuwe bericht apart en toont
-bestaande treffers met Agenda/Web, krantnaam en uitgelijnde Europese datum.
-De trefferregels gebruiken kort `Web:` of `Agenda:`, gevolgd door datum, tijd,
-dagafstand, titel en maker. Het venster past zich aan de hoeveelheid tekst aan.
-Web en agenda worden vóór de beoordeling samen opgehaald en in één overzicht
-getoond. `m` markeert **wel doublure**, `n` **geen doublure**; dezelfde toets
-nogmaals wist alleen die keuze. De markeringen zijn per krant en onderdeel:
-Web slaat die website/social/Teams over; Agenda slaat alleen die activiteit bij
-die krant over. Andere activiteiten op dezelfde dag en de krant blijven mogelijk.
-Een fout in één controle verbergt de andere treffers niet.
-Enter/dubbelklik bekijkt alleen tekst/details in NVIM; `o` opent de geselecteerde
-treffer in Pubble. `q` bewaart de keuzes en brengt je terug naar bewerken,
-ook vanuit aw; daarna is opnieuw bewust `<leader>aw` nodig om te publiceren.
-Control+c sluit zonder de nieuwe keuzes te bewaren; eerder opgeslagen keuzes
-blijven staan. Dit pauzeert ook de automatische agenda. Zonder nieuwe markeringen
-is het verschil in opgeslagen doublurekeuzes met q dus klein.
-Zonder markeringen wordt niets als doublure bevestigd. Geen aparte `v` meer.
+Het scherm **Mogelijke doublures** toont één webkeuze per editie en één
+agendakeuze per evenement per editie. Web- en agendatreffers worden samen
+opgehaald. Bij meerdere treffers klapt Enter of dubbelklik de groep uit.
+Op een losse treffer toont Enter of dubbelklik de tekst en opent `o` het
+bericht in Pubble.
+
+Met `n` keur je de hele groep in één keer goed als **geen doublure**.
+Met `m` bevestig je **wel een doublure**. Kies bij meerdere treffers het
+bestaande bericht dat daadwerkelijk dubbel is. Een bevestigde webdoublure
+slaat website en krant voor die editie over. Wil je het bestaande bericht
+alsnog naar de krant doorzetten, open het dan in Pubble. Een agendadoublure
+slaat alleen dat evenement bij die editie over. Andere edities en agenda-items
+houden hun eigen keuze. Waar de keuze **Alleen agenda** wordt getoond, zet
+`a` die aan of uit.
+
+`q` bewaart de keuzes. Bij bewerken sluit het scherm, tijdens `<leader>aw`
+hervat het dezelfde verzending. Als bij verzenden alle groepen als geen
+doublure zijn beoordeeld en er geen keuze voor alleen agenda is, gaat de
+verzending automatisch door. Control+c sluit zonder nieuwe keuzes op te
+slaan en pauzeert de automatische agenda. Een onvolledige controle blijft
+zichtbaar en kan niet als afgerond worden opgeslagen.
 Keuzes staan duurzaam in het werkdocument; boven het artikel staat een samenvatting.
 Een volledige hercontrole met `<leader>ad` toont ook eerdere afwijzingen en
 uitsluitingen opnieuw; geldige keuzes blijven gemarkeerd en zijn aanpasbaar.
@@ -258,6 +262,7 @@ Details: [schrijfprofielen](/Users/nickdevries/workspace/texttools/docs/schrijfp
 | `<leader>ah` | Hiërarchisch hulpmenu: kies onder meer Edities, Rubrieken, Publicatieplanning, Acties of de volledige cheatsheet. |
 | visueel `<leader>ai` | Herschrijf de selectie direct naar krantenstijl, zonder een eenkeuzemenu. |
 | `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen in Kampen en Kamper Kiek. |
+| `<leader>kq` | Quicktemplate Advanced veilig lokaal starten en in de browser openen; editie kiezen en Pubble-artikelen verversen gebeurt daar. |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten voor Raadspraat en Ondernemen in Kampen. |
 | `<leader>ka` | Ruwe papieren agendapagina structureren en gewone items redigeren; daarna zelf de tekst controleren. |
 | `<leader>km` / `:AgendaPaginaOmvang` | Tel de actuele agendablokken tegen ongeveer 166 alinea’s en schat hoeveel agendapunten nog weg moeten. Alleen-lezen, zonder AI. |

@@ -118,6 +118,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>kh` | Contextuele workflowhulp — toont de actuele status, de aanbevolen volgende stap, andere hoofdopties en wat daarna gebeurt |
 | `:TexttoolsLog` | Veilige tijdlijn voor het huidige artikel; `:TexttoolsLog!` toont de laatste workflow ongeacht de buffer |
 | `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen en Kamper Kiek |
+| `<leader>kq` | Quicktemplate Advanced in de browser openen; kies daar de Pubble-editie en gebruik **Verversen** |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten |
 | `<leader>ka` | Ruwe papieren agendapagina voorbereiden voor eigen tekstcontrole |
 | `<leader>km` | Agendapagina opnieuw meten: alinea’s tegen richtgrens 166 en geschat aantal te verwijderen agendapunten. Zonder AI en zonder opslaan |
@@ -181,41 +182,24 @@ wordt bij `<leader>aw` voorgesteld; de letterlijke zin blijft als
 `embargobron:` controleerbaar. Verwijder na vrijgave de blokkaderegel én de
 oorspronkelijke embargozin uit het artikel. Laat `embargobron:` gerust staan.
 
-De doublurecontrole volgt het beleid van de Texttools-branch. Op `master`
-staat voorlopig **altijd controleren** aan. De testvarianten blijven beschikbaar:
-`codex/doublure-altijd` controleert ieder artikel, ook alleen De Brug;
-`codex/doublure-voorwaardelijk` zodra een andere krant is gekozen, ook alleen
-De Kop. Onbevestigde `SUGGESTIE`-codes zijn geen gekozen edities.
-De controle start na import/editieresolutie, anders na herschrijven, anders
-vóór verzenden. Ongewijzigde tekst wordt niet opnieuw gecontroleerd; na een
-inhoudswijziging wel. Kandidaten waarbij je met `v` doorging of die je met `m`
-afzonderlijk beoordeelde worden in dezelfde buffer niet opnieuw voorgesteld.
-`q` slaat geen nieuwe algemene toestemming op; eerdere afzonderlijke
-beoordelingen blijven behouden. De controle doorzoekt altijd alle zes sites, vanaf veertien
-dagen geleden en onbeperkt vooruit, ongeacht status.
+De artikelcontrole zoekt bij de edities op `e:`, inclusief zichtbare
+suggesties en de eigen editie van een agenda-item. Een suggestie telt mee
+voor de zoekactie en wordt daardoor nog geen publicatiebestemming. Start
+met `<leader>ad` een volledige herbeoordeling, inclusief eerdere keuzes.
 
-Mogelijke doublures: het overzicht toont soort Agenda/Web, uitgelijnde Europese
-datum en volledige kop, gegroepeerd per krant. Een nieuw agenda-item staat
-eenmaal apart als vergelijking. Web en agenda komen samen in één overzicht;
-vroeg `n` betekent meteen verder bewerken zonder agendabericht, zonder tweede
-bevestiging en zonder publicatieakkoord. Bij definitief verzenden slaat `n`
-alleen agenda over en blijven webtreffers nog te beoordelen. Bestaande controles blijven gelden zolang hun
-invoer niet verandert. Nieuwe/herziene kalendergegevens kunnen aanvullende
-treffers geven.
-Enter/dubbelklik bekijkt de beschikbare tekst
-en details in NVIM, zonder een besluit of browseractie. De onderste terugregel of `q`
-keert terug naar het overzicht. `o` opent alleen de gekozen siteversie in
-Pubble. `m` markeert één kandidaat als geen doublure; na de laatste volgt het
-vervolg. `v` negeert bewust de hele lijst en gaat door (bij
-import/herschrijven: bewerken; bij verzenden: toch verzenden). `q` annuleert
-vanuit het overzicht; Escape neemt geen besluit. In het detail staan
-publicatiedatum, aanmaakdatum en de persoon die het artikel aanmaakte.
-`n` bij een artikel-agendacontrole: geen nieuwe agenda-items voor dit hele
-artikel; web/krant gaan door en bestaande berichten worden niet verwijderd.
-Bij import/herschrijven sluit `q` de agenda-keuze en laat bewerken doorgaan;
-er wordt geen kalenderblok toegevoegd. `<leader>ac` kan dat alsnog expliciet doen.
-Bij verzending stopt `q` alleen deze verzendpoging. `v` betekent dan bewust
-toch publiceren; `n` verzendt alleen web/krant, zonder agenda.
+**Mogelijke doublures** groepeert webtreffers per editie en agendatreffers
+per evenement per editie. In dit scherm gelden deze toetsen:
+
+- `Enter` / dubbelklik klapt treffers uit of toont de tekst van de gekozen
+  treffer. `o` opent die treffer in Pubble.
+- `n` betekent **geen doublure** voor de hele groep. `m` betekent **wel
+  doublure**. Kies bij meerdere treffers welk bestaand bericht dubbel is.
+- Een webdoublure slaat web én krant voor die editie over. Open het bestaande
+  bericht in Pubble als je het alsnog naar de krant wilt doorzetten. Een
+  agendadoublure slaat alleen dat item bij die editie over.
+- `q` bewaart de keuzes. Tijdens `<leader>aw` gaat dezelfde verzending verder.
+  Zijn alle groepen als geen doublure beoordeeld en is er geen keuze voor
+  alleen agenda, dan gaat de verzending automatisch door.
 
 ---
 

@@ -6017,7 +6017,7 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
     if not confirm_send_safeguard(buf, review_lines) then return end
     vim.b[buf].calendar_send_review_pending = true
     local review_revision = require('buffer_revision').capture(buf)
-    M._calendar_edition_resolver(buf, table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n'), function(resolved)
+    M._calendar_edition_resolver(buf, table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n'), function(resolved, resolve_error)
       if not vim.api.nvim_buf_is_valid(buf) then return end
       if not require('buffer_revision').matches(buf, review_revision) then
         vim.b[buf].calendar_send_review_pending = false
@@ -6026,11 +6026,21 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
           vim.log.levels.WARN, { buf = buf })
         return
       end
-      if not resolved or type(resolved.editions) ~= 'table'
-          or (#resolved.editions == 0 and #(resolved.agenda_only_editions or {}) == 0) then
+      if not resolved or type(resolved.editions) ~= 'table' then
         vim.b[buf].calendar_send_review_pending = false
         vim.b[buf].send_requested = false
-        notify_workflow('Agenda-bestemming kon niet worden bepaald. Controleer e: en probeer opnieuw met <leader>aw.',
+        local reason = vim.trim(resolve_error or '')
+        notify_workflow((reason ~= ''
+            and ('Verzendcontrole mislukt: ' .. reason)
+            or 'Verzendcontrole gaf geen leesbaar resultaat.')
+          .. ' Herstel dit en probeer opnieuw met <leader>aw.',
+          vim.log.levels.WARN, { buf = buf })
+        return
+      end
+      if #resolved.editions == 0 and #(resolved.agenda_only_editions or {}) == 0 then
+        vim.b[buf].calendar_send_review_pending = false
+        vim.b[buf].send_requested = false
+        notify_workflow('Geen editie gekozen. Vul e: in en probeer opnieuw met <leader>aw.',
           vim.log.levels.WARN, { buf = buf })
         return
       end

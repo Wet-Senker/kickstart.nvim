@@ -42,7 +42,9 @@ print(json.dumps(annotate_report(sys.stdin.read(), ['B','SW'], {
            'agenda':{'requested':False,'complete':True,'performed':False}},
  'candidates':[{'key':'join:123','kind':'web','variants':[
   {'edition':'B','article_id':123,'headline':'Treffer Brug'},
-  {'edition':'SW','article_id':124,'headline':'Treffer Zwolle'}]}]
+  {'edition':'SW','article_id':124,'headline':'Treffer Zwolle'}]},
+  {'key':'join:125','kind':'web','variants':[
+   {'edition':'B','article_id':125,'headline':'Tweede treffer Brug'}]}]
 })))
 ]] }, { text = true, stdin = text(source) }):wait()
   assert(result.code == 0, result.stderr)
@@ -74,7 +76,7 @@ for index, mode in ipairs { 'q', 'all-different', 'edited' } do
   local dialog = vim.api.nvim_get_current_buf()
   assert(text(dialog):find('doorgaan met verzenden', 1, true))
   if mode == 'all-different' then
-    row('Treffer Brug'); key(dialog, 'n')
+    row('2 treffers'); key(dialog, 'n')
     assert(vim.api.nvim_buf_is_valid(dialog), 'first n closed a partially reviewed list')
     row('Treffer Zwolle'); key(dialog, 'n') -- Last n applies and continues automatically.
   else

@@ -4,7 +4,8 @@
 local ai = require('ai_text')
 local jobs = require('buffer_jobs')
 local revision = require('buffer_revision')
-require('article_activity').setup { preferences = vim.fn.tempname() .. '/activity.json' }
+local activity = require('article_activity')
+activity.setup { preferences = vim.fn.tempname() .. '/activity.json' }
 local real_send = ai.pubble_send
 local original_reject = ai.reject_calendar
 local resolutions, duplicate_checks, resumed = 0, 0, 0
@@ -165,6 +166,11 @@ before_resume = resumed
 resolver_done { code = 1, stdout = '', stderr = 'bewuste fout' }; drain()
 assert(resumed == before_resume and jobs.count(buf) == 0)
 assert(not vim.b[buf].calendar_send_review_pending and not vim.b[buf].send_requested)
+local resolver_notice = activity.snapshot(buf).entries[#activity.snapshot(buf).entries].message
+assert(resolver_notice:find('Verzendcontrole mislukt: bewuste fout', 1, true),
+  'verzendpoort verborg de echte resolverfout achter een editiewaarschuwing')
+assert(not resolver_notice:find('Agenda-bestemming', 1, true),
+  'resolverfout werd nog steeds als ontbrekende agenda-editie gemeld')
 -- Daarna kan de gebruiker bewust een nieuwe poging starten.
 vim.b[buf].calendar_transition_tick = vim.api.nvim_buf_get_changedtick(buf)
 ai.pubble_send(buf); resolve()
@@ -186,6 +192,21 @@ before_resume = resumed
 vim.api.nvim_buf_delete(buf, { force = true })
 resolve()
 assert(resumed == before_resume and jobs.count(buf) == 0, 'gesloten buffer werd alsnog verzonden')
+
+-- Een geldige resolveruitkomst zonder hoofd- of agendabestemming is wél een
+-- editiekeuzeprobleem en krijgt daarom een andere melding dan een procesfout.
+buf = source(false)
+ai.pubble_send(buf)
+before_resume = resumed
+resolver_done { code = 0, stdout = vim.json.encode {
+  editions = {}, agenda_only_editions = {},
+}, stderr = '' }
+drain()
+local empty_notice = activity.snapshot(buf).entries[#activity.snapshot(buf).entries].message
+assert(resumed == before_resume and empty_notice:find('Geen editie gekozen', 1, true))
+assert(not empty_notice:find('Verzendcontrole mislukt', 1, true),
+  'lege editiekeuze werd als technische resolverfout gemeld')
+
 -- Geen hoofdartikelbestemming, maar wel een expliciet gekozen agenda-uitzondering.
 buf = source(false)
 ai.pubble_send(buf)
