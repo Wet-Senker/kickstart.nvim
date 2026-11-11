@@ -1663,7 +1663,7 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
       if not is_current() then
         approved, data = false, nil
       end
-      local continue_editing = early and is_current()
+      local continue_editing = early and is_current() and not (data and data.article_duplicate)
       local editing_only = early and type(data) == 'table' and data.editing_only == true
       if vim.api.nvim_buf_is_valid(buf) then
         vim.b[buf].pubble_duplicate_check_running = false
@@ -1710,6 +1710,12 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
         settle_duplicate_calendar_gate(buf, approved == true or continue_editing)
       end
       finish_buffer_job(job)
+      if data and data.article_duplicate then
+        M._pending_duplicate_rewrites[buf] = nil
+        notify_workflow('Artikelactie gestopt: als doublure beoordeeld.', vim.log.levels.INFO, { buf = buf })
+        if done then done(false) end
+        return
+      end
       if not early and not unchanged and is_current() then
         -- Niet de controle afbreken, maar nooit een oud verzendsnapshot
         -- publiceren terwijl de gebruiker inmiddels een nieuw artikel heeft.
@@ -1752,6 +1758,7 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
     {
       is_current = is_current,
       selection_review = true,
+      simple_review = stage ~= 'hercontroleren',
       continue_send = not early,
       show_saved = stage == 'hercontroleren',
       on_apply = function(report, selections, applied)

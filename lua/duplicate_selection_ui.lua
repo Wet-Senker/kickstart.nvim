@@ -36,6 +36,7 @@ end
 
 function M.show(report, callback, options)
   options = options or {}
+  local simple = options.simple_review == true
   local today = options.today or os.date('%Y-%m-%d')
   local function display_date(value) return date(value, today) end
   local function compact_date(value)
@@ -156,16 +157,25 @@ function M.show(report, callback, options)
       vim.list_extend(lines, vim.split(content, '\n', { plain = true }))
       vim.list_extend(lines, { '', 'Enter / q  Terug' })
     else
-      lines = { '[ ] Onbeoordeeld   [=] Wel doublure   [≠] Geen doublure',
-        'Webdoublure: die editie niet naar krant of website. Agendadoublure: alleen dat agenda-item.' }
+      lines = {}
       for _, message in ipairs(report.errors or {}) do lines[#lines + 1] = 'LET OP: ' .. flat(message) end
       local previous
       for _, group in ipairs(groups) do
         local entry = group.entries[1]
         if group.publication ~= previous then
-          lines[#lines + 1] = ''; lines[#lines + 1] = group.publication; previous = group.publication
+          if #lines > 0 then lines[#lines + 1] = '' end
+          lines[#lines + 1] = group.publication; previous = group.publication
         end
-        if entry.offer then
+        if simple then
+          for _, hit in ipairs(group.entries) do
+            if not hit.offer then
+              local v = hit.variant
+              lines[#lines + 1] = compact_date(nonempty(v.display_date_short, v.display_date_label))
+                .. '  ' .. flat(v.headline)
+              rows[#lines] = { group = group, entry = hit }
+            end
+          end
+        elseif entry.offer then
           lines[#lines + 1] = (choices[entry.offer.id] and '[+]' or '[ ]')
             .. ' Alleen agenda: ' .. flat(entry.offer.title) .. ' — geen agendadoublure gevonden [a]'
           rows[#lines] = { entry = entry }
@@ -204,12 +214,23 @@ function M.show(report, callback, options)
           end
         end
       end
+      if simple then
+        local continuation = options.continue_send and 'verzenden' or 'verder'
+        lines[#lines + 1] = ''
+        lines[#lines + 1] = '[Geen doublure · ' .. continuation .. ']   [Wel doublure · stoppen]'
+        local row = #lines
+        local last = assert(lines[row]:find(']', 1, true))
+        clicks[row] = { first = 1, last = last, decision = 'different' }
+        clicks[row].duplicate_first = last + 4
+        lines[#lines + 1] = 'n  Geen doublure    m  Wel doublure    Enter  Tekst    o  Pubble'
+      else
       vim.list_extend(lines, { '', 'Enter / dubbelklik  Tekst; groepsregel in-/uitklappen   o  Pubble',
         'Klik [geen doublures] of druk n   m  Wel doublure',
         options.continue_send and 'q  Keuzes bewaren en doorgaan met verzenden'
           or 'q  Keuzes bewaren en sluiten' })
       if #(report.agenda_only_offers or {}) > 0 then
         lines[#lines + 1] = 'a  Alleen agenda aan/uit (bij webdoublure)'
+      end
       end
     end
     vim.bo[buf].modifiable = true
@@ -292,6 +313,20 @@ function M.show(report, callback, options)
       if ok then report.selection_applied = true; finish(true) end
     end)
   end
+  local function decide(value)
+    if not simple then toggle(value); return end
+    if applying or detail then return end
+    if options.is_current and not options.is_current() then finish(false); return end
+    if value == 'duplicate' then
+      report.article_duplicate = true
+      finish(false)
+      return
+    end
+    for _, entry in ipairs(entries) do
+      if entry.selectable and entry.target then choices[entry.target.id] = 'different' end
+    end
+    apply()
+  end
   win = vim.api.nvim_open_win(buf, true, { relative = 'editor',
     width = math.min(110, math.max(20, vim.o.columns - 4)),
     height = math.min(math.max(16, #entries * 3 + 11), math.max(8, vim.o.lines - 6)),
@@ -301,13 +336,18 @@ function M.show(report, callback, options)
   for row = 1, vim.api.nvim_buf_line_count(buf) do
     if rows[row] then vim.api.nvim_win_set_cursor(win, { row, 0 }); break end
   end
-  vim.keymap.set('n', 'm', function() toggle('duplicate') end, { buffer = buf })
-  vim.keymap.set('n', 'n', function() toggle('different') end, { buffer = buf })
+  vim.keymap.set('n', 'm', function() decide('duplicate') end, { buffer = buf })
+  vim.keymap.set('n', 'n', function() decide('different') end, { buffer = buf })
   local function mouse_target(mouse)
     if applying or detail or mouse.winid ~= win or not mouse.line then return false end
     if rows[mouse.line] then vim.api.nvim_win_set_cursor(win, { mouse.line, 0 }) end
     local click = clicks[mouse.line]
     local column = tonumber(mouse.column) or 0
+    if simple and click then
+      if column >= click.first and column <= click.last then decide('different')
+      elseif column >= click.duplicate_first then decide('duplicate') end
+      return false
+    end
     return click ~= nil and column >= click.first and column <= click.last
   end
   vim.keymap.set('n', '<LeftMouse>', function()
@@ -324,7 +364,11 @@ function M.show(report, callback, options)
     render()
     vim.api.nvim_win_set_cursor(win, cursor)
   end, { buffer = buf })
-  vim.keymap.set('n', 'q', apply, { buffer = buf })
+  vim.keymap.set('n', 'q', function()
+    if simple then
+      if detail then close_detail() else finish(false) end
+    else apply() end
+  end, { buffer = buf })
   vim.keymap.set('n', '<C-c>', function() if not applying then finish(false) end end, { buffer = buf })
   local function inspect()
     if applying then return end
@@ -361,10 +405,17 @@ function M.show(report, callback, options)
     if url then require('ordered_browser').open_urls { url } end
   end, { buffer = buf })
   require('context_help').register(buf, function() return {
-    title = 'Doublurekeuzes', status = options.continue_send
+    title = 'Doublurekeuzes', status = simple
+      and 'n beoordeelt alle treffers als geen doublure en gaat verder. m stopt de lopende artikelactie.'
+      or options.continue_send
       and 'q bewaart de keuzes en hervat deze verzending. Alles geen doublure: automatisch doorgaan.'
       or 'Keuzes worden pas met q toegepast; dit publiceert niets.',
-    sections = { { heading = 'Bediening', lines = {
+    sections = { { heading = 'Bediening', lines = simple and {
+      'n of Geen doublure: beoordeel alle selecteerbare treffers als geen doublure en ga verder.',
+      'm of Wel doublure: stop de lopende artikelactie voor het hele artikel.',
+      'Enter: bekijk de tekst. o: open de treffer in Pubble.',
+      'q of Control+c: sluit de controle. Gebruik <leader>ad voor keuzes per editie of agenda-item.',
+    } or {
       'Trefferkoppen staan standaard open; Enter op een groepsregel klapt ze in of uit.',
       'Klik [geen doublures] of druk n: geen doublure voor deze editie of dit agenda-item bij deze editie.',
       'm: wel doublure. Bij meerdere treffers kies je welk bestaand bericht het is.',

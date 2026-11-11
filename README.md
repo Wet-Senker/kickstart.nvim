@@ -165,7 +165,15 @@ over verlopen aankondigingen en `vandaag`/`morgen` blijven beoordeling vragen.
 Na deze update: bewaar de open artikelen en herstart NeoVim; de tijdelijke
 Lua-workaround is dan niet meer nodig. Er wordt niets automatisch gepubliceerd.
 
-Het scherm **Mogelijke doublures** toont één webkeuze per editie en één
+De gewone doublurevraag toont de treffers met datum en kop, zonder legenda.
+**Geen doublure** (`n` of klik) bewaart de beoordeling van alle selecteerbare
+treffers en hervat de lopende artikelactie. **Wel doublure** (`m` of klik)
+stopt die actie. Enter toont de tekst en `o` opent de treffer in Pubble.
+
+De expliciete hercontrole met `<leader>ad` toont de opgeslagen keuzes per
+editie en per agenda-item. Daar geldt de volgende bediening.
+
+De volledige hercontrole toont één webkeuze per editie en één
 agendakeuze per evenement per editie. Web- en agendatreffers worden samen
 opgehaald. Bij meerdere treffers klapt Enter of dubbelklik de groep uit.
 Op een losse treffer toont Enter of dubbelklik de tekst en opent `o` het

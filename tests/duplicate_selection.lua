@@ -47,6 +47,7 @@ end
 -- Production report and production Python apply; only the CMS reader is replaced.
 ai._duplicate_stage_runner = function(_, callback, options)
   local data = report(options.buf)
+  options.simple_review = false
   ui.show(data, function(ok) callback(ok, data) end, options)
 end
 local buf, result = source(), nil
@@ -134,6 +135,7 @@ local incomplete = report(buf)
 incomplete.errors = { 'agenda: Pubble gaf HTTP 400' }
 incomplete.history_complete = false
 ai._duplicate_stage_runner = function(_, callback, options)
+  options.simple_review = false
   ui.show(incomplete, function(ok) callback(ok, incomplete) end, options)
 end
 ai._check_duplicate_stage(buf, { 'B', 'SW' }, 'importeren', function(ok) result = ok end)
@@ -146,6 +148,7 @@ key(dialog, '<C-c>')
 wait(function() return result ~= nil end)
 ai._duplicate_stage_runner = function(_, callback, options)
   local data = report(options.buf)
+  options.simple_review = false
   ui.show(data, function(ok) callback(ok, data) end, options)
 end
 

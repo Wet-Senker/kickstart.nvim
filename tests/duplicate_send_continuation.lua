@@ -62,7 +62,7 @@ vim.system = function(command, options, done)
   return { kill = function() end }
 end
 
-for index, mode in ipairs { 'q', 'all-different', 'edited' } do
+for index, mode in ipairs { 'all-different', 'duplicate', 'edited', 'cancel' } do
   source = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_set_current_buf(source)
   vim.api.nvim_buf_set_name(source, directory .. '/werk/article-' .. index .. '.md')
@@ -74,22 +74,20 @@ for index, mode in ipairs { 'q', 'all-different', 'edited' } do
   ai.pubble_send(source)
   wait(function() return vim.api.nvim_buf_get_name(0):find('Pubble doublurecontrole', 1, true) ~= nil end)
   local dialog = vim.api.nvim_get_current_buf()
-  assert(text(dialog):find('doorgaan met verzenden', 1, true))
-  if mode == 'all-different' then
-    row('2 treffers'); key(dialog, 'n')
-    assert(vim.api.nvim_buf_is_valid(dialog), 'first n closed a partially reviewed list')
-    row('Treffer Zwolle'); key(dialog, 'n') -- Last n applies and continues automatically.
-  else
-    if mode == 'edited' then
-      vim.api.nvim_buf_set_lines(source, -1, -1, false, { 'Nieuwere eigen artikeltekst.' })
-    end
-    key(dialog, 'q')
+  assert(text(dialog):find('[Geen doublure · verzenden]', 1, true))
+  assert(not text(dialog):find('Onbeoordeeld', 1, true) and not text(dialog):find('Webdoublure:', 1, true))
+  if mode == 'edited' then
+    vim.api.nvim_buf_set_lines(source, -1, -1, false, { 'Nieuwere eigen artikeltekst.' })
   end
+  key(dialog, mode == 'duplicate' and 'm' or mode == 'cancel' and 'q' or 'n')
   wait(function() return not vim.api.nvim_buf_is_valid(dialog) and
     (vim.b[source].pending_jobs or 0) == 0 and not vim.b[source].calendar_send_review_pending end)
   if mode == 'edited' then
     assert(sends == before_sends and text(source):find('Nieuwere eigen artikeltekst.', 1, true), 'newer text was published/lost')
     assert(not ai._duplicate_check_is_current(source))
+  elseif mode == 'duplicate' or mode == 'cancel' then
+    assert(sends == before_sends, 'afwijzen of uitstellen verzond het artikel')
+    assert(not text(source):find('duplicate_selection:', 1, true), 'stoppen verzon een specifieke doublurereferentie')
   else
     wait(function() return sends == before_sends + 1 and vim.b[source].publication_in_progress == false end)
     assert(ai._duplicate_check_is_current(source), 'metadata-only apply lost the completed review')
