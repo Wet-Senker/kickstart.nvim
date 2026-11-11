@@ -91,4 +91,75 @@ ui.show(saved, function() end, { on_apply = apply })
 buf = vim.api.nvim_get_current_buf()
 key(buf, 'm'); key(buf, '<C-c>')
 assert(vim.deep_equal(saved, original) and #applied == 1, 'Control+c wiste eerder bewaarde keuzes')
+
+-- Multiple hits share one decision, but same-day events and other editions do not.
+local function candidate(kind, edition, id, event)
+  return { kind = kind, source_event = event,
+    comparison = event and { date = event.date, headline = event.ref } or nil,
+    variants = { { kind = kind, edition = edition, headline = id, text = 'Tekst van ' .. id,
+      editor_url = 'https://example.invalid/' .. id, review_selectable = true,
+      review_target = { id = id, kind = kind, edition = edition, source_event = event } } } }
+end
+local function row(fragment)
+  for index, line in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
+    if line:find(fragment, 1, true) then
+      vim.api.nvim_win_set_cursor(0, { index, 0 })
+      return line, index
+    end
+  end
+  error('Regel ontbreekt: ' .. fragment)
+end
+local first = { ref = 'Eerste afspraak', date = '2026-10-25', structured = true }
+local second = { ref = 'Tweede afspraak', date = first.date, structured = true }
+local browser = require 'ordered_browser'
+local original_open = browser.open_urls
+local opened
+browser.open_urls = function(urls) opened = urls end
+ui.show({ candidates = {
+  candidate('web', 'B', 'Brug één'), candidate('web', 'B', 'Brug twee'),
+  candidate('web', 'SW', 'Zwolle web'),
+  candidate('agenda', 'B', 'Agenda één', first), candidate('agenda', 'B', 'Agenda twee', first),
+  candidate('agenda', 'B', 'Andere afspraak', second), candidate('agenda', 'SW', 'Zwolle agenda', first),
+} }, function() end, { on_apply = apply })
+buf = vim.api.nvim_get_current_buf()
+assert(text(buf):find('Brug één', 1, true) and text(buf):find('Agenda één', 1, true),
+  'trefferkoppen stonden bij openen niet direct in beeld')
+local group_line, group_row = row('Web:    2 treffers')
+assert(group_line:find('[−]', 1, true) and group_line:find('[geen doublures]', 1, true),
+  'open groep of gezamenlijke geen-doublureactie ontbreekt')
+local original_getmousepos = vim.fn.getmousepos
+vim.fn.getmousepos = function() return {
+  winid = vim.api.nvim_get_current_win(), line = group_row,
+  column = assert(group_line:find('[geen doublures]', 1, true)),
+} end
+key(buf, '<LeftMouse>')
+assert(row('Web:    2 treffers'):find('[≠]', 1, true), 'één klik markeerde de groep niet als geen doublures')
+group_line, group_row = row('Web:    2 treffers')
+vim.fn.getmousepos = function() return {
+  winid = vim.api.nvim_get_current_win(), line = group_row,
+  column = assert(group_line:find('[keuze wissen]', 1, true)),
+} end
+key(buf, '<LeftMouse>')
+vim.fn.getmousepos = original_getmousepos
+assert(row('Web:    2 treffers'):find('[ ]', 1, true), 'tweede klik wiste de groepskeuze niet')
+row('Web:    2 treffers'); key(buf, 'm')
+assert(row('Web:    2 treffers'):find('[ ]', 1, true), 'een treffer werd zonder keuze bevestigd')
+row('Brug twee'); key(buf, '<CR>')
+assert(text(buf):find('Tekst van Brug twee', 1, true))
+key(buf, 'o')
+assert(vim.deep_equal(opened, { 'https://example.invalid/Brug twee' }))
+key(buf, '<CR>')
+key(buf, 'm')
+assert(row('Web:    2 treffers'):find('[=]', 1, true))
+opened = nil
+key(buf, 'o')
+assert(vim.deep_equal(opened, { 'https://example.invalid/Brug twee' }))
+row('Eerste afspraak'); key(buf, 'n')
+assert(row('Eerste afspraak'):find('[≠]', 1, true))
+assert(row('Andere afspraak'):find('[ ]', 1, true) and row('Zwolle agenda'):find('[ ]', 1, true))
+key(buf, 'q')
+assert(vim.deep_equal(applied[2], {
+  ['Brug twee'] = 'duplicate', ['Agenda één'] = 'different', ['Agenda twee'] = 'different',
+}), 'groepskeuze raakte een ander evenement, andere krant of onbevestigde webtreffer')
+browser.open_urls = original_open
 print 'duplicate selection labels: OK'

@@ -32,7 +32,8 @@ function M.apply(buf, report, selections, done, reviewed_markdown, allow_source_
         or 'Geen onderdelen overgeslagen wegens bevestigde doublures.'
       notifications.workflow(summary,
         vim.log.levels.INFO, { buf = buf, action = 'Doublurekeuzes', notice_key = 'duplicate-selection', resolved = true })
-      done(true, { before = revision, after = require('buffer_revision').capture(buf) })
+      done(true, { before = revision, after = require('buffer_revision').capture(buf),
+        review_current = data.review_current == true })
     end)
   end
   local started, err = pcall(notifications.system, { commands.bin('python'), '-m', 'texttools.duplicate_selection' }, {

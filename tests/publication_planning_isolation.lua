@@ -82,7 +82,7 @@ require('duplicate_review').apply = function(buf, _, _, done)
   local revision = require('buffer_revision')
   local before = revision.capture(buf)
   vim.api.nvim_buf_set_lines(buf, 0, 0, false, { '---', 'duplicate_selection: {}', '---', '' })
-  done(true, { before = before, after = revision.capture(buf) })
+  done(true, { before = before, after = revision.capture(buf), review_current = true })
 end
 
 local function run(selected, failure, duplicate_case)
@@ -114,7 +114,9 @@ local function run(selected, failure, duplicate_case)
   end
   assert(vim.wait(3000, function() return menu ~= nil end, 5), 'planningsmenu bleef uit')
   assert(schedule_options, 'planning niet gestart')
-  assert(resolves == before_resolves + (duplicate_case == 'different' and 2 or 1))
+  -- De review bepaalt haar eigen scope vóór staging. De planningsresolver
+  -- leest daarna het resultaat, ook wanneer de review geen treffers gaf.
+  assert(resolves == before_resolves + (duplicate_case and 2 or 1))
   assert(schedules == before_schedules + 1)
   assert(scans == before_scans + (duplicate_case and 1 or 0))
   if not failure then

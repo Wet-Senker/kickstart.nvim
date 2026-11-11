@@ -36,6 +36,20 @@ assert(type(pending) == 'function')
 pending()
 assert(#opened == 2 and opened[2]:match '/2$')
 
+local close_command
+vim.system = function(cmd, _, done)
+  close_command = cmd
+  if done then done { code = 0, stdout = '', stderr = '' } end
+  return {}
+end
+assert(browser.finish_temporary_tab('http://127.0.0.1:54321/token_1/', { is_macos = true }))
+assert(close_command[1] == '/usr/bin/osascript' and close_command[2] == '-l'
+  and close_command[3] == 'JavaScript')
+assert(close_command[#close_command] == 'http://127.0.0.1:54321/token_1/')
+assert(close_command[5]:find("Application('iTerm').activate()", 1, true), 'iTerm kreeg geen focusopdracht')
+assert(not browser.finish_temporary_tab('https://example.test/a', { is_macos = true }),
+  'gewone browsertab mocht niet door tijdelijke opruiming worden gesloten')
+
 vim.system = original_system
 vim.ui.open = original_open
 vim.defer_fn = original_defer

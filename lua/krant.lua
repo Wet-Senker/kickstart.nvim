@@ -48,6 +48,7 @@ M.templates = {
   -- TIER 1 — plain stock text
   {
     name = 'Column Natuurvereniging',
+    edition = 'B',
     id = 'natuurvereniging',
     column = true,
     working_title = 'z - NATUURVERENIGING',
@@ -81,6 +82,7 @@ M.templates = {
 
   {
     name = 'Column Kamper Ambassadeur',
+    edition = 'B',
     column = true,
     working_title = 'x - 1 KAMPER AMBASSADEUR',
     -- Geen lezersnieuws-export: deze column gaat gewoon naar website + print.
@@ -94,6 +96,7 @@ M.templates = {
   },
   {
     name = 'Column Vogelgroep Kampen',
+    edition = 'B',
     column = true,
     working_title = 'z - VOGELGROEP KAMPEN',
     text = {
@@ -106,6 +109,7 @@ M.templates = {
   },
   {
     name = 'Uit de Kunst',
+    edition = 'B',
     column = true,
     working_title = 'z - UIT DE KUNST',
     text = {
@@ -145,6 +149,7 @@ M.templates = {
 
   {
     name = 'Humor met een boodschap',
+    edition = 'B',
     working_title = 'x - 1 HUMOR',
     column = true,
     image = 'humor.jpg',
@@ -160,6 +165,7 @@ M.templates = {
   -- TIER 3 — wraps the article body; {{Title}} stays for you to fill
   {
     name = '112 nieuws',
+    edition = 'B',
     no_export = true,
     text = {
       '{{prefix}} {{titel}}',
@@ -175,6 +181,7 @@ M.templates = {
     -- de "disse stad"-uitdrukking + de ondertekening. Alleen een vaste kop en de
     -- tekst; geen intro-alinea. Print + web (x - 1).
     name = 'Leugenbankien',
+    edition = 'B',
     id = 'leugenbankien',
     column = true,
     no_export = true,
@@ -382,22 +389,49 @@ end
 -- Vaste rubrieken mogen een standaardeditie invullen, maar een zichtbare
 -- handmatige e:/editie:-keuze blijft altijd leidend.
 local function with_default_edition(header, edition)
-  local result = vim.deepcopy(header or {})
-  if type(edition) ~= 'string' or vim.trim(edition) == '' then return result end
-  local empty
-  for index, line in ipairs(result) do
+  local original = vim.deepcopy(header or {})
+  if type(edition) ~= 'string' or vim.trim(edition) == '' then return original end
+  local function edition_value(line)
     local key, value = vim.trim(line):match('^([%a][%a%d_]*)%s*:%s*(.*)$')
-    key = key and key:lower()
-    if key == 'e' or key == 'editie' then
-      if vim.trim(value) ~= '' then return result end
-      empty = empty or index
+    key = (key or ''):lower()
+    if key == 'e' or key == 'editie' then return vim.trim(value) end
+  end
+  local function suggestion_only_confirms_default(value)
+    if not value:find('SUGGESTIE', 1, true) then return false end
+    local chosen = vim.trim((value:match('^(.-)SUGGESTIE') or ''):gsub(',%s*$', ''))
+    local normalize = function(raw)
+      local codes = {}
+      for code in raw:gmatch('[%a]+') do codes[#codes + 1] = code:upper() end
+      table.sort(codes)
+      return table.concat(codes, ',')
+    end
+    return chosen == '' or normalize(chosen) == normalize(edition)
+  end
+  -- An empty import placeholder is not a manual destination choice.
+  local discard_suggestion = false
+  for _, line in ipairs(original) do
+    local value = edition_value(line)
+    if value and value ~= '' then
+      if suggestion_only_confirms_default(value) then
+        discard_suggestion = true
+      else
+        return original
+      end
     end
   end
-  if empty then
-    result[empty] = result[empty]:gsub('%s*$', '') .. ' ' .. vim.trim(edition)
-  else
-    table.insert(result, 1, 'e: ' .. vim.trim(edition))
+  local result, filled = {}, false
+  for _, line in ipairs(original) do
+    if edition_value(line) ~= nil then
+      if not filled then
+        local field = vim.trim(line):match('^([%a][%a%d_]*%s*:)')
+        result[#result + 1], filled = field .. ' ' .. vim.trim(edition), true
+      end
+    elseif discard_suggestion and vim.trim(line):lower():match('^suggestiereden%s*:') then
+      -- Een vaste rubriek heeft al een definitieve bestemming; een automatisch
+      -- plaatsnaamalternatief hoort daar niet als open keuze bij te blijven.
+    else result[#result + 1] = line end
   end
+  if not filled then table.insert(result, 1, 'e: ' .. vim.trim(edition)) end
   return result
 end
 
@@ -534,6 +568,12 @@ local function publication_week()
   local weekday = tonumber(os.date('%u'))
   local ref_time = weekday == 1 and os.time() or (os.time() + 7 * 24 * 3600)
   return os.date('%V', ref_time)
+end
+
+local function gemeentenieuws_directory(week)
+  local existing = M.config.desktop .. '/' .. week .. ' Gemeentenieuws'
+  if vim.fn.isdirectory(existing) == 1 then return existing end
+  return M.config.desktop .. '/' .. week .. '_gemeentenieuws'
 end
 
 local function template_values(content, vars)
@@ -853,7 +893,7 @@ function M.raadspraat_menu(target_buf, context, done)
 
       -- Foto's worden nu voorbereid; de actuele tekst wordt pas na een
       -- succesvolle <leader>aw door layout_export geschreven.
-      local gn_dir = M.config.desktop .. '/' .. week_prefix .. '_gemeentenieuws'
+      local gn_dir = gemeentenieuws_directory(week_prefix)
       local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
 
       -- Zet de partij in de exportnaam. Anders krijgt elke raadspraat dezelfde
@@ -1219,22 +1259,6 @@ M._normalize_hondenhoek = normalize_hondenhoek
 
 function M.kamperkiek_flow(template, target_buf, candidate, done)
   target_buf = target_buf or vim.api.nvim_get_current_buf()
-  local inbox = require('texttools_paths').inbox()
-  local images = image_files(inbox)
-
-  if #images == 0 then
-    notifications.notify('Geen foto gevonden in Pubble Inbox. Zet de foto er eerst in.', vim.log.levels.ERROR)
-    return false, 'photo_missing'
-  end
-  if #images > 1 then
-    notifications.notify('Meerdere foto\'s gevonden in Pubble Inbox. Verwijder alle foto\'s behalve de Kiek-foto.', vim.log.levels.ERROR)
-    return false, 'multiple_photos'
-  end
-
-  local photo_file = images[1]
-  local photo_src = inbox .. '/' .. photo_file
-  local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
-
   -- De Kiek is een echte wrap-template: behoud de volledige aangeleverde
   -- tekst (dus ook de eerste regel), normaliseer de inline nummering en zet
   -- vervolgens de vaste rubriekkop en intro erboven.
@@ -1258,21 +1282,20 @@ function M.kamperkiek_flow(template, target_buf, candidate, done)
   -- Bereid één gemeentenieuwsexport voor; de tekst volgt pas na een
   -- succesvolle <leader>aw en komt daardoor altijd uit de actuele buffer.
   local week_prefix = publication_week()
-  local gn_dir = M.config.desktop .. '/' .. week_prefix .. '_gemeentenieuws'
+  local gn_dir = gemeentenieuws_directory(week_prefix)
   if not prepare_layout_export(target_buf, {
     dir = gn_dir,
     txt_name = '2.kamperkiekFOTO.txt',
-    img_name = '2.kamperkiek.' .. photo_ext,
-    photo_src = photo_src,
+    img_name = '2.kamperkiek.jpg',
+    defer_media = true,
     label = 'Kamper Kiek op de Wiek',
   }) then return false, 'layout_export_failed' end
 
   prepared = true
   notifications.workflow(
     'Kamper Kiek op de Wiek\n'
-    .. '→ ' .. week_prefix .. '_gemeentenieuws/2.kamperkiekFOTO.txt\n'
-    .. '→ ' .. week_prefix .. '_gemeentenieuws/2.kamperkiek.' .. photo_ext .. '\n'
-    .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
+    .. '→ ' .. gn_dir .. '/2.kamperkiekFOTO.txt\n'
+    .. 'De uiteindelijke foto en tekst worden na succesvolle <leader>aw naar gemeentenieuws geschreven.',
     vim.log.levels.INFO,
     { annote = 'Rubriek', ttl = 12 }
   )
@@ -1561,7 +1584,8 @@ function M.menu()
   end
 
   vim.ui.select(items, {
-    prompt = 'Template:',
+    prompt = 'Rubriek zoeken (typ bijvoorbeeld honden of raads):',
+    searchable = true,
     format_item = function(t) return t.name end,
   }, function(choice)
     if not choice then return end

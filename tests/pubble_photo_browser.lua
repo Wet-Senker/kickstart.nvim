@@ -10,7 +10,10 @@ vim.system = function(cmd, opts, callback)
 end
 dialog.input = function(opts, done) done(opts.default) end
 dialog.confirm = function() error('browser button must not ask confirmation again') end
-require('ordered_browser').open_urls = function(urls) opened[#opened + 1] = urls[1]; return true end
+local browser = require 'ordered_browser'
+browser.open_urls = function(urls) opened[#opened + 1] = urls[1]; return true end
+local finished = {}
+browser.finish_temporary_tab = function(value) finished[#finished + 1] = value; return true end
 local function flush() vim.wait(30, function() return false end, 5) end
 local function reply(request, data)
   data.version = 1
@@ -29,7 +32,7 @@ local function start()
   vim.api.nvim_set_current_buf(source)
   vim.api.nvim_buf_set_lines(source, 0, -1, false, { '=== ARTIKEL ===', '', 'Kop', '', 'Tekst' })
   photos.open(source)
-  local editor_text = 'Bron: Beide\nOnderwerp: hond\nPlaats: Zwolle'
+  local editor_text = 'Bron: Alle\nOnderwerp: hond\nPlaats: Zwolle'
   reply(requests[#requests], { query = 'hond', editor_text = editor_text })
   reply(requests[#requests], { photos = { candidate }, candidates = { candidate },
     next_offset = 12, source = 'both', query_strategy = 2, editor_text = editor_text,
@@ -57,6 +60,7 @@ local count = #requests
 key('p')
 assert(#requests == count and #opened == 2, 'reuse active listener')
 event(browse, { event = 'selected', image_metadata_id = 731 })
+assert(finished[#finished] == url, 'browserkeuze sloot het tijdelijke tabblad niet')
 assert(browse.killed)
 local selection = requests[#requests]
 assert(selection.cmd[4] == 'select')
@@ -69,17 +73,17 @@ assert(#requests == count + 1, 'browser selection must not publish or upload')
 event(browse, { event = 'selected', image_metadata_id = 731 })
 assert(#requests == count + 1, 'duplicate event must be ignored')
 
--- Dezelfde b-toets doorloopt in NeoVim alle drie de bronnen. Iedere wissel
+-- Dezelfde b-toets doorloopt in NeoVim alle vier de bronkeuzes. Iedere wissel
 -- gebruikt opnieuw de gestructureerde Python-zoekactie.
 source, browse = start()
-for _, expected in ipairs({ "Artikelfoto's", 'Beeldbank', 'Beide' }) do
+for _, expected in ipairs({ "Artikelfoto's", 'Beeldbank', "Stockfoto's", 'Alle' }) do
   key('b')
   local search_request = requests[#requests]
   local search_payload = vim.json.decode(search_request.opts.stdin)
   assert(search_payload.editor_text:find('Bron: ' .. expected, 1, true),
     'b schakelde niet door naar ' .. expected)
   local source_key = expected == "Artikelfoto's" and 'articles'
-    or expected == 'Beeldbank' and 'images' or 'both'
+    or expected == 'Beeldbank' and 'images' or expected == "Stockfoto's" and 'stock' or 'both'
   reply(search_request, { photos = { candidate }, candidates = { candidate },
     next_offset = vim.NIL, source = source_key, query_strategy = 2,
     editor_text = search_payload.editor_text,

@@ -31,7 +31,7 @@ function M.prepare(buf, options)
     return nil, 'Vormgevingsmap kon niet worden gemaakt: ' .. options.dir
   end
 
-  if options.photo_src or options.img_name then
+  if options.photo_src or (options.img_name and not options.defer_media) then
     if type(options.photo_src) ~= 'string' or options.photo_src == '' then return nil, 'Bronfoto ontbreekt.' end
     if type(options.img_name) ~= 'string' or options.img_name == '' then return nil, 'Naam van vormgevingsfoto ontbreekt.' end
     local destination = options.dir .. '/' .. options.img_name
@@ -41,6 +41,10 @@ function M.prepare(buf, options)
     end
   end
 
+  if options.defer_media and options.img_name ~= nil
+      and (type(options.img_name) ~= 'string' or vim.fn.fnamemodify(options.img_name, ':t') ~= options.img_name) then
+    return nil, 'Ongeldige naam van de latere vormgevingsfoto.'
+  end
   local plan = {
     dir = options.dir,
     txt_name = options.txt_name,

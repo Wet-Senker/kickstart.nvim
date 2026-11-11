@@ -231,6 +231,12 @@ function M.record(buf, message, level, options)
     if issue_key then state.issues[issue_key] = nil end
     if options.action then state.issues[options.action] = nil end
     if options.resolved and options.notice_key then state.inline[options.notice_key] = nil end
+    -- Een andere controle kan dezelfde aandacht oplossen. Alleen de bij de
+    -- start waargenomen melding opruimen, nooit een intussen nieuwere fout.
+    for key, expected in pairs(options.resolved_issues or {}) do
+      if state.issues[key] and state.issues[key].id == expected then state.issues[key] = nil end
+      if state.inline[key] and state.inline[key].id == expected then state.inline[key] = nil end
+    end
   end
   if current and (level >= vim.log.levels.WARN or options.attention) then
     entry.read = nil
@@ -555,6 +561,15 @@ end
 function M.snapshot(buf)
   buf = M.source(buf)
   return buf and vim.deepcopy(states[buf]) or nil
+end
+
+function M.issue_ids(buf, keys)
+  buf = M.source(buf)
+  local state, result = buf and states[buf], {}
+  for _, key in ipairs(keys) do
+    if state and state.issues[key] then result[key] = state.issues[key].id end
+  end
+  return result
 end
 
 function M.panel_visible(buf)

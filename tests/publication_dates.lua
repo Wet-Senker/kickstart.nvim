@@ -83,6 +83,29 @@ for _, value in ipairs({ { code = 0, stdout = 'GEHEIM' },
   assert(vim.wait(1000, function() return not vim.b[buf].publication_date_review_pending end, 5))
   assert(results[#results] == 'cancel' and not warnings[#warnings]:find('GEHEIM', 1, true))
 end
+-- AI context is a system-only transition, retained for approval and guarded
+-- against late callbacks after a real edit.
+check()
+assert(requests[#requests].cmd[#requests[#requests].cmd] == '--resolve-context')
+assert(requests[#requests].opts.timeout == 30000)
+local context_document = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+  .. '\n\n<!-- context-test -->'
+reply(#requests, { version = 1, ready = false, can_confirm = true, issues = { issue },
+  context_status = 'checked', markdown = context_document, editor_markdown = context_document })
+local menu = menus[#menus]
+menu.done(menu.items[1])
+local sent = vim.json.decode(requests[#requests].opts.stdin)
+assert(sent.editor == context_document and sent.publication == context_document)
+reply(#requests, { version = 1, ready = true, approved = true,
+  markdown = context_document, editor_markdown = context_document })
+assert(results[#results] == 'ready' and transitions[#results])
+check()
+vim.api.nvim_buf_set_lines(buf, -1, -1, false, { 'Nieuwere wijziging na AI-start.' })
+current = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+reply(#requests, { version = 1, ready = true, context_status = 'checked',
+  markdown = 'Oud', editor_markdown = 'Oud' })
+assert(results[#results] == 'cancel' and vim.deep_equal(current, vim.api.nvim_buf_get_lines(buf, 0, -1, false)))
+
 local before_start = #requests
 vim.system = function() error('GEHEIME exception') end
 check()

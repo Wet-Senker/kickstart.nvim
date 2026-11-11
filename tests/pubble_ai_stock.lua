@@ -50,11 +50,11 @@ vim.api.nvim_buf_set_lines(review, 0, -1, false, { 'Krantkop', '', 'Goedgekeurde
 vim.api.nvim_set_current_buf(review)
 photos.open(review)
 assert(requests[#requests].opts.stdin:find('=== ARTIKEL ===', 1, true), 'AI-stock moet hoofddocument gebruiken')
-reply({ editor_text = 'Bron: Beide\nOnderwerp: plant\nPlaats: Kampen' })
+reply({ editor_text = 'Bron: Alle\nOnderwerp: plant\nPlaats: Kampen' })
 reply({
   photos = {}, candidates = {}, source = 'both', next_offset = vim.NIL,
   fields = { source = 'both', subject = 'plant', place = 'Kampen', exclude = '' },
-  editor_text = 'Bron: Beide\nOnderwerp: plant\nPlaats: Kampen', query_strategy = 2,
+  editor_text = 'Bron: Alle\nOnderwerp: plant\nPlaats: Kampen', query_strategy = 2,
 })
 
 key('a')

@@ -58,8 +58,15 @@ reply({ query = 'hond', editor_text = 'Bron: Beeldbank\nOnderwerp: hond, honden\
   photos = { a }, candidates = { a }, source = 'images' })
 assert(display():find('Beeldbank', 1, true))
 key('b')
-local both_editor = 'Bron: Beide\nOnderwerp: hond, honden\nPlaats: Milligerplas'
-assert(vim.json.decode(requests[#requests].opts.stdin).editor_text:find('Bron: Beide', 1, true))
+local stock_editor = "Bron: Stockfoto's\nOnderwerp: hond, honden\nPlaats: Milligerplas"
+assert(vim.json.decode(requests[#requests].opts.stdin).editor_text:find("Bron: Stockfoto's", 1, true))
+reply({ query = 'hond', editor_text = stock_editor,
+  fields = { source = 'stock', subject = 'hond, honden', place = 'Milligerplas', exclude = '' },
+  photos = { a }, candidates = { a }, source = 'stock' })
+assert(display():find("Stockfoto's", 1, true))
+key('b')
+local both_editor = 'Bron: Alle\nOnderwerp: hond, honden\nPlaats: Milligerplas'
+assert(vim.json.decode(requests[#requests].opts.stdin).editor_text:find('Bron: Alle', 1, true))
 reply({ query = 'hond', editor_text = both_editor,
   fields = { source = 'both', subject = 'hond, honden', place = 'Milligerplas', exclude = '' },
   photos = { a }, candidates = { a }, source = 'both' })

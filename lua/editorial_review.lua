@@ -21,6 +21,10 @@ function M.open(options)
   local source_win = vim.fn.bufwinid(options.source_buf)
   local session = { buffers = {}, windows = {}, closed = false }
   local close_autocmd
+  function session.set_status(message)
+    session.status = message
+    if options.status then options.status(session) end
+  end
   local label = options.label or 'AN'
   local retry = options.retry or '<leader>an'
   local function buffer(role, lines, editable)
@@ -53,12 +57,14 @@ function M.open(options)
   function session.accept()
     if session.closed or session.validating or not vim.api.nvim_buf_is_valid(session.proposal) then return end
     if not options.is_current() then
+      session.set_status('Bron gewijzigd: niets overgenomen. Behoud de bron met q en start opnieuw met ' .. retry .. '.')
       notify.notify('Artikel gewijzigd of een nieuwere bewerking gestart. Dit voorstel is niet overgenomen. '
         .. 'Behoud het origineel met q en start opnieuw met ' .. retry .. '.', vim.log.levels.WARN)
       return
     end
     local lines = vim.api.nvim_buf_get_lines(session.proposal, 0, -1, false)
     if vim.trim(table.concat(lines, '\n')) == '' then
+      session.set_status('Voorstel leeg: niets overgenomen. Vul rechts de tekst aan of behoud de bron met q.')
       notify.notify('Het voorstel is leeg. Pas het aan of behoud het origineel met q.', vim.log.levels.WARN)
       return
     end
@@ -68,12 +74,14 @@ function M.open(options)
       if session.closed then return end
       if not options.is_current() or not vim.api.nvim_buf_is_valid(session.proposal)
           or vim.api.nvim_buf_get_changedtick(session.proposal) ~= tick then
+        session.set_status('Bron of voorstel gewijzigd tijdens controle: niets overgenomen. Controleer opnieuw met <leader>aY.')
         notify.notify('Bron of voorstel gewijzigd tijdens de controle. Nog niets overgenomen; controleer opnieuw met <leader>aY.',
           vim.log.levels.WARN)
         return
       end
       if not ok then
         if report and session.update then session.update(report) end
+        session.set_status(err or 'Nog afgekeurd: herstel de gemarkeerde citaatwoorden rechts. aY is geen handmatige goedkeuring.')
         notify.notify(err or 'Het citaat wijkt nog af. Herstel het rechts of behoud het origineel met q.', vim.log.levels.WARN)
         return
       end
@@ -81,7 +89,10 @@ function M.open(options)
       require('workflow_log').decision(options.source_buf, label .. ' · Voorstel beoordelen', 'accepted')
       options.on_accept(lines)
     end
-    if options.validate then session.validating = true; options.validate(lines, accept)
+    if options.validate then
+      session.validating = true
+      session.set_status('Citaatcontrole loopt lokaal… Nog niets overgenomen; geen nieuwe AI-bewerking.')
+      options.validate(lines, accept)
     else accept(true) end
   end
   function session.keep()
@@ -97,38 +108,41 @@ function M.open(options)
   end
   vim.cmd('tabnew')
   session.tab = vim.api.nvim_get_current_tabpage()
-  if not options.compact then
+  if not options.compact or options.review_panel then
     local header = buffer('controlepunten', info, false)
     vim.api.nvim_win_set_buf(0, header)
-    session.windows[1] = vim.api.nvim_get_current_win()
+    session.panel, session.panel_win = header, vim.api.nvim_get_current_win()
+    session.windows[1] = session.panel_win
     vim.wo.winbar = ' ' .. label .. ' · Controlepunten · nog niets overgenomen'
     vim.cmd('belowright split')
   end
   local left = buffer('onbewerkt', options.original, false)
   session.original = left
+  session.original_win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(0, left)
   session.windows[#session.windows + 1] = vim.api.nvim_get_current_win()
   vim.wo.winbar = options.compact and ' Bron · q behouden · ? uitleg' or ' Onbewerkt — oorspronkelijke tekst'
   vim.cmd('diffthis')
   vim.cmd('rightbelow vsplit')
+  session.proposal_win = vim.api.nvim_get_current_win()
   session.proposal = buffer('bewerkt', vim.split(options.report.article, '\n', { plain = true }), true)
   vim.api.nvim_win_set_buf(0, session.proposal)
   session.windows[#session.windows + 1] = vim.api.nvim_get_current_win()
   vim.wo.winbar = options.compact and (' ' .. label .. ' · Herstel citaat · <leader>aY controleren') or ' Bewerkt — voorstel ter controle'
   vim.cmd('diffthis')
-  if not options.compact then vim.api.nvim_win_set_height(session.windows[1], math.min(#info, 8)) end
+  if session.panel_win then vim.api.nvim_win_set_height(session.panel_win, math.min(#info, 8)) end
   if options.decorate then options.decorate(session, options.report) end
   for _, win in ipairs(session.windows) do
     vim.wo[win].number, vim.wo[win].relativenumber, vim.wo[win].wrap = true, false, true
   end
   for _, buf in ipairs(session.buffers) do
-    vim.keymap.set('n', '<leader>aY', session.accept, { buffer = buf, desc = 'Bewerkt voorstel overnemen' })
+    vim.keymap.set('n', '<leader>aY', session.accept, { buffer = buf, desc = options.validate and 'Voorstel controleren en indien geldig overnemen' or 'Bewerkt voorstel overnemen' })
     vim.keymap.set('n', 'q', session.keep, { buffer = buf, desc = 'Origineel behouden' })
     vim.api.nvim_buf_create_user_command(buf, 'ArtikelBewerkingOvernemen', session.accept, {})
     vim.api.nvim_buf_create_user_command(buf, 'ArtikelBewerkingBehouden', session.keep, {})
     if options.compact then
       vim.keymap.set('n', '?', function()
-        notify.notify('Links staat de bron, rechts het voorstel. De gemarkeerde citaatregels wijken af. '
+        notify.notify('Boven staat de controlestatus en het geselecteerde citaat; links de bron, rechts het voorstel. ]q/[q wisselt citaat. '
           .. 'Herstel rechts de citaatwoorden uit de bron of parafraseer zonder aanhalingstekens. '
           .. '<leader>aY controleert opnieuw en neemt alleen een geldig voorstel over. q behoudt het origineel.',
           vim.log.levels.INFO, { buf = options.source_buf })

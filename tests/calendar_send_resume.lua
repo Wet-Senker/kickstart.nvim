@@ -4,7 +4,8 @@
 local ai = require('ai_text')
 local jobs = require('buffer_jobs')
 local revision = require('buffer_revision')
-require('article_activity').setup { preferences = vim.fn.tempname() .. '/activity.json' }
+local activity = require('article_activity')
+activity.setup { preferences = vim.fn.tempname() .. '/activity.json' }
 local real_send = ai.pubble_send
 local original_reject = ai.reject_calendar
 local resolutions, duplicate_checks, resumed = 0, 0, 0
@@ -162,9 +163,17 @@ buf = source(false)
 ai.pubble_send(buf)
 vim.b[buf].send_requested = true
 before_resume = resumed
-resolver_done { code = 1, stdout = '', stderr = 'bewuste fout' }; drain()
+local resolver_error = 'De gekozen foto heeft geen fotocredit. Vul c: in boven === ARTIKEL ===.'
+resolver_done { code = 1, stdout = '', stderr = resolver_error }; drain()
 assert(resumed == before_resume and jobs.count(buf) == 0)
 assert(not vim.b[buf].calendar_send_review_pending and not vim.b[buf].send_requested)
+local failure_activity = require('article_activity').snapshot(buf)
+assert(failure_activity and vim.iter(failure_activity.entries):any(function(entry)
+  return entry.message == resolver_error
+end), 'de concrete resolverfout werd niet aan de redacteur getoond')
+assert(not vim.iter(failure_activity.entries):any(function(entry)
+  return entry.message:find('Agenda-bestemming kon niet worden bepaald', 1, true) ~= nil
+end), 'de concrete validatiefout werd vervangen door de algemene editiewaarschuwing')
 -- Daarna kan de gebruiker bewust een nieuwe poging starten.
 vim.b[buf].calendar_transition_tick = vim.api.nvim_buf_get_changedtick(buf)
 ai.pubble_send(buf); resolve()
@@ -186,4 +195,31 @@ before_resume = resumed
 vim.api.nvim_buf_delete(buf, { force = true })
 resolve()
 assert(resumed == before_resume and jobs.count(buf) == 0, 'gesloten buffer werd alsnog verzonden')
+
+-- Een geldige resolveruitkomst zonder hoofd- of agendabestemming is wél een
+-- editiekeuzeprobleem en krijgt daarom een andere melding dan een procesfout.
+buf = source(false)
+ai.pubble_send(buf)
+before_resume = resumed
+resolver_done { code = 0, stdout = vim.json.encode {
+  editions = {}, agenda_only_editions = {},
+}, stderr = '' }
+drain()
+local empty_notice = activity.snapshot(buf).entries[#activity.snapshot(buf).entries].message
+assert(resumed == before_resume and empty_notice:find('Geen editie gekozen', 1, true))
+assert(not empty_notice:find('Verzendcontrole mislukt', 1, true),
+  'lege editiekeuze werd als technische resolverfout gemeld')
+
+-- Geen hoofdartikelbestemming, maar wel een expliciet gekozen agenda-uitzondering.
+buf = source(false)
+ai.pubble_send(buf)
+before_resume = resumed
+resolver_done { code = 0, stdout = vim.json.encode {
+  editions = {}, agenda_only_editions = { 'SW' },
+}, stderr = '' }
+drain()
+assert(duplicate_done and vim.b[buf].calendar_send_review_pending,
+  'agenda-uitzondering werd als ontbrekende hoofdeditie geweigerd')
+duplicate_done(true, success); drain()
+assert(resumed == before_resume + 1 and jobs.count(buf) == 0)
 print('calendar send resume: OK')

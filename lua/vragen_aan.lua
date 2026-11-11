@@ -129,6 +129,36 @@ function M._mailto(recipient, subject, body)
     .. '&body=' .. percent_encode(body)
 end
 
+-- Op macOS bewust Apple Mail: de systeemhandler voor mailto kan Chrome zijn.
+-- Alleen een concept openen; nooit versturen of standaardapps wijzigen.
+function M._open_mailto(url, opts)
+  opts = opts or {}
+  local macos = opts.is_macos
+  if macos == nil then macos = vim.fn.has('mac') == 1 end
+  if not macos then
+    if browser.open_urls({ url }) then
+      notify('Mailconcept aangevraagd bij je standaardmailprogramma. Controleer daar en verstuur zelf.',
+        vim.log.levels.INFO, { buf = opts.buf })
+      return true
+    end
+    return false
+  end
+  local function failed(detail)
+    notify('Apple Mail kon niet worden geopend: ' .. vim.trim(tostring(detail or 'onbekende fout'))
+      .. '. Je vragen zijn behouden; probeer <leader>vm opnieuw.', vim.log.levels.ERROR, { buf = opts.buf })
+  end
+  local ok, process = pcall(notifications.system,
+    { '/usr/bin/open', '-g', '-b', 'com.apple.mail', url }, { text = true }, function(result)
+      notifications.schedule(function()
+        if result.code ~= 0 then failed(result.stderr or result.stdout); return end
+        notify('Mailconcept aangevraagd in Apple Mail (op de achtergrond). Wissel naar Mail, controleer en verstuur zelf.',
+          vim.log.levels.INFO, { buf = opts.buf })
+      end)
+    end)
+  if not ok or not process then failed(process); return false end
+  return true
+end
+
 -- ---- commando's ---------------------------------------------------------
 
 local function run_cli(buf, args, stdin, title, on_json)
@@ -200,7 +230,9 @@ function M.intro()
   local buf = vim.api.nvim_get_current_buf()
   local lines = require_source(buf)
   if not lines then return end
-  run_cli(buf, { 'intro' }, M._source_text(lines), 'kop en intro', function(decoded, tick)
+  local input = vim.json.encode({ version = 1, source = M._source_text(lines),
+    selected_questions = M._read_questions(lines) })
+  run_cli(buf, { 'intro', '--input-json' }, input, 'kop en intro', function(decoded, tick)
     guarded_write(buf, tick, M._apply_intro(lines, decoded.headline or '', decoded.intro or ''),
       'Kop en intro geplaatst. De vragen zijn ongemoeid gelaten.')
   end)
@@ -208,34 +240,26 @@ end
 
 function M.mail()
   local buf = vim.api.nvim_get_current_buf()
-  local questions = M._read_questions(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local questions = M._read_questions(lines)
+  local _, intro = M._split(lines)
   if #questions == 0 then
     notify('Geen vragen gevonden. Draai eerst <leader>vv en houd je selectie over.', vim.log.levels.WARN)
     return
   end
-  dialog.input({ prompt = 'Naam van de geïnterviewde (voor het onderwerp)' }, function(naam)
-    if not naam or not naam:match('%S') then
-      notify('Geen naam opgegeven; mail niet opgesteld.', vim.log.levels.INFO)
+  dialog.input({ prompt = 'Mailadres van de geïnterviewde' }, function(email)
+    if not email or not email:match('%S') then
+      notify('Geen mailadres opgegeven; mail niet opgesteld.', vim.log.levels.INFO)
       return
     end
-    dialog.input({ prompt = 'Mailadres van de geïnterviewde' }, function(email)
-      if not email or not email:match('%S') then
-        notify('Geen mailadres opgegeven; mail niet opgesteld.', vim.log.levels.INFO)
-        return
-      end
-      run_cli(buf, { 'mail', '--naam', vim.trim(naam), '--email', vim.trim(email) },
-        table.concat(questions, '\n'), 'mail opstellen', function(decoded)
-          local recipient = (decoded.recipients or {})[1] or vim.trim(email)
-          local url = M._mailto(recipient, decoded.subject or '', decoded.body or '')
-          -- Via ordered_browser (op macOS `open -g`): de mail staat klaar in je
-          -- mailprogramma zonder de focus uit Neovim weg te pakken.
-          if browser.open_urls({ url }) then
-            notify('Mail voorbereid in je mailprogramma (op de achtergrond). Wissel ernaartoe, controleer en verstuur zelf.')
-          else
-            notify('Kon de mail niet voorbereiden in je mailprogramma.', vim.log.levels.ERROR)
-          end
-        end)
-    end)
+    local input = vim.json.encode({ version = 1,
+      introduction = table.concat(trim_trailing_blanks(trim_leading_blanks(intro)), '\n'), questions = questions })
+    run_cli(buf, { 'mail', '--input-json', '--email', vim.trim(email) },
+      input, 'mail opstellen', function(decoded)
+        local recipient = (decoded.recipients or {})[1] or vim.trim(email)
+        local url = M._mailto(recipient, decoded.subject or '', decoded.body or '')
+        M._open_mailto(url, { buf = buf })
+      end)
   end)
 end
 

@@ -89,7 +89,7 @@ ai._check_duplicate_stage(buf, { 'B' }, 'verzenden', function(ok) approved = ok 
 review = dialog()
 assert(approved == nil and calls == 2)
 key(review, 'q'); idle(buf)
-assert(approved == false, 'bewerkingsakkoord werd als publicatieakkoord gebruikt')
+assert(approved == true, 'q tijdens de afzonderlijke verzendreview hervatte de verzending niet')
 
 -- v keurt beide getoonde kanalen goed; daarna geen losse agendavraag.
 buf, approved = source(), nil
@@ -106,14 +106,17 @@ key(dialog(), 'q'); idle(buf)
 assert(approved and vim.b[buf].calendar_autodetect_suppressed)
 assert(not ai._duplicate_check_is_current(buf) and not text(buf):find('## Kalender', 1, true))
 
--- Eindcontrole vóór staging doet beide samen; q stopt alleen de verzending.
+-- Eindcontrole vóór staging doet beide samen; q hervat de gevraagde verzending.
 buf, approved = source(), nil
 ai._check_agenda_duplicates(buf, { 'B' }, function(ok) approved = ok end, nil, true)
 review = dialog()
-assert(text(review):find('Verzending afbreken', 1, true))
+assert(text(review):find('doorgaan met verzenden', 1, true))
 key(review, 'q'); idle(buf)
-assert(approved == false)
-approved = nil
+assert(approved == true)
+local before = calls
+ai._check_agenda_duplicates(buf, { 'B' }, function(ok) approved = ok end, nil, true)
+assert(approved and calls == before, 'q veroorzaakte dezelfde controle opnieuw')
+buf, approved = source(), nil
 ai._check_agenda_duplicates(buf, { 'B' }, function(ok) approved = ok end, nil, true)
 key(dialog(), 'n')
 assert(approved == nil)
@@ -152,14 +155,15 @@ ai._mark_duplicate_check_done(buf)
 ai._calendar_edition_resolver = function(_, _, done) done { editions = { 'B' } } end
 local real_send, resumed = ai.pubble_send, 0
 ai.pubble_send = function(target, _, reviewed)
-  assert(target == buf and reviewed == true and text(buf):find('agenda: nee', 1, true))
+  assert(target == buf and reviewed == true)
   resumed = resumed + 1
 end
 real_send(buf)
 review = dialog()
 assert(vim.tbl_contains(last_command, '--skip-web'), 'aw deed een al actuele webcontrole opnieuw')
 key(review, 'q'); idle(buf)
-assert(resumed == 0 and not vim.b[buf].calendar_send_review_pending)
+assert(resumed == 1 and not vim.b[buf].calendar_send_review_pending)
+assert(text(buf):find('## Kalender', 1, true), 'q verwijderde de agenda zonder keuze')
 local resolver_done, before_calls = nil, calls
 ai._calendar_edition_resolver = function(_, _, done) resolver_done = done end
 real_send(buf)
@@ -168,12 +172,14 @@ vim.api.nvim_buf_set_lines(buf, 0, 1, false, { 'e: K' })
 resolver_done { editions = { 'B' } }
 assert(calls == before_calls and not vim.b[buf].calendar_send_review_pending,
   'laat editieantwoord startte controle/verzending voor de verkeerde krant')
-vim.api.nvim_buf_set_lines(buf, 0, 1, false, { 'e: B' })
+buf = source()
+vim.api.nvim_buf_set_lines(buf, -1, -1, false, { '', '## Kalender', '', 'Titel: Concert', 'Datum: 2099-10-20' })
+ai._mark_duplicate_check_done(buf)
 vim.b[buf].calendar_transition_tick = vim.api.nvim_buf_get_changedtick(buf)
 ai._calendar_edition_resolver = function(_, _, done) done { editions = { 'B' } } end
 real_send(buf)
 key(dialog(), 'n'); idle(buf)
-assert(resumed == 1 and not text(buf):find('## Kalender', 1, true))
+assert(resumed == 2 and not text(buf):find('## Kalender', 1, true))
 ai.pubble_send = real_send
 
 -- n vóór ar moet ook de volledige herschrijving overleven: de oude sectie

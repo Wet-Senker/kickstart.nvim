@@ -227,7 +227,8 @@ function M.measure(buf, options)
       vim.b[buf].agenda_page_measure_fingerprint = source
       vim.b[buf].agenda_page_capacity = data
       workflow(data.message, data.over_by > 0 and vim.log.levels.WARN or vim.log.levels.INFO,
-        { buf = buf, action = 'Agenda · Omvang', resolved = true,
+        { buf = buf, action = 'Agenda · Omvang', notice_key = 'Agenda · Omvang', resolved = true,
+          inline = options.show_inline == true and data.over_by == 0,
           kind = data.over_by == 0 and 'success' or nil })
     end)
   end
@@ -315,7 +316,7 @@ function M.prepare(buf)
   vim.b[buf].agenda_page_flow = true
   vim.b[buf].article_recognition_done = true
   vim.b[buf].calendar_autodetect_done = true
-  M.measure(buf, { automatic = true })
+  M.measure(buf, { automatic = true, show_inline = true })
 
   local original = buffer_text(buf)
   local changedtick = vim.api.nvim_buf_get_changedtick(buf)
@@ -387,6 +388,23 @@ local function reload_after_send(buf)
   vim.api.nvim_buf_call(buf, function() vim.cmd 'silent edit' end)
 end
 
+local function show_pubble_result(buf, article_url, existing)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  vim.b[buf].agenda_page_published_url = article_url
+  local message = existing
+      and 'Agendapagina staat al in Pubble; latere wijzigingen zijn niet meegestuurd.'
+    or 'Agendapagina verstuurd naar Pubble en klaar voor plaatsing.'
+  workflow(message .. '\n' .. article_url, vim.log.levels.INFO,
+    { buf = buf, action = 'Agenda · Naar Pubble', kind = 'success', inline = true,
+      notice_key = 'agenda-page-sent', resolved = true })
+  if vim.api.nvim_get_current_buf() == buf then
+    vim.api.nvim_echo({ { message, 'MoreMsg' } }, false, {})
+  end
+  -- Een eerdere omvangwaarschuwing mag pas verdwijnen na een nieuwe meting
+  -- van de actuele inhoud, niet enkel omdat de verzending is geslaagd.
+  M.measure(buf, { automatic = true })
+end
+
 function M.send(buf)
   buf = buf or vim.api.nvim_get_current_buf()
   register_help(buf)
@@ -429,8 +447,7 @@ function M.send(buf)
       end
       if decoded.pubble_url then
         active_send[buf] = nil
-        vim.b[buf].agenda_page_published_url = decoded.pubble_url
-        workflow('Agendapagina staat klaar voor plaatsing.\n' .. decoded.pubble_url, vim.log.levels.INFO, { ttl = 15 })
+        show_pubble_result(buf, decoded.pubble_url, true)
         return
       end
 
@@ -452,11 +469,15 @@ function M.send(buf)
               notifications.notify('Pubble gaf geen leesbare verzendstatus terug.', vim.log.levels.ERROR)
               return
             end
+            if (type(status.article_url) ~= 'string' or status.article_url == '')
+                and (not tonumber(status.newspaper_article_id) or tonumber(status.newspaper_article_id) <= 0) then
+              notifications.notify('Pubble gaf geen artikelnummer of link terug; controleer de status voordat je opnieuw verzendt.', vim.log.levels.ERROR, { buf = buf })
+              return
+            end
             reload_after_send(buf)
-            local article_url = status.article_url
+            local article_url = type(status.article_url) == 'string' and status.article_url ~= '' and status.article_url
               or (editor_base_url() .. '/articles/newspaper/' .. tostring(status.newspaper_article_id))
-            vim.b[buf].agenda_page_published_url = article_url
-            workflow('Agendapagina staat klaar voor plaatsing.\n' .. article_url, vim.log.levels.INFO, { ttl = 15 })
+            show_pubble_result(buf, article_url, false)
           end)
         end)
       end

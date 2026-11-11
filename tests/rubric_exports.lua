@@ -177,6 +177,8 @@ assert(not explicit_text:find('\ne: B\n', 1, true), 'columnstandaard overschreef
 -- rubriek voor een andere of meerdere kranten vanzelf mee.
 assert(krant._rubric_edition_for('kamper_kiek') == 'B', 'kamper_kiek editie moet uit de definitie komen')
 assert(krant._rubric_edition_for('hondenhoek') == 'B', 'hondenhoek editie moet uit de definitie komen')
+assert(krant._rubric_edition_for('open_hof') == 'B', 'open_hof editie moet uit de definitie komen')
+assert(krant._rubric_edition_for('nog_even_dit') == 'B', 'nog_even_dit editie moet uit de definitie komen')
 assert(krant._rubric_edition_for('bestaat_niet') == nil, 'onbekende rubriek levert geen editie')
 
 local function has_line(text, target)
@@ -206,6 +208,20 @@ assert(krant.ensure_detected_rubric_edition('kamper_kiek', kiek_sw) == false,
 local kiek_sw_text = table.concat(vim.api.nvim_buf_get_lines(kiek_sw, 0, -1, false), '\n')
 assert(has_line(kiek_sw_text, 'e: SW') and not has_line(kiek_sw_text, 'e: B'),
   'handmatige e: SW werd overschreven')
+
+-- Een automatische plaatsnaamsuggestie naast de vaste rubriekeditie is geen
+-- handmatige afwijking en wordt bij verzenden definitief e: B.
+local sint = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(sint, 0, -1, false, {
+  'e: B, SUGGESTIE, SW',
+  'suggestiereden: SW — plaatsnaam ‘Zwolle’',
+  '', '=== ARTIKEL ===', '', 'Nog Even Dit', '', 'Knorrige Sint.',
+})
+assert(krant.ensure_detected_rubric_edition('nog_even_dit', sint))
+local sint_text = table.concat(vim.api.nvim_buf_get_lines(sint, 0, -1, false), '\n')
+assert(has_line(sint_text, 'e: B'), 'Nog Even Dit kreeg niet definitief De Brug')
+assert(not sint_text:find('SUGGESTIE', 1, true), 'rubrieksuggestie bleef openstaan')
+assert(not sint_text:find('suggestiereden:', 1, true), 'reden van verwijderde rubrieksuggestie bleef staan')
 
 vim.fn.delete(tmp, 'rf')
 print('rubric exports: OK')

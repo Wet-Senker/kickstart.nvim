@@ -184,28 +184,21 @@ vim.api.nvim_buf_set_lines(missing_photo_buf, 0, -1, false, {
   '',
   'De Kamper kiek op de wîêk: 1). Eerste punt. 2). Tweede punt. 3). Derde punt.',
 })
-local before_missing_photo = table.concat(vim.api.nvim_buf_get_lines(missing_photo_buf, 0, -1, false), '\n')
+-- Recognition and text preparation must not wait for the photo.
+ai_text._kamper_kiek_topics_runner = function(_, _, done)
+  done({ code = 0, stdout = 'eerste punt, tweede punt en derde punt' })
+end
 ai_text._article_autodetect(missing_photo_buf)
-assert(
-  vim.wait(5000, function()
-    return vim.b[missing_photo_buf].rubric_recognition_pending ~= nil
-  end, 20),
-  'Kamper-Kiekherkenning zonder foto werd niet afgerond'
-)
-assert(
-  table.concat(vim.api.nvim_buf_get_lines(missing_photo_buf, 0, -1, false), '\n') == before_missing_photo,
-  'Kamper-Kiekherkenning zonder foto wijzigde het artikel gedeeltelijk'
-)
-assert(
-  vim.b[missing_photo_buf].rubric_recognition_pending == 'kamper_kiek:photo_missing',
-  'ontbrekende Kiek-foto is niet als herstelbare bufferstatus opgeslagen'
-)
-assert(
-  vim.wait(5000, function()
-    return vim.b[missing_photo_buf].pubble_duplicate_gate_pending == false
-  end, 20),
-  'vervolgcontroles na mislukte rubriekopmaak werden niet afgerond'
-)
+assert(vim.wait(5000, function()
+  return vim.b[missing_photo_buf].recognized_rubric == 'kamper_kiek'
+    and vim.b[missing_photo_buf].pubble_duplicate_gate_pending == false
+end, 20), 'Kamper-Kiekvoorbereiding zonder foto werd niet afgerond')
+local prepared_without_photo = table.concat(vim.api.nvim_buf_get_lines(missing_photo_buf, 0, -1, false), '\n')
+assert(prepared_without_photo:find('e: B', 1, true), 'editie ontbreekt zonder foto')
+assert(prepared_without_photo:find('z - KAMPER KIEK', 1, true), 'werktitel ontbreekt zonder foto')
+assert(prepared_without_photo:find('## Facebook', 1, true), 'vaste socialtekst ontbreekt zonder foto')
+assert(require('layout_export').pending(missing_photo_buf), 'gemeentenieuwsplan ontbreekt zonder foto')
+assert(vim.b[missing_photo_buf].rubric_recognition_pending ~= 'kamper_kiek:photo_missing')
 
 vim.fn.writefile({ 'foto' }, inbox .. '/kiek.jpg')
 local buf = vim.api.nvim_create_buf(false, true)

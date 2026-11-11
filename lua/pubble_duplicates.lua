@@ -486,7 +486,9 @@ function M.show(result, callback, options)
   -- reflexmatige Escape de controle anders per ongeluk annuleren. Sluiten/terug
   -- gaat met q.
   vim.keymap.set('n', 'q', function()
-    if state.mode == 'text' then render_report() else finish(false) end
+    if state.mode == 'text' then render_report()
+    else finish(options.continue_send == true and #(result.errors or {}) == 0
+      and result.history_complete ~= false) end
   end, { buffer = buf, silent = true, desc = 'Terug of annuleren' })
   vim.api.nvim_create_autocmd('BufWipeout', {
     buffer = buf,
@@ -515,6 +517,8 @@ function M.check(command, callback, options)
   if type(trace_buf) ~= 'number' or not vim.api.nvim_buf_is_valid(trace_buf) then
     trace_buf = vim.api.nvim_get_current_buf()
   end
+  local agenda_issue_ids = require('article_activity').issue_ids(trace_buf,
+    { 'agenda-review', 'Agenda · Doublurecontrole' })
   local trace = workflow_log.start(trace_buf, 'Pubble · Doublurecontrole', {
     command = vim.fn.fnamemodify(tostring(command[1] or ''), ':t'),
   })
@@ -573,6 +577,10 @@ function M.check(command, callback, options)
               and type(channel.candidate_count) == 'number' and channel.candidate_count >= 0
               and channel.candidate_count == math.floor(channel.candidate_count) then
             log_summary.channels[kind] = { status = channel.status, candidate_count = channel.candidate_count }
+            if channel.status == 'skipped'
+                and (channel.reason == 'previously_checked' or channel.reason == 'disabled') then
+              log_summary.channels[kind].reason = channel.reason
+            end
           end
         end
       end
@@ -583,9 +591,15 @@ function M.check(command, callback, options)
       })
       local report_options = { buf = trace_buf, action = 'Doublurecontrole', notice_key = 'duplicate-check',
         inline = true, resolved = true }
+      local agenda = data.combined and data.checks and data.checks.agenda
+      if agenda and agenda.performed == true and agenda.complete ~= false and #(agenda.errors or {}) == 0
+          and (not log_summary or (log_summary.channels.agenda or {}).status == 'checked') then
+        report_options.resolved_issues = agenda_issue_ids
+      end
       if type(summary) == 'table' and summary.version == 1 and type(summary.message) == 'string'
           and (summary.status == 'checked' or summary.status == 'incomplete' or summary.status == 'skipped') then
-        report_options.kind = summary.status == 'checked' and #data.candidates == 0 and 'success' or nil
+        report_options.kind = summary.status == 'checked' and #data.candidates == 0
+          and not (agenda and agenda.pending) and 'success' or nil
         notifications.workflow(summary.message, summary.status == 'incomplete' and vim.log.levels.WARN or vim.log.levels.INFO,
           report_options)
       elseif data.performed == false then
@@ -605,6 +619,7 @@ function M.check(command, callback, options)
         if not has_agenda then options.reject_label = nil end
       end
       if #data.candidates == 0 and not (options.show_saved and #(data.saved_selections or {}) > 0)
+          and #(data.agenda_only_offers or {}) == 0
           and not (data.combined and #(data.errors or {}) > 0) then
         callback(true, data)
         return

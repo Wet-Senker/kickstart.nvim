@@ -451,15 +451,17 @@ do
     -- },
     -- pickers = {}
     extensions = {
-      ['ui-select'] = { require('telescope.themes').get_dropdown() },
+      ['ui-select'] = { require('telescope.themes').get_dropdown({ initial_mode = 'insert' }) },
     },
   }
 
   -- Enable Telescope extensions if they are installed
   pcall(require('telescope').load_extension, 'fzf')
-  -- Workflowkeuzes gebruiken één leesbaar native menu; Telescope blijft voor
-  -- echte zoekschermen, niet als tweede vormgeving voor dezelfde beslissingen.
-  require('user_dialog').setup()
+  -- Alleen expliciete zoeklijsten (zoals rubrieken) krijgen typefiltering.
+  -- Controlevragen behouden hun uitleg, aanbeveling en numerieke sneltoetsen.
+  local search_select
+  if pcall(require('telescope').load_extension, 'ui-select') then search_select = vim.ui.select end
+  require('user_dialog').setup { search_select = search_select }
   pcall(require('telescope').load_extension, 'file_browser')
 
   -- Fuzzy-browse folders (by name, not path) and move/rename/delete files
@@ -1240,6 +1242,10 @@ vim.keymap.set('n', '<leader>m',
 )
 
 vim.keymap.set('n', '<leader>kt', function() require('krant').menu() end, { desc = '[K]rant [T]emplate kiezen' })
+vim.keymap.set('n', '<leader>kq', function() require('quicktemplate').open() end,
+  { desc = '[K]rant [Q]uicktemplate Advanced' })
+vim.api.nvim_create_user_command('QuicktemplateAdvanced', function() require('quicktemplate').open() end,
+  { desc = 'Open Quicktemplate Advanced in de browser' })
 
 -- Rubriek '5 vragen aan': vragen → kop/intro → voorgevulde mail (losse stappen).
 require('user_dialog').keymap('n', '<leader>vv', function() require('vragen_aan').questions() end,
