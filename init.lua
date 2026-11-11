@@ -451,15 +451,17 @@ do
     -- },
     -- pickers = {}
     extensions = {
-      ['ui-select'] = { require('telescope.themes').get_dropdown() },
+      ['ui-select'] = { require('telescope.themes').get_dropdown({ initial_mode = 'insert' }) },
     },
   }
 
   -- Enable Telescope extensions if they are installed
   pcall(require('telescope').load_extension, 'fzf')
-  -- Workflowkeuzes gebruiken één leesbaar native menu; Telescope blijft voor
-  -- echte zoekschermen, niet als tweede vormgeving voor dezelfde beslissingen.
-  require('user_dialog').setup()
+  -- Alleen expliciete zoeklijsten (zoals rubrieken) krijgen typefiltering.
+  -- Controlevragen behouden hun uitleg, aanbeveling en numerieke sneltoetsen.
+  local search_select
+  if pcall(require('telescope').load_extension, 'ui-select') then search_select = vim.ui.select end
+  require('user_dialog').setup { search_select = search_select }
   pcall(require('telescope').load_extension, 'file_browser')
 
   -- Fuzzy-browse folders (by name, not path) and move/rename/delete files

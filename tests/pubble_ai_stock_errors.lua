@@ -20,11 +20,11 @@ vim.fn.writefile({ '=== ARTIKEL ===', '', 'Kop', '', 'Tekst.' }, path)
 vim.cmd('edit ' .. vim.fn.fnameescape(path))
 local source = vim.api.nvim_get_current_buf()
 photos.open(source)
-reply({ version = 2, editor_text = 'Bron: Beide\nOnderwerp: plant\nPlaats: Kampen' })
+reply({ version = 2, editor_text = 'Bron: Alle\nOnderwerp: plant\nPlaats: Kampen' })
 inputs[1].done(inputs[1].opts.default)
 reply({ version = 2, photos = {}, candidates = {}, source = 'both', next_offset = vim.NIL,
   fields = { source = 'both', subject = 'plant', place = 'Kampen', exclude = '' },
-  editor_text = 'Bron: Beide\nOnderwerp: plant\nPlaats: Kampen', query_strategy = 2 })
+  editor_text = 'Bron: Alle\nOnderwerp: plant\nPlaats: Kampen', query_strategy = 2 })
 key('i')
 reply({ version = 1, files = { { name = 'photo.png', relative_path = 'photo.png', sha256 = 'hash' } } })
 inputs[2].done('https://example.nl')

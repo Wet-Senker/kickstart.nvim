@@ -192,17 +192,21 @@ for _, change_source in ipairs({ false, true }) do
   ai._edition_mode_choice_async = original_choice
   local menu_done, menu_items
   dialog.select = function(items, _, done) menu_items, menu_done = items, done end
-  local unexpected_calls = 0
+  local unexpected_calls, advice_calls = 0, 0
   vim.system = function(command, _, callback)
     if vim.tbl_contains(command, '--resolve-editions') then
       callback { code = 0, stdout = vim.json.encode({ editions = { 'B', 'SW' },
         rewrite_strategies = { requires_choice = true, recommended_option_id = 'targeted',
           options = { { id = 'general', tasks = {} }, { id = 'targeted', tasks = {} } } } }), stderr = '' }
+    elseif vim.tbl_contains(command, 'advise') then
+      advice_calls = advice_calls + 1
+      callback { code = 1, stdout = '', stderr = 'bewuste adviesfout' }
     else unexpected_calls = unexpected_calls + 1 end
     return {}
   end
   ai.rewrite_article_buffer()
   assert(vim.wait(1000, function() return menu_done ~= nil end, 20), 'modusmenu ontbreekt')
+  assert(advice_calls == 1, 'inhoudelijk advies niet precies eenmaal aangevraagd')
   assert(unexpected_calls == 0, 'AI startte voordat het menu beantwoord was')
   if change_source then
     vim.api.nvim_buf_set_lines(target, -1, -1, false, { 'Nieuwe informatie.' })

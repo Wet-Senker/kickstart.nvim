@@ -246,6 +246,7 @@ local function open_browser_choice(s)
         if photo.image_metadata_id == data.image_metadata_id then
           -- The explicit browser button is the confirmation. The shared select
           -- action and media-only merge guard still apply; never auto-send.
+          browser.finish_temporary_tab(session.url)
           choose(s, photo, true)
           return
         end
@@ -265,7 +266,8 @@ local function open_browser_choice(s)
   end
   local cmd = { commands.bin('python'), '-m', 'texttools.pubble_photo_cli', 'browse' }
   local ok, process = pcall(notifications.system, cmd, {
-    text = true, stdin = vim.json.encode({ photos = s.photos, page = s.data }),
+    text = true, stdin = vim.json.encode({ photos = s.photos, page = vim.tbl_extend('force', s.data, {
+      page_history = s.photo_pages, display_page = s.photo_page or 1 }) }),
     -- An idle browser listener is not a long-running editorial task/spinner.
     texttools_activity = { buf = s.source, action = 'Foto · Browserkeuze', tracked = true },
     stdout = function(err, chunk)
@@ -454,11 +456,17 @@ local function ask_query(s, initial)
   end)
 end
 
-render = function(s, data)
+render = function(s, data, cached_page)
   s.data = data
+  if data.page_history and not cached_page then
+    s.photo_pages = data.page_history
+    s.photo_page = data.display_page or 1
+  end
+  if cached_page then s.photo_page = cached_page end
   if data.query then s.query = data.query end
   if data.editor_text then s.editor_text = data.editor_text end
-  s.photos = data.photos or {}
+  s.photos = ((cached_page or data.page_history) and s.photo_pages and s.photo_pages[s.photo_page or 1])
+    or data.display_photos or data.page_photos or data.photos or {}
   if not s.text_mode then return end
   if not s.buffer or not vim.api.nvim_buf_is_valid(s.buffer) then
     if s.source_win and vim.api.nvim_win_is_valid(s.source_win)
@@ -486,26 +494,33 @@ render = function(s, data)
       if s.busy or not current(s) or not s.data or not s.data.fields then return end
       local next_source = ({
         articles = 'Beeldbank',
-        images = 'Beide',
+        images = "Stockfoto's",
+        stock = 'Alle',
         both = "Artikelfoto's",
-      })[s.data.fields.source] or 'Beide'
+      })[s.data.fields.source] or 'Alle'
       local updated = (s.editor_text or ''):gsub('^Bron:[^\n]*', 'Bron: ' .. next_source)
       search(s, updated, 0)
-    end, 'Wissel bron: artikelfoto’s, beeldbank, beide')
+    end, 'Wissel bron: artikelfoto’s, beeldbank, stockfoto’s, alle')
     map(']p', function()
-      if type(s.next_offset) == 'number' then search(s, s.editor_text or s.query, s.next_offset) end
-    end, 'Meer resultaten toevoegen')
+      if s.photo_pages and (s.photo_page or 1) < #s.photo_pages then
+        render(s, s.data, s.photo_page + 1)
+      elseif type(s.next_offset) == 'number' then search(s, s.editor_text or s.query, s.next_offset) end
+    end, 'Volgende pagina')
+    map('[p', function()
+      if s.photo_pages and (s.photo_page or 1) > 1 then render(s, s.data, s.photo_page - 1) end
+    end, 'Vorige pagina')
     map('q', function() close(s) end, 'Terug zonder fotokeuze')
   end
   s.rows = {}
-  s.photos = data.photos or {}
+  -- Current page was selected above.
   s.next_offset = data.next_offset
-  local has_more = type(s.next_offset) == 'number'
-  local source = data.source == 'images' and 'Beeldbank' or data.source == 'both' and 'Beide' or "Artikelfoto's"
+  local has_more = type(s.next_offset) == 'number' or (s.photo_pages and (s.photo_page or 1) < #s.photo_pages)
+  local source = data.source == 'stock' and "Stockfoto's" or data.source == 'images' and 'Beeldbank' or data.source == 'both' and 'Alle' or "Artikelfoto's"
   local route = type(data.query_count) == 'number' and (' · ' .. data.query_count .. ' zoekcombinaties') or ''
   local controls = 'p: foto-overzicht | b: bron | s: zoeken | a: AI-stock | i: tags/import | Enter: kies | q: terug'
-  if has_more then controls = controls .. ' | ]p: meer laden' end
-  local lines = { 'Pubble-foto’s · ' .. source .. ' · ' .. #s.photos .. ' gevonden' .. route,
+  if has_more then controls = controls .. ' | ]p: volgende pagina' end
+  if (s.photo_page or 1) > 1 then controls = controls .. ' | [p: vorige pagina' end
+  local lines = { 'Pubble-foto’s · pagina ' .. (s.photo_page or 1) .. ' · ' .. source .. ' · ' .. #s.photos .. ' gevonden' .. route,
     controls,
     'Controleer context en gebruiksrechten vóór selectie.', '' }
   for i, photo in ipairs(s.photos) do
@@ -518,15 +533,20 @@ render = function(s, data)
   if #s.photos == 0 then
     table.insert(lines, has_more
       and 'Geen foto’s op deze pagina. Met ]p controleer je de volgende bronresultaten.'
-      or 'Geen foto’s gevonden. Probeer een andere bron of andere zoekwoorden.')
+      or ((s.photo_page or 1) > 1 and 'Geen nieuwe foto’s op deze pagina. Met [p ga je terug.'
+        or 'Geen foto’s gevonden. Probeer een andere bron of andere zoekwoorden.'))
   end
   if has_more then
     table.insert(lines, '')
-    table.insert(lines, 'Meer bronresultaten beschikbaar: ]p of de knop in de browser.')
+    table.insert(lines, 'Volgende pagina: ]p of de knop in de browser.')
   end
   vim.bo[s.buffer].modifiable = true
   vim.api.nvim_buf_set_lines(s.buffer, 0, -1, false, lines)
   vim.bo[s.buffer].modifiable = false
+  local picker_win = vim.fn.bufwinid(s.buffer)
+  if picker_win ~= -1 then
+    vim.api.nvim_win_set_cursor(picker_win, { #s.photos > 0 and 5 or 1, 0 })
+  end
 end
 
 search = function(s, query, offset)
@@ -547,7 +567,10 @@ search = function(s, query, offset)
   else s.query = query end
   notify('Pubble-foto’s zoeken…', vim.log.levels.INFO, { kind = 'progress' })
   run(s, args, input, function(data)
-    if offset == 0 then s.expanded = {} end
+    if offset == 0 then s.expanded, s.photo_pages, s.photo_page = {}, {}, 1
+    else s.photo_page = #(s.photo_pages or {}) + 1 end
+    s.photo_pages = s.photo_pages or {}
+    s.photo_pages[s.photo_page] = data.page_photos or data.photos or {}
     render(s, data)
     if not s.text_mode then open_browser_choice(s) end
   end)

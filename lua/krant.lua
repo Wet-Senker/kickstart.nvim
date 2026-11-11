@@ -567,6 +567,12 @@ local function publication_week()
   return os.date('%V', ref_time)
 end
 
+local function gemeentenieuws_directory(week)
+  local existing = M.config.desktop .. '/' .. week .. ' Gemeentenieuws'
+  if vim.fn.isdirectory(existing) == 1 then return existing end
+  return M.config.desktop .. '/' .. week .. '_gemeentenieuws'
+end
+
 local function template_values(content, vars)
   local values = vim.deepcopy(vars or {})
   local title_index
@@ -884,7 +890,7 @@ function M.raadspraat_menu(target_buf, context, done)
 
       -- Foto's worden nu voorbereid; de actuele tekst wordt pas na een
       -- succesvolle <leader>aw door layout_export geschreven.
-      local gn_dir = M.config.desktop .. '/' .. week_prefix .. '_gemeentenieuws'
+      local gn_dir = gemeentenieuws_directory(week_prefix)
       local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
 
       -- Zet de partij in de exportnaam. Anders krijgt elke raadspraat dezelfde
@@ -1250,22 +1256,6 @@ M._normalize_hondenhoek = normalize_hondenhoek
 
 function M.kamperkiek_flow(template, target_buf, candidate, done)
   target_buf = target_buf or vim.api.nvim_get_current_buf()
-  local inbox = require('texttools_paths').inbox()
-  local images = image_files(inbox)
-
-  if #images == 0 then
-    notifications.notify('Geen foto gevonden in Pubble Inbox. Zet de foto er eerst in.', vim.log.levels.ERROR)
-    return false, 'photo_missing'
-  end
-  if #images > 1 then
-    notifications.notify('Meerdere foto\'s gevonden in Pubble Inbox. Verwijder alle foto\'s behalve de Kiek-foto.', vim.log.levels.ERROR)
-    return false, 'multiple_photos'
-  end
-
-  local photo_file = images[1]
-  local photo_src = inbox .. '/' .. photo_file
-  local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
-
   -- De Kiek is een echte wrap-template: behoud de volledige aangeleverde
   -- tekst (dus ook de eerste regel), normaliseer de inline nummering en zet
   -- vervolgens de vaste rubriekkop en intro erboven.
@@ -1289,21 +1279,20 @@ function M.kamperkiek_flow(template, target_buf, candidate, done)
   -- Bereid één gemeentenieuwsexport voor; de tekst volgt pas na een
   -- succesvolle <leader>aw en komt daardoor altijd uit de actuele buffer.
   local week_prefix = publication_week()
-  local gn_dir = M.config.desktop .. '/' .. week_prefix .. '_gemeentenieuws'
+  local gn_dir = gemeentenieuws_directory(week_prefix)
   if not prepare_layout_export(target_buf, {
     dir = gn_dir,
     txt_name = '2.kamperkiekFOTO.txt',
-    img_name = '2.kamperkiek.' .. photo_ext,
-    photo_src = photo_src,
+    img_name = '2.kamperkiek.jpg',
+    defer_media = true,
     label = 'Kamper Kiek op de Wiek',
   }) then return false, 'layout_export_failed' end
 
   prepared = true
   notifications.workflow(
     'Kamper Kiek op de Wiek\n'
-    .. '→ ' .. week_prefix .. '_gemeentenieuws/2.kamperkiekFOTO.txt\n'
-    .. '→ ' .. week_prefix .. '_gemeentenieuws/2.kamperkiek.' .. photo_ext .. '\n'
-    .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
+    .. '→ ' .. gn_dir .. '/2.kamperkiekFOTO.txt\n'
+    .. 'De uiteindelijke foto en tekst worden na succesvolle <leader>aw naar gemeentenieuws geschreven.',
     vim.log.levels.INFO,
     { annote = 'Rubriek', ttl = 12 }
   )
@@ -1592,7 +1581,8 @@ function M.menu()
   end
 
   vim.ui.select(items, {
-    prompt = 'Template:',
+    prompt = 'Rubriek zoeken (typ bijvoorbeeld honden of raads):',
+    searchable = true,
     format_item = function(t) return t.name end,
   }, function(choice)
     if not choice then return end

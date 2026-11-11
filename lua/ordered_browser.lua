@@ -48,4 +48,48 @@ function M.open_urls(urls, opts)
   return true
 end
 
+-- Sluit uitsluitend het tijdelijke loopbacktabblad dat bij deze workflow
+-- hoort en geef daarna iTerm weer focus. Browser- en applicatienamen blijven
+-- hier in de macOS-presentatieadapter; de fotokeuze zelf kent ze niet.
+function M.finish_temporary_tab(url, opts)
+  opts = opts or {}
+  if type(url) ~= 'string' or not url:match('^http://127%.0%.0%.1:%d+/[%w_-]+/$') then return false end
+  local is_macos = opts.is_macos
+  if is_macos == nil then is_macos = vim.fn.has 'mac' == 1 end
+  if not is_macos then return true end
+  local script = [[
+function run(argv) {
+  var target = argv[0];
+  var names = ['Safari', 'Google Chrome', 'Brave Browser', 'Microsoft Edge', 'Chromium', 'Arc'];
+  for (var i = 0; i < names.length; i++) {
+    try {
+      var app = Application(names[i]);
+      if (!app.running()) continue;
+      var windows = app.windows();
+      for (var w = 0; w < windows.length; w++) {
+        var tabs = windows[w].tabs();
+        for (var t = 0; t < tabs.length; t++) {
+          var current = '';
+          try { current = String(tabs[t].url()); } catch (_) {}
+          if (current === target || current.indexOf(target) === 0) {
+            try { tabs[t].close(); } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
+  }
+  try { Application('iTerm').activate(); } catch (_) {}
+}
+]]
+  local command = { '/usr/bin/osascript', '-l', 'JavaScript', '-e', script, url }
+  local ok, process_or_error = pcall(notifications.system, command, { text = true }, function(result)
+    if result.code ~= 0 then notify_error(result.stderr or result.stdout) end
+  end)
+  if not ok or not process_or_error then
+    notify_error(process_or_error)
+    return false
+  end
+  return true
+end
+
 return M

@@ -6,7 +6,7 @@ vim.system = function(cmd, opts, done)
   requests[#requests + 1] = { cmd = cmd, opts = opts, done = done }
   return { kill = function() end }
 end
-local editor = 'Bron: Beide\nZoekwoorden: biljart, Kampen'
+local editor = 'Bron: Alle\nZoekwoorden: biljart, Kampen'
 require('user_dialog').input = function(opts, done)
   inputs[#inputs + 1] = opts
   assert(opts.vim_edit and opts.priority)

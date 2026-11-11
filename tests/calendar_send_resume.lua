@@ -163,14 +163,17 @@ buf = source(false)
 ai.pubble_send(buf)
 vim.b[buf].send_requested = true
 before_resume = resumed
-resolver_done { code = 1, stdout = '', stderr = 'bewuste fout' }; drain()
+local resolver_error = 'De gekozen foto heeft geen fotocredit. Vul c: in boven === ARTIKEL ===.'
+resolver_done { code = 1, stdout = '', stderr = resolver_error }; drain()
 assert(resumed == before_resume and jobs.count(buf) == 0)
 assert(not vim.b[buf].calendar_send_review_pending and not vim.b[buf].send_requested)
-local resolver_notice = activity.snapshot(buf).entries[#activity.snapshot(buf).entries].message
-assert(resolver_notice:find('Verzendcontrole mislukt: bewuste fout', 1, true),
-  'verzendpoort verborg de echte resolverfout achter een editiewaarschuwing')
-assert(not resolver_notice:find('Agenda-bestemming', 1, true),
-  'resolverfout werd nog steeds als ontbrekende agenda-editie gemeld')
+local failure_activity = require('article_activity').snapshot(buf)
+assert(failure_activity and vim.iter(failure_activity.entries):any(function(entry)
+  return entry.message == resolver_error
+end), 'de concrete resolverfout werd niet aan de redacteur getoond')
+assert(not vim.iter(failure_activity.entries):any(function(entry)
+  return entry.message:find('Agenda-bestemming kon niet worden bepaald', 1, true) ~= nil
+end), 'de concrete validatiefout werd vervangen door de algemene editiewaarschuwing')
 -- Daarna kan de gebruiker bewust een nieuwe poging starten.
 vim.b[buf].calendar_transition_tick = vim.api.nvim_buf_get_changedtick(buf)
 ai.pubble_send(buf); resolve()

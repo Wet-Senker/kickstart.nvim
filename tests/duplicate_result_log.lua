@@ -55,14 +55,16 @@ local partial = report('incomplete', 'Doublurecontrole: web geen mogelijke doubl
 partial.checks.agenda.complete = false
 run(partial)
 assert(activity.snapshot(buf).issues['duplicate-check'], 'deelfout werd schoon resultaat')
-local skipped = report('skipped', 'Doublurecontrole: web niet gecontroleerd; agenda niet gecontroleerd.',
-  { status = 'skipped', candidate_count = 0 }, { status = 'skipped', candidate_count = 0 })
+local skipped = report('skipped', 'Doublurecontrole: web niet gecontroleerd; agenda eerder gecontroleerd; nu overgeslagen.',
+  { status = 'skipped', candidate_count = 0 },
+  { status = 'skipped', candidate_count = 0, reason = 'previously_checked' })
 skipped.performed = false
 run(skipped)
 assert(not next(activity.snapshot(buf).issues), 'nieuwe expliciete uitkomst liet oude fout staan')
 assert(calls == 4, 'resultaatmelding deed extra controles')
 local log = table.concat(vim.fn.readfile(require('workflow_log').log_path()), '\n')
 assert(log:find('candidate_count', 1, true) and log:find('duplicate_check', 1, true))
+assert(log:find('previously_checked', 1, true), 'reden voor overgeslagen hercontrole ontbrak in technisch log')
 assert(not log:find('GEHEIME KOP', 1, true) and not log:find('GEHEIME FOUT', 1, true), 'redactionele tekst lekte naar technisch log')
 
 -- Een late callback na navigatie blijft bij de oorspronkelijke bron.

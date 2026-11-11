@@ -78,6 +78,7 @@ local function is_cancellable_ai_command(cmd)
       or name == "aichat"
       or name == "articlemeta"
       or name == "pubble-print-timing"
+      or (name == 'python' and cmd[2] == '-m' and cmd[3] == 'texttools.edition_versions_cli' and cmd[4] == 'advise')
       or (name == "pubble-event" and cmd[2] == "teksten")
 end
 
@@ -1016,6 +1017,16 @@ end
 
 local function append_work_sections(lines, extra)
   local fm, ctrl, body, sections, boundary = split_article_parts(lines)
+  local replacing = {}
+  for _, line in ipairs(extra) do
+    if line:match('^## ') then replacing[line] = true end
+  end
+  local retained, skip = {}, false
+  for _, line in ipairs(sections) do
+    if line:match('^## ') then skip = replacing[line] == true end
+    if not skip then retained[#retained + 1] = line end
+  end
+  sections = retained
   table.insert(sections, "")
   for _, line in ipairs(extra) do table.insert(sections, line) end
   return reassemble_article(fm, ctrl, body, sections, boundary)
@@ -2083,6 +2094,15 @@ local function high_confidence_detection(resolved)
   return detection
 end
 
+-- Toon bij een mislukte resolver de concrete validatiefout uit de Python-kern.
+-- Alleen wanneer een oudere/afwijkende core geen stderr teruggeeft, blijft de
+-- algemene clienttekst als fallback bruikbaar. Zo wordt bijvoorbeeld een lege
+-- fotocredit of ongeldige kalenderdatum nooit als editie-/locatieprobleem gemeld.
+function M._edition_resolution_failure_message(err, fallback)
+  local detail = type(err) == "string" and vim.trim(err) or ""
+  return detail ~= "" and detail or fallback
+end
+
 -- Eén asynchrone toegang tot de Python-resolver. De editor dupliceert de
 -- verspreidingsgebiedentabel dus niet en de hoofdthread blijft ook op oudere
 -- Macs vrij.
@@ -2417,9 +2437,9 @@ end
 -- De veilige variant voor import en <leader>av: bestaande keuzes blijven
 -- staan en een stille De-Brug-default wordt niet als e:-regel vastgelegd.
 local function fill_detected_editions_line(buf, content, done)
-  resolve_editions_for_content(buf, content, function(resolved)
+  resolve_editions_for_content(buf, content, function(resolved, err)
     if not resolved then
-      if done then done(false) end
+      if done then done(false, err) end
       return
     end
     remember_edition_places(buf, resolved)
@@ -2717,6 +2737,31 @@ M._edition_mode_choice_async = function(_, _, strategy, done, force_general)
   end)
 end
 
+-- Alleen AR vraagt een inhoudelijke beoordeling; import/send-resolvers blijven AI-vrij.
+M._edition_advice_async = function(buf, source, codes, strategy, done, force_general)
+  if force_general or type(strategy) ~= 'table' or strategy.requires_choice ~= true then
+    done(strategy)
+    return
+  end
+  ai_system({ texttools_commands.bin('python'), '-m', 'texttools.edition_versions_cli', 'advise' },
+    { text = true, stdin = vim.json.encode({ markdown = source, editions = codes }) },
+    function(result)
+      notifications.schedule(function()
+        local ok, data = pcall(vim.json.decode, result.stdout or '')
+        if result.code == 0 and ok and type(data) == 'table'
+            and data.contract_version == 1 and type(data.strategy) == 'table'
+            and type(data.strategy.options) == 'table' and #data.strategy.options >= 1 then
+          done(data.strategy)
+        else
+          local fallback = vim.deepcopy(strategy)
+          fallback.recommendation_reason = 'Inhoudelijk advies niet beschikbaar; kies zelf.\n'
+            .. (fallback.recommendation_reason or '')
+          done(fallback)
+        end
+      end)
+    end, 'AI · Invalshoeken beoordelen', buf)
+end
+
 M._edition_versions_regenerate_confirm = function()
   return require('user_dialog').confirm(
     "Dit artikel bevat al aparte krantversies. <leader>ar vervangt deze allemaal. Doorgaan?",
@@ -2744,6 +2789,9 @@ M._edition_variant_runner = function(buf, code, source, done, task)
   end
   if local_angle_marker then
     table.insert(command, "--optional-local-angle")
+  end
+  if task and type(task.local_angle_advice) == 'table' then
+    vim.list_extend(command, { '--local-angle-advice', vim.json.encode(task.local_angle_advice) })
   end
   append_seo_context(command, task and task.seo_context)
   append_reference_date(command, buf, task and task.editions or { code })
@@ -3356,11 +3404,18 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
     local codes = resolved and type(resolved.editions) == "table" and resolved.editions or {}
     local names = resolved and resolved.names or nil
     local strategy = resolved and resolved.rewrite_strategies
+    local advice_control_text
     local function continue_after_mode_choice(choice)
       if not vim.api.nvim_buf_is_valid(buf) then return end
       if vim.b[buf].editorial_rewrite_generation ~= generation then return end
       if editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) ~= resolve_body then
         notify_workflow("Herschrijven geannuleerd: de buffer is tijdens de keuze gewijzigd. Start opnieuw.", vim.log.levels.WARN)
+        return
+      end
+      local _, current_controls = split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+      if advice_control_text and table.concat(current_controls, '\n') ~= advice_control_text then
+        notify_workflow('Herschrijven geannuleerd: de artikelinstellingen zijn tijdens de keuze gewijzigd. Start opnieuw.',
+          vim.log.levels.WARN)
         return
       end
       if #codes >= 2 then
@@ -3408,9 +3463,26 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
       end)
     end
     if #codes >= 2 then
-      M._edition_mode_choice_async(
-        codes, names, strategy, continue_after_mode_choice, force_general
-      )
+      local _, advice_controls = split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+      advice_control_text = table.concat(advice_controls, '\n')
+      M._edition_advice_async(buf, input, codes, strategy, function(advised)
+        if not vim.api.nvim_buf_is_valid(buf)
+            or vim.b[buf].editorial_rewrite_generation ~= generation then return end
+        local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        local _, current_controls = split_article_parts(current_lines)
+        if editorial_body_text(current_lines) ~= resolve_body
+            or table.concat(current_controls, '\n') ~= advice_control_text then
+          notify_workflow('Herschrijven geannuleerd: de tekst is tijdens het advies gewijzigd. Start opnieuw.',
+            vim.log.levels.WARN)
+          return
+        end
+        strategy = advised
+        if strategy and strategy.assessment_status == 'assessed' then
+          notify_workflow(strategy.recommendation_reason, vim.log.levels.INFO,
+            { buf = buf, inline = true, kind = 'info', notice_key = 'rewrite-angle-advice', resolved = true })
+        end
+        M._edition_mode_choice_async(codes, names, strategy, continue_after_mode_choice, force_general)
+      end, force_general)
       return
     end
     continue_after_mode_choice(1)
@@ -4708,11 +4780,14 @@ function M.prepare_article(buf)
 
   -- 2. Editie-regel (dateline → e:) + redactie-adres.
   local content = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
-  fill_detected_editions_line(buf, content, function(ok)
+  fill_detected_editions_line(buf, content, function(ok, err)
     if not ok then
       notify_workflow(
-        "Editie bepalen mislukt — controleer de dateline (PLAATS - …) en de "
-          .. "=== ARTIKEL ===-grens.",
+        M._edition_resolution_failure_message(
+          err,
+          "Editie bepalen mislukt — controleer de dateline (PLAATS - …) en de "
+            .. "=== ARTIKEL ===-grens."
+        ),
         vim.log.levels.WARN
       )
     end
@@ -6026,7 +6101,16 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
           vim.log.levels.WARN, { buf = buf })
         return
       end
-      if not resolved or type(resolved.editions) ~= 'table' then
+      if not resolved then
+        vim.b[buf].calendar_send_review_pending = false
+        vim.b[buf].send_requested = false
+        notify_workflow(M._edition_resolution_failure_message(
+          resolve_error,
+          'Agenda-bestemming kon niet worden bepaald. Controleer e: en probeer opnieuw met <leader>aw.'
+        ), vim.log.levels.WARN, { buf = buf })
+        return
+      end
+      if type(resolved.editions) ~= 'table' then
         vim.b[buf].calendar_send_review_pending = false
         vim.b[buf].send_requested = false
         local reason = vim.trim(resolve_error or '')
@@ -6037,7 +6121,9 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
           vim.log.levels.WARN, { buf = buf })
         return
       end
-      if #resolved.editions == 0 and #(resolved.agenda_only_editions or {}) == 0 then
+      local agenda_only_editions = type(resolved.agenda_only_editions) == 'table'
+          and resolved.agenda_only_editions or {}
+      if #resolved.editions == 0 and #agenda_only_editions == 0 then
         vim.b[buf].calendar_send_review_pending = false
         vim.b[buf].send_requested = false
         notify_workflow('Geen editie gekozen. Vul e: in en probeer opnieuw met <leader>aw.',
@@ -6045,7 +6131,7 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
         return
       end
       local review_editions = vim.deepcopy(resolved.editions)
-      for _, code in ipairs(resolved.agenda_only_editions or {}) do
+      for _, code in ipairs(agenda_only_editions) do
         if not vim.tbl_contains(review_editions, code) then table.insert(review_editions, code) end
       end
       check_duplicate_stage(buf, review_editions, 'verzenden', function(approved)
@@ -6169,6 +6255,12 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
       end
     end
     return false
+  end
+  local function has_unreviewed_reminder()
+    if vim.fn.filereadable(temp_file) ~= 1 then return false end
+    local text = table.concat(vim.fn.readfile(temp_file), '\n')
+    return text:find('## Dagreminder', 1, true) ~= nil
+      and text:find('texttools-reminder-review:1', 1, true) == nil
   end
   local using_cached_calendar = vim.b[buf].cached_calendar_metadata ~= nil
   local cached_fb = vim.b[buf].cached_facebook_text
@@ -6433,6 +6525,7 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
     if not dates_checked and (not resolved_publication or resolved_publication.text_date_check_required == true) then
       require('publication_dates').review(buf, temp_file, resolved_editions, display_dates or {}, function(action, transition)
         if action == 'ready' then
+          if transition then M._advance_newspaper_decision(buf, transition.before) end
           staged_input_tick = require('buffer_revision').advance(staged_input_tick, transition)
           _do_pubble_send(display_dates, event_preparation_complete, suppress_event_followups, true)
           return
@@ -7013,6 +7106,27 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
           end
         )
       end)
+    end
+
+    if not suppress_event_followups and has_unreviewed_reminder() then
+      after_duplicate_check(function()
+        event_prepare(buf, temp_file, display_dates, resolved_editions, function(ok, err, prepared)
+          vim.b[buf].publication_in_progress = false
+          if ok and prepared then
+            vim.b[buf].publication_review_state = {
+              display_dates = display_dates, editions = resolved_editions,
+              skip_newspaper_editions = vim.b[buf].skip_newspaper_editions,
+              late_newspaper_decision = vim.b[buf].late_newspaper_decision,
+            }
+            notify_workflow('De volledige dagreminder staat klaar, inclusief uit-tips en afsluiting. Controleer de tekst en druk daarna opnieuw <leader>aw.',
+              vim.log.levels.INFO, { buf = buf, attention = true })
+          else
+            notifications.notify(err or 'De volledige dagreminder kon niet worden voorbereid; er is niets verzonden.', vim.log.levels.ERROR)
+          end
+          discard_unpublished_temp()
+        end)
+      end)
+      return
     end
 
     -- Na de expliciete review staan alle voorbereidende teksten al klaar; de
@@ -8246,6 +8360,13 @@ local function korte_datum(iso)
 end
 
 event_prepare = function(buf, file, display_dates, edition_codes, done)
+  local source_revision = require('buffer_revision').capture(buf)
+  local source_text = table.concat(vim.fn.readfile(file), '\n')
+  local reuse_reminder = source_text:find('## Dagreminder', 1, true) ~= nil
+    and source_text:find('texttools-reminder-review:1', 1, true) == nil
+  local function current()
+    return require('buffer_revision').matches(buf, source_revision)
+  end
   -- Een lege Lua-tabel krijgt bij json_encode standaard de vorm `[]`, maar
   -- pubble-event verwacht voor datums altijd een JSON-object. Dit komt onder
   -- meer voor bij de keuze Direct plaatsen.
@@ -8265,6 +8386,7 @@ event_prepare = function(buf, file, display_dates, edition_codes, done)
   }
   notifications.system(prepare_cmd, { text = true }, function(result)
     notifications.schedule(function()
+      if not current() then done(false, 'Artikel gewijzigd tijdens het voorbereiden; start opnieuw.'); return end
       local ok, opties = pcall(vim.fn.json_decode, result.stdout or "")
       if result.code ~= 0 or not ok or type(opties) ~= "table" then
         local err = vim.trim(result.stderr or result.stdout or "")
@@ -8272,6 +8394,7 @@ event_prepare = function(buf, file, display_dates, edition_codes, done)
         return
       end
       if not opties.beschikbaar then
+        if reuse_reminder then done(false, 'Er zijn geen plaatsbare dagreminders meer. Controleer de datum.'); return end
         -- Geen evenement of geen toepasselijke vervolgdatum: gewone send.
         done(true, nil, false)
         return
@@ -8287,13 +8410,16 @@ event_prepare = function(buf, file, display_dates, edition_codes, done)
           done(true, nil, false)
           return
         end
-        local cmd = { pubble_event, "teksten", file }
+        if not current() then done(false, 'Artikel gewijzigd tijdens de vervolgkeuze; start opnieuw.'); return end
+        local cmd = { pubble_event, "teksten", file, '--full-preview' }
+        if reuse_reminder then table.insert(cmd, '--reuse-reminder') end
         if keuzes.kort then table.insert(cmd, "--kort") end
         if keuzes.reminder then table.insert(cmd, "--reminder") end
         table.insert(cmd, "--opties-json")
         table.insert(cmd, result.stdout)
         ai_system(cmd, { text = true }, function(tekst_result)
           notifications.schedule(function()
+            if not current() then done(false, 'Artikel gewijzigd tijdens het maken van de volledige reminder; start opnieuw.'); return end
             if tekst_result.code ~= 0 then
               local err = vim.trim(tekst_result.stderr or "")
               done(false, "Vervolgteksten genereren mislukt" .. (err ~= "" and (": " .. err) or ""))
@@ -8305,6 +8431,9 @@ event_prepare = function(buf, file, display_dates, edition_codes, done)
               return
             end
 
+            if vim.trim(tekst_result.stderr or '') ~= '' then
+              notify_workflow('De uit-tips konden niet volledig worden opgehaald. Controleer de zichtbare reminder; ontbrekende tips worden bij het plaatsen niet alsnog toegevoegd.', vim.log.levels.WARN)
+            end
             -- Zet de secties in het voorbereidende tempbestand én in de
             -- zichtbare buffer. Het tempbestand wordt hierna verwijderd; bij
             -- de tweede <leader>aw wordt het opnieuw opgebouwd uit de mogelijk
@@ -8364,7 +8493,10 @@ event_prepare = function(buf, file, display_dates, edition_codes, done)
         end)
       end
 
-      vraag_kort()
+      if reuse_reminder then
+        keuzes.reminder = true
+        klaar()
+      else vraag_kort() end
     end)
   end)
 end
@@ -8553,8 +8685,14 @@ end
 
 local function generate_kamper_kiek_social(buf, body)
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  local source_body = editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
   M._kamper_kiek_topics_runner(buf, body, function(result)
     if not vim.api.nvim_buf_is_valid(buf) then return end
+    if editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) ~= source_body then
+      notifications.notify('De Kiek-tekst is intussen gewijzigd; de oudere socialtekst is niet toegepast.',
+        vim.log.levels.WARN, { buf = buf })
+      return
+    end
     if result.code ~= 0 then
       local err = vim.trim(result.stderr or result.stdout or "")
       notifications.notify(

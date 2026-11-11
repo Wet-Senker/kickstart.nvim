@@ -39,7 +39,7 @@ vim.cmd('edit ' .. vim.fn.fnameescape(path))
 local source = vim.api.nvim_get_current_buf()
 local function open()
   photos.open(source)
-  reply({ version = 2, editor_text = 'Bron: Beide\nOnderwerp: plant\nPlaats: Kampen' })
+  reply({ version = 2, editor_text = 'Bron: Alle\nOnderwerp: plant\nPlaats: Kampen' })
   reply({ version = 2, photos = {}, fields = { source = 'both' } })
   return vim.api.nvim_get_current_buf()
 end

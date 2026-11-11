@@ -6,7 +6,7 @@ local queue, active = {}, false
 local active_request, active_win
 local postponed, question_serial = {}, 0
 local suspend_active
-local manual_select_provider
+local manual_select_provider, search_select_provider
 local function focus_question(buf)
   if not active_request or active_request.source_buf ~= buf
       or not active_win or not vim.api.nvim_win_is_valid(active_win) then
@@ -302,7 +302,8 @@ function M.select(items, opts, done)
     opts = opts,
     done = notifications.bind(opts.source_buf, done),
     source_buf = source_buffer(opts),
-    provider = not opts.required and not opts.native and manual_select_provider or nil,
+    provider = not opts.required and not opts.native
+      and (opts.searchable and search_select_provider or manual_select_provider) or nil,
   })
   vim.schedule(next_dialog)
 end
@@ -346,6 +347,7 @@ end
 function M.setup(opts)
   opts = opts or {}
   manual_select_provider = opts.manual_select
+  search_select_provider = opts.search_select
   if manual_select_provider == M.select then manual_select_provider = nil end
   vim.ui.select = M.select
   vim.ui.input = M.input

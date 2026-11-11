@@ -1,4 +1,4 @@
--- Dunne UI-adapter voor de gedeelde, AI-vrije publicatiedatumcontrole.
+-- Dunne UI-adapter voor de gedeelde publicatiedatumcontrole met begrensde AI bij twijfel.
 local M = {}
 local notifications = require('texttools_notify')
 local commands = require('texttools_commands')
@@ -14,7 +14,7 @@ local failure_messages = {
   invalid_response = 'De controle gaf geen geldig antwoord.',
   invalid_approval = 'De controle gaf geen geldige bevestiging terug.',
   process_failed = 'Het controleproces is gestopt.',
-  process_timeout = 'Het controleproces reageerde niet binnen 10 seconden.',
+  process_timeout = 'Het controleproces reageerde niet binnen 30 seconden.',
   process_start_failed = 'Het controleproces kon niet starten.',
 }
 
@@ -64,8 +64,8 @@ function M.review(buf, file, editions, dates, done)
     end
     local cmd = { commands.bin('python'), '-m', 'texttools.publication_dates_cli',
       '--editions', table.concat(editions, ','), '--display-dates', vim.json.encode(date_values), '--documents' }
-    if approve then table.insert(cmd, '--approve') end
-    local opts = workflow.with_environment({ text = true, stdin = vim.json.encode(documents), timeout = 10000 }, trace)
+    if approve then table.insert(cmd, '--approve') else table.insert(cmd, '--resolve-context') end
+    local opts = workflow.with_environment({ text = true, stdin = vim.json.encode(documents), timeout = 30000 }, trace)
     local started = pcall(notifications.system, cmd, opts,
       notifications.schedule_wrap(function(result)
         if not current() then
@@ -87,6 +87,22 @@ function M.review(buf, file, editions, dates, done)
           fail(reason, result)
           return
         end
+        if not approve and review.markdown ~= nil and review.markdown ~= vim.NIL then
+          if type(review.markdown) ~= 'string' or type(review.editor_markdown) ~= 'string' then
+            fail('invalid_response', result); return
+          end
+          documents = { publication = review.markdown, editor = review.editor_markdown }
+          vim.fn.writefile(vim.split(review.markdown, '\n', { plain = true }), file)
+          vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(review.editor_markdown, '\n', { plain = true }))
+          tick = vim.api.nvim_buf_get_changedtick(buf)
+          transition = { before = before, after = revisions.capture(buf) }
+        end
+        if review.context_status == 'failed' or review.context_status == 'invalid' or review.context_status == 'too_large' then
+          notifications.workflow('De extra AI-datumcheck kon geen betrouwbaar oordeel geven. Controleer de passage zelf.',
+            vim.log.levels.WARN, { buf = buf })
+        elseif review.context_status == 'checked' then
+          notifications.workflow('De onzekere datumpassages zijn door AI beoordeeld.', vim.log.levels.INFO, { buf = buf })
+        end
         if approve then
           if not review.ready or type(review.markdown) ~= 'string' or type(review.editor_markdown) ~= 'string' then
             fail('invalid_approval', result); return
@@ -105,7 +121,8 @@ function M.review(buf, file, editions, dates, done)
           notifications.workflow(message, vim.log.levels.INFO, { buf = buf, kind = 'success' })
           finish('ready')
         else
-          local prompt = { 'Tekst en publicatiedatum controleren:' }
+          local prompt = { 'Controle van de webpublicatiedatum',
+            'Je eerdere krantkeuzes blijven bewaard. Deze vraag gaat over de tekst op de gekozen webdatum:' }
           local groups, seen = {}, {}
           for _, issue in ipairs(review.issues or {}) do
             local key = tostring(issue.message) .. '\n' .. tostring(issue.excerpt or '')

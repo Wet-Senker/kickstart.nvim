@@ -577,6 +577,10 @@ function M.check(command, callback, options)
               and type(channel.candidate_count) == 'number' and channel.candidate_count >= 0
               and channel.candidate_count == math.floor(channel.candidate_count) then
             log_summary.channels[kind] = { status = channel.status, candidate_count = channel.candidate_count }
+            if channel.status == 'skipped'
+                and (channel.reason == 'previously_checked' or channel.reason == 'disabled') then
+              log_summary.channels[kind].reason = channel.reason
+            end
           end
         end
       end

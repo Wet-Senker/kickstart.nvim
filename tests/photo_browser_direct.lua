@@ -4,7 +4,10 @@ local native_system = vim.system
 vim.notify = function(message) notices[#notices + 1] = message end
 notifications.workflow = function(message) notices[#notices + 1] = message end
 local photos = require 'pubble_photos'
-require('ordered_browser').open_urls = function(values) urls[#urls + 1] = values[1]; return true end
+local browser = require 'ordered_browser'
+browser.open_urls = function(values) urls[#urls + 1] = values[1]; return true end
+local finished_url
+browser.finish_temporary_tab = function(value) finished_url = value; return true end
 require('user_dialog').input = function(options, done) done(options.default) end
 notifications.system = function(cmd, options, done)
   if cmd[4] == 'select' or cmd[4] == 'merge' then
@@ -33,7 +36,7 @@ local photo = { image_metadata_id = 731, source_article_id = 912, source_title =
   edition = 'B', date = '2026-10-01', preview_url = 'https://images.pubble.cloud/test.jpg',
   caption = 'Oud bijschrift', credit = 'Fotograaf' }
 photos.open()
-reply { editor_text = 'Bron: Beide\nZoekwoorden: fiets' }
+reply { editor_text = 'Bron: Alle\nZoekwoorden: fiets' }
 reply { photos = {photo}, candidates = {photo}, source = 'both', fields = {source='both', subject='fiets'} }
 local browse = requests[#requests]
 assert(browse.cmd[4] == 'browse', 'browser niet automatisch gestart')
@@ -52,6 +55,7 @@ event(browse, {event='page', page={photos={newer}}})
 assert(vim.api.nvim_get_current_buf() == source and vim.api.nvim_buf_get_changedtick(source) == tick)
 vim.api.nvim_buf_set_lines(source, -1, -1, false, {'Nieuwere eigen tekst.'})
 event(browse, {event='selected', image_metadata_id=732})
+assert(finished_url == url, 'tijdelijke fototab werd niet gesloten en naar iTerm teruggeleid')
 assert(vim.wait(3000, function()
   return table.concat(vim.api.nvim_buf_get_lines(source, 0, -1, false), '\n'):find('\nbeeld: %[Archieffoto') ~= nil
 end), 'gedeelde selectieactie plaatste geen beeldregel')
@@ -70,7 +74,7 @@ assert(#requests == count, 'late browserkeuze herleefde')
 
 -- Geen verborgen tekstscherm bij een lege zoekactie of een browserfout.
 photos.open()
-reply { editor_text='Bron: Beide\nZoekwoorden: fiets' }
+reply { editor_text='Bron: Alle\nZoekwoorden: fiets' }
 reply { photos={}, source='both', fields={source='both', subject='fiets'} }
 browse = requests[#requests]
 assert(browse.cmd[4] == 'browse')
