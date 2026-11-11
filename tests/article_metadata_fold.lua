@@ -23,7 +23,7 @@ local article = { '', 'e: SW, BR', 'wijk: Holtenbroek', 'Foto: Test', '', '=== A
 local lines = vim.list_extend(vim.deepcopy(metadata), article)
 local buf = source(lines)
 assert(vim.fn.foldclosed(1) == 1 and vim.fn.foldclosedend(1) == #metadata, 'alleen YAML moet dicht')
-assert(vim.fn.foldtextresult(1) == 'Gegevens verborgen · :ArtikelMetadata')
+assert(vim.fn.foldtextresult(1) == 'Technische gegevens · zo openen')
 for at = #metadata + 1, #lines do
   assert(vim.fn.foldlevel(at) == 0, 'instellingen, artikel of kalender werden verborgen')
 end
@@ -42,19 +42,16 @@ local saved = vim.fn.tempname() .. '.md'
 vim.api.nvim_buf_call(buf, function() vim.cmd('silent write ' .. vim.fn.fnameescape(saved)) end)
 assert(vim.deep_equal(vim.fn.readfile(saved), lines), 'opslaan verloor technische gegevens')
 
--- De technische schrijfweergave blijft gesloten; inspectie gaat apart.
+-- Een met zo geopende vouw blijft open tijdens bewerken en bij verversen.
 vim.cmd('normal! zo')
 vim.api.nvim_buf_set_lines(buf, #metadata + 9, #metadata + 10, false, { 'ZWOLLE - Nieuw concert.' })
 drain()
 vim.api.nvim_exec_autocmds('SafeState', {})
-assert(vim.fn.foldclosed(1) == 1, 'gewone bediening liet technische gegevens open')
--- Metadata aanvullen houdt de compacte weergave gesloten.
+assert(vim.fn.foldclosed(1) == -1, 'gewone bediening sloot de handmatig geopende vouw')
 vim.api.nvim_buf_set_lines(buf, 3, 4, false, { '  event_date: 2099-11-01' })
-drain()
-assert(vim.fn.foldclosed(1) == 1)
 vim.api.nvim_buf_set_lines(buf, 4, 4, false, { '  city: Zwolle' })
 drain()
-assert(vim.fn.foldclosed(1) == 1, 'metadata aanvullen opende technische gegevens')
+assert(vim.fn.foldclosed(1) == -1, 'metadata aanvullen sloot de vouw')
 vim.cmd('1foldclose')
 assert(vim.fn.foldclosedend(1) == #metadata + 1)
 
@@ -77,7 +74,7 @@ vim.cmd('vsplit')
 local split = vim.api.nvim_get_current_win()
 drain()
 assert(vim.fn.foldclosedend(1) == #metadata)
-assert(vim.fn.foldtextresult(1) == 'Gegevens verborgen · :ArtikelMetadata', 'split verloor het label')
+assert(vim.fn.foldtextresult(1) == 'Technische gegevens · zo openen', 'split verloor het label')
 vim.cmd('1foldopen')
 vim.cmd('wincmd p')
 assert(vim.fn.foldclosed(1) == 1, 'openen werkte onbedoeld in een ander venster')
@@ -105,7 +102,7 @@ source(article)
 vim.api.nvim_set_current_buf(with_metadata)
 drain()
 assert(vim.fn.foldclosedend(1) == #metadata)
-assert(vim.fn.foldtextresult(1) == 'Gegevens verborgen · :ArtikelMetadata')
+assert(vim.fn.foldtextresult(1) == 'Technische gegevens · zo openen')
 
 source(vim.list_extend(vim.deepcopy(metadata), { '', 'e: SW', '', '=== AGENDAPAGINA ===', '', 'Uitjes' }))
 assert(vim.fn.foldclosedend(1) == #metadata)

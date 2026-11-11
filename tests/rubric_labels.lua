@@ -54,6 +54,34 @@ local birds = run('Vogelgroep Kampen', 'vogelgroep')
 assert(text(birds):find('Column Vogelgroep Kampen: Een actuele titel', 1, true))
 run('Hondenhoek', 'hondenhoek')
 
+-- De handmatige rubriekkeuze moet ook de lege e:-regel uit pv invullen.
+vim.fn.writefile({ 'stock' }, krant.config.stock_images .. '/nog-even-dit.jpg')
+for _, case in ipairs({
+  { 'e:', 'e: B' }, { 'editie:  ', 'editie: B' }, { 'e: SW, B', 'e: SW, B' },
+}) do
+  for _, path in ipairs(vim.fn.glob(inbox .. '/*', false, true)) do vim.fn.delete(path) end
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_set_current_buf(buf)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { case[1], '', '=== ARTIKEL ===', '', 'Knorrige Sint', '', 'Eigen tekst.' })
+  local original_select = vim.ui.select
+  vim.ui.select = function(items, _, done)
+    for _, choice in ipairs(items) do
+      if choice.name == 'Nog Even Dit' then done(choice); return end
+    end
+    error('Nog Even Dit ontbreekt in het rubriekmenu')
+  end
+  krant.menu()
+  vim.ui.select = original_select
+  assert(text(buf):find('\n' .. case[2] .. '\n', 1, true), 'verkeerde editie bij ' .. case[1])
+  assert(text(buf):find('In de column Nog Even Dit', 1, true) and text(buf):find('Eigen tekst.', 1, true))
+  assert(vim.wait(2000, function() return not vim.b[buf]._rubric_dateline_pending end, 10))
+end
+local existing = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(existing, 0, -1, false, { 'e:', '', '=== ARTIKEL ===', '', 'Nog Even Dit: Knorrige Sint' })
+assert(krant.ensure_detected_rubric_edition('nog_even_dit', existing))
+assert(text(existing):match('^e: B\n'))
+assert(not krant.ensure_detected_rubric_edition('nog_even_dit', existing))
+
 -- Een persoonsnaam uit de fotomap werkt ook zonder rubrieklabel, na bevestiging.
 local personal = run('Een actuele titel', 'ondernemen', 'Bert Ondernemer')
 assert(text(personal):find('Bert Ondernemer', 1, true))

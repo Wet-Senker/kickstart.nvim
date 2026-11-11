@@ -1622,7 +1622,7 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
     return
   end
   if type(codes) ~= "table" or #codes == 0
-      or (stage ~= 'verzenden' and vim.deep_equal(vim.b[buf].pubble_duplicate_editing_review,
+      or (stage ~= 'verzenden' and stage ~= 'plannen' and vim.deep_equal(vim.b[buf].pubble_duplicate_editing_review,
         M._duplicate_editing_revision(buf, codes)))
       or (duplicate_check_is_current(buf) and (not review_agenda or M._agenda_duplicate_is_current(buf, codes))) then
     settle_duplicate_calendar_gate(buf, true)
@@ -1658,7 +1658,10 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
 
   vim.b[buf].pubble_duplicate_check_running = true
   local job = start_buffer_job(buf, 'Artikel · Doublures controleren')
-  local early = stage ~= "verzenden"
+  local planning = stage == 'plannen'
+  local early = stage ~= 'verzenden' and not planning
+  local review_revision = planning and require('buffer_revision').capture(buf)
+  local selection_transition
   local command = {
     pubble_duplicates_command,
     file,
@@ -1680,6 +1683,10 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
       settled = true
       if temporary then vim.fn.delete(file) end
       local unchanged = same_source()
+      if planning and selection_transition then
+        local revision = require('buffer_revision')
+        unchanged = revision.matches(buf, revision.advance(review_revision, selection_transition))
+      end
       if not is_current() then
         approved, data = false, nil
       end
@@ -1736,7 +1743,8 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
       -- A selection review returns to editing even when opened by aw. The
       -- next explicit aw uses the saved exclusions; closing never publishes.
       if done then done((approved == true or continue_editing)
-        and not (not early and data and data.selection_applied)) end
+        and not (not early and data and data.selection_applied),
+        planning and approved and data and data.selection_applied and selection_transition and selection_transition.after) end
   end
   local started = pcall(M._duplicate_stage_runner,
     command, complete,
@@ -1746,8 +1754,9 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
       show_saved = stage == 'hercontroleren',
       on_apply = function(report, selections, applied)
         if not is_current() then applied(false); return end
-        require('duplicate_review').apply(buf, report, selections, function(ok)
+        require('duplicate_review').apply(buf, report, selections, function(ok, transition)
           if ok then
+            selection_transition = transition
             vim.b[buf].send_requested = false
           end
           applied(ok)
@@ -1800,8 +1809,8 @@ local function buffer_has_edition_control(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local _, controls = split_article_parts(lines)
   for _, line in ipairs(controls) do
-    local key = vim.trim(line):match("^([%a][%a%d_]*)%s*:")
-    if key and (key:lower() == "e" or key:lower() == "editie") then
+    local key, value = vim.trim(line):match("^([%a][%a%d_]*)%s*:%s*(.*)$")
+    if key and value ~= "" and (key:lower() == "e" or key:lower() == "editie") then
       return true
     end
   end
@@ -2526,7 +2535,7 @@ local function edition_autodetect(buf, content, done)
         complete(false)
         return
       end
-      local current = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+      local current = without_notes_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
       if current ~= source then
         -- Onder meer vaste rubrieken kunnen tijdens de resolver hun e:-regel
         -- toevoegen. Gebruik alleen een resultaat voor de actuele invoer.
@@ -2537,7 +2546,9 @@ local function edition_autodetect(buf, content, done)
       -- redacteur de bestemming te zien krijgt. Wat hier is gevonden, is later
       -- bij <leader>ar het vergelijkingspunt.
       remember_edition_places(buf, resolved)
-      if resolved.has_explicit_editions == true or buffer_has_edition_control(buf) then
+      local has_visible_choice = buffer_has_edition_control(buf)
+      if resolved.has_explicit_editions == true or has_visible_choice then
+        if not has_visible_choice then set_edition_codes(buf, resolved.editions) end
         adapt_editorial_address(buf, resolved.editions[1], function(accepted)
         if not accepted then complete(false); return end
         apply_edition_suggestions(buf, resolved.editions, resolved)
@@ -2580,7 +2591,7 @@ local function edition_autodetect(buf, content, done)
       end)
     end)
   end
-  resolve_current(content, true)
+  resolve_current(without_notes_text(vim.split(content, "\n", { plain = true })), true)
 end
 
 local function drop_edition_versions_block(sections)
@@ -6038,6 +6049,7 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
   -- gegarandeerd over dezelfde edities loopt als de daadwerkelijke verzending.
   local editie = nil
   local resolved_editions = {}
+  local checked_before_planning = false
   -- Fallback code→naam uit één bron (Python's PUBLICATIONS); resolved.names
   -- overschrijft dit later per editie waar Python een naam teruggeeft.
   local editie_namen = {}
@@ -6784,7 +6796,14 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
     end
 
     local function after_duplicate_check(next_step)
-      if duplicate_check_is_current(buf) or agenda_reviewed then
+      if checked_before_planning and not require('buffer_revision').matches(buf, staged_input_tick) then
+        vim.b[buf].publication_in_progress = false
+        discard_unpublished_temp()
+        notify_workflow('Artikel gewijzigd tijdens de planning. Controleer de tekst en probeer opnieuw met <leader>aw.',
+          vim.log.levels.WARN, { buf = buf })
+        return
+      end
+      if checked_before_planning or duplicate_check_is_current(buf) or agenda_reviewed then
         next_step()
         return
       end
@@ -7243,6 +7262,32 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
             or (weekend_display_date:gsub("T", " "))
         notify_workflow("Weekendoverzicht wordt geplaatst: " .. when .. ".")
         send_published(weekend_dates)
+        return
+      end
+
+      -- Beoordeel de webtreffers vóór de datumkeuze. Na opgeslagen keuzes
+      -- kunnen de bestemmingen veranderd zijn: bepaal die opnieuw voordat
+      -- het planningsscherm toestemming voor de verzending vraagt.
+      if not checked_before_planning and not agenda_reviewed and not duplicate_check_is_current(buf) then
+        check_duplicate_stage(buf, resolved.editions, 'plannen', function(approved, saved_revision)
+          local revision = require('buffer_revision')
+          if approved and revision.matches(buf, staged_input_tick) then
+            checked_before_planning = true
+            after_deadline_review(true)
+            return
+          end
+          discard_unpublished_temp()
+          if saved_revision then
+            notifications.schedule(function()
+              if not revision.matches(buf, saved_revision) then return end
+              if skip_calendar then vim.b[buf].skip_calendar_once = true end
+              M.pubble_send(buf)
+            end)
+          elseif approved then
+            notify_workflow('Artikel gewijzigd tijdens de voorbereiding. Probeer opnieuw met <leader>aw.',
+              vim.log.levels.WARN, { buf = buf })
+          end
+        end, temp_file)
         return
       end
 

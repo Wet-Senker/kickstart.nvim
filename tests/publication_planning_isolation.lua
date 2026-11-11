@@ -6,6 +6,8 @@ local ai = require('ai_text')
 local dates = require('publication_dates')
 local native_review = dates.review
 local codes, current, response, transferred, menu, schedule_options
+local resolves, schedules, scans = 0, 0, 0
+local review_case
 require('article_activity').setup { preferences = vim.fn.tempname() .. '/activity.json' }
 require('editions')._set {
   { code = 'B', name = 'De Brug' }, { code = 'SW', name = 'De Swollenaer' },
@@ -16,11 +18,13 @@ require('editions')._set {
 vim.system = function(command, options, done)
   local result
   if vim.tbl_contains(command, '--resolve-editions') then
+    resolves = resolves + 1
     result = { code = 0, stdout = vim.json.encode {
       editions = codes, names = codes, has_photo = true, has_explicit_editions = true,
       text_date_check_required = true, source = 'expliciete e:-regel',
     }, stderr = '' }
   elseif command[1]:match('pubble%-schedule$') then
+    schedules = schedules + 1
     assert(command[2] == table.concat(codes, ', '), 'verkeerde selectie naar de planning')
     schedule_options = options
     assert(options.env.TEXTTOOLS_RUN_ID == require('workflow_log').workflow_id(current),
@@ -52,7 +56,36 @@ vim.ui.select = function(items, options, done)
   end
 end
 
-local function run(selected, failure)
+ai._duplicate_stage_runner = function(_, callback, options)
+  scans = scans + 1
+  assert(review_case and not schedule_options, 'planning startte voor de doublurecontrole')
+  if review_case == 'cancel' then callback(false); return end
+  if review_case == 'different' or review_case == 'edited' then
+    local report = { combined = true, checks = {
+      web = { requested = true, performed = true, complete = true },
+    } }
+    if review_case == 'edited' then
+      vim.api.nvim_buf_set_lines(current, -1, -1, false, { 'Een nieuwere gebruikersbewerking.' })
+    end
+    options.on_apply(report, {}, function(ok)
+      assert(ok)
+      report.selection_applied = true
+      callback(true, report)
+    end)
+    return
+  end
+  callback(true, { combined = true, checks = {
+    web = { requested = true, performed = true, complete = true },
+  } })
+end
+require('duplicate_review').apply = function(buf, _, _, done)
+  local revision = require('buffer_revision')
+  local before = revision.capture(buf)
+  vim.api.nvim_buf_set_lines(buf, 0, 0, false, { '---', 'duplicate_selection: {}', '---', '' })
+  done(true, { before = before, after = revision.capture(buf) })
+end
+
+local function run(selected, failure, duplicate_case)
   codes, transferred, menu, schedule_options = selected, nil, nil, nil
   current = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_set_current_buf(current)
@@ -70,9 +103,20 @@ local function run(selected, failure)
   end
   response = failure and { code = 1, stdout = '', stderr = 'Onvolledige telling.' }
     or { code = 0, stdout = vim.json.encode(data), stderr = '' }
-  ai.pubble_send(current, true, true)
+  review_case = duplicate_case
+  local before_resolves, before_schedules, before_scans = resolves, schedules, scans
+  ai.pubble_send(current, true, not duplicate_case)
+  if duplicate_case == 'cancel' or duplicate_case == 'edited' then
+    assert(vim.wait(3000, function() return scans == before_scans + 1 end, 5))
+    vim.wait(30, function() return false end)
+    assert(resolves == before_resolves + 1 and schedules == before_schedules and not menu)
+    return
+  end
   assert(vim.wait(3000, function() return menu ~= nil end, 5), 'planningsmenu bleef uit')
   assert(schedule_options, 'planning niet gestart')
+  assert(resolves == before_resolves + (duplicate_case == 'different' and 2 or 1))
+  assert(schedules == before_schedules + 1)
+  assert(scans == before_scans + (duplicate_case and 1 or 0))
   if not failure then
     assert(vim.wait(3000, function() return transferred ~= nil end, 5), 'datums niet overgedragen')
     assert(transferred.SW == today .. ':4', 'SW kreeg een andere datum/bezetting door meerdere kranten')
@@ -88,5 +132,9 @@ run { 'SW' }
 run { 'B', 'SW', 'ST', 'K' }
 run { 'B', 'SW', 'ST', 'Z', 'D', 'K' }
 run({ 'B', 'SW' }, true)
+run({ 'B', 'SW' }, false, 'clear')
+run({ 'B', 'SW' }, false, 'different')
+run({ 'B', 'SW' }, false, 'edited')
+run({ 'B', 'SW' }, false, 'cancel')
 dates.review = native_review
 print('publication planning isolation: OK')

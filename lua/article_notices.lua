@@ -376,7 +376,10 @@ local function organize_header(buf, state)
   local first = header_start(before, row + 1)
   local after, positions = ordered_header(before, first)
   if after ~= before then after[#after + 1] = '' end
-  if vim.deep_equal(before, after) then
+  -- Nieuwe witruimte in een al geordend kopblok is van de redacteur.
+  local function nonblank(line) return not line:match('^%s*$') end
+  if vim.deep_equal(before, after)
+      or vim.deep_equal(vim.tbl_filter(nonblank, before), vim.tbl_filter(nonblank, after)) then
     highlight_header(buf, before, first)
     return
   end
@@ -530,12 +533,21 @@ function M.show(buf, issues, changed, may_edit)
       state.entries[id] = nil
     end
   end
+  local insert_at
   for _, notice in ipairs(ordered) do
     if not state.entries[notice.id] and not state.dismissed[notice.id] then
-      local at = position(buf, state.boundary)
-      if at then
+      if not insert_at then
+        insert_at = position(buf, state.boundary)
+        while insert_at and insert_at > 0
+            and vim.api.nvim_buf_get_lines(buf, insert_at - 1, insert_at, false)[1]:match('^%s*$') do
+          insert_at = insert_at - 1
+        end
+      end
+      if insert_at then
+        local at = insert_at
         local text = line_text(notice)
         vim.api.nvim_buf_set_lines(buf, at, at, false, { text })
+        insert_at = at + 1
         local notice_style = style(notice.level)
         local mark = line_mark(buf, at, notice_style)
         state.entries[notice.id] = { mark = mark, text = text, style = notice_style }

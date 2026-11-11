@@ -57,6 +57,43 @@ key('<CR>')
 assert(answered == 1 and answer == 'Nee', 'hervatten verloor de expliciete selectie')
 for _, issue in pairs(activity.snapshot(source).issues) do assert(issue.kind ~= 'question', 'beantwoorde vraag bleef actueel') end
 
+-- Een artikelactie opent de uitgestelde vraag voor de eigen bron opnieuw,
+-- ook wanneer een ander artikel eerder een vraag uitstelde.
+local other = vim.api.nvim_create_buf(true, false)
+local other_answers, retried, runs = 0, 0, 0
+local function ask(buf, label, done)
+  dialog.select({ 'Ja', 'Nee' }, { prompt = label, source_buf = buf, required = true }, done)
+  wait(function() return vim.api.nvim_win_get_config(0).relative == 'editor' end)
+end
+vim.api.nvim_set_current_buf(other)
+ask(other, 'Vraag van ander artikel', function() other_answers = other_answers + 1 end)
+key('<Esc>')
+vim.api.nvim_set_current_buf(source)
+ask(source, '112-bericht behandelen?', function(value)
+  assert(value == 'Nee')
+  retried = retried + 1
+end)
+key('<Down>')
+key('<Esc>')
+local article_action = dialog.action(function() runs = runs + 1 end)
+article_action()
+wait(function() return vim.api.nvim_win_get_config(0).relative == 'editor' end)
+assert(vim.b.user_dialog_source == source, 'actie heropende de verkeerde vraag')
+assert(retried == 0 and runs == 0 and other_answers == 0)
+key('<Esc>')
+article_action()
+wait(function() return vim.api.nvim_win_get_config(0).relative == 'editor' end)
+key('<CR>')
+assert(retried == 1 and runs == 0 and other_answers == 0, 'vraag of actie werd dubbel uitgevoerd')
+article_action()
+assert(runs == 1 and dialog.has_question(other))
+vim.api.nvim_set_current_buf(other)
+vim.cmd 'TexttoolsVraag'
+wait(function() return vim.api.nvim_win_get_config(0).relative == 'editor' end)
+key('<CR>')
+assert(other_answers == 1)
+vim.api.nvim_set_current_buf(source)
+
 -- Test de interactieve confirm-adapter ook headless met een echt overlay.
 local original_uis = vim.api.nvim_list_uis
 vim.api.nvim_list_uis = function() return { {} } end

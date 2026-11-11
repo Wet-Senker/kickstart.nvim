@@ -119,6 +119,7 @@ M.templates = {
 
  {
     name = 'Stadsdichter Berber Bouma',
+    edition = 'B',
     working_title = 'z - STADSDICHTER',
     text = {
       "Stadsdichter Berber Bouma geeft woorden aan Kampen",
@@ -130,6 +131,7 @@ M.templates = {
   },
   {
     name = 'Eregalerij kampioenen',
+    edition = 'B',
     working_title = 'x - 1 EREGALERIJ',
     no_export = true,
     text = {
@@ -382,11 +384,20 @@ end
 local function with_default_edition(header, edition)
   local result = vim.deepcopy(header or {})
   if type(edition) ~= 'string' or vim.trim(edition) == '' then return result end
-  for _, line in ipairs(result) do
-    local key = (vim.trim(line):match('^([%a][%a%d_]*)%s*:') or ''):lower()
-    if key == 'e' or key == 'editie' then return result end
+  local empty
+  for index, line in ipairs(result) do
+    local key, value = vim.trim(line):match('^([%a][%a%d_]*)%s*:%s*(.*)$')
+    key = key and key:lower()
+    if key == 'e' or key == 'editie' then
+      if vim.trim(value) ~= '' then return result end
+      empty = empty or index
+    end
   end
-  table.insert(result, 1, 'e: ' .. vim.trim(edition))
+  if empty then
+    result[empty] = result[empty]:gsub('%s*$', '') .. ' ' .. vim.trim(edition)
+  else
+    table.insert(result, 1, 'e: ' .. vim.trim(edition))
+  end
   return result
 end
 
@@ -1340,6 +1351,7 @@ stock_rubrieken = {
   },
   {
     name        = 'Open Hof',
+    id          = 'open_hof',
     edition     = 'B',
     stock_image = 'open-hof.jpg',
     txt_name    = '1.openHofFOTO.txt',
@@ -1354,6 +1366,7 @@ stock_rubrieken = {
   },
   {
     name        = 'Nog Even Dit',
+    id          = 'nog_even_dit',
     edition     = 'B',
     stock_image = 'nog-even-dit.jpg',
     txt_name    = '1.nogEvenDitFOTO.txt',
@@ -1485,7 +1498,7 @@ function M.ensure_detected_rubric_edition(rubric_id, target_buf, restore_templat
   local frontmatter = visible_frontmatter(lines)
   local header, article = split_visible_article(lines)
   local updated_header = with_default_edition(header, edition)
-  if not restore_template and #updated_header == #header then return false end
+  if not restore_template and vim.deep_equal(updated_header, header) then return false end
   local template
   if restore_template then
     for _, candidate in ipairs(M.templates) do

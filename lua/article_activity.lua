@@ -5,7 +5,7 @@ local task_display = require 'task_display'
 local article_notices = require 'article_notices'
 local states, panels = {}, {}
 local enabled, visible, expanded = false, false, true
-local queued, drawing = false, false
+local queued, drawing, refresh_after_insert = false, false, false
 local limit = 100
 local preference_path
 local refresh
@@ -484,19 +484,27 @@ refresh = function()
       render(panel)
     end
   end
+  -- Laat de regel die de redacteur nu typt staan. Een volgende refresh na
+  -- Insert mode kan meldingen en complete controleregels veilig verwerken.
+  local mode = vim.api.nvim_get_mode().mode
+  local editing = mode:match('^i') or mode:match('^ni')
   -- Een heropend werkbestand kan al letterlijke meldingen bevatten zonder
   -- sessiegeschiedenis. Alleen de indeling verzorgen, geen uitkomst verzinnen.
-  if not states[current] and is_article(current) and vim.api.nvim_win_get_config(win).relative == '' then
-    article_notices.show(current, {}, request_refresh, true)
+  local normal_window = vim.api.nvim_win_get_config(win).relative == ''
+  local article = normal_window and is_article(current)
+  if editing and article then refresh_after_insert = true end
+  if article and not states[current] then
+    article_notices.show(current, {}, request_refresh, not editing)
   end
   for source, state in pairs(states) do
     local notices = {}
     for _, entry in pairs(state.issues) do notices[entry.id] = entry end
     for _, entry in pairs(state.inline) do notices[entry.id] = entry end
     article_notices.show(source, notices, request_refresh,
-      next(state.tasks) == nil and vim.api.nvim_win_get_config(win).relative == '')
+      next(state.tasks) == nil and normal_window
+        and (not editing or source ~= current))
   end
-  if vim.api.nvim_win_get_config(win).relative == '' then
+  if normal_window then
     task_display.show(task_rows(M.source(current)))
   else
     task_display.suspend(task_rows(M.source(current))) -- Verbergen, niet de leestijd wissen.
@@ -571,6 +579,14 @@ function M.setup(options)
   end
   local group = vim.api.nvim_create_augroup('texttools_activity', { clear = true })
   vim.api.nvim_create_autocmd({ 'BufEnter', 'WinEnter', 'TabEnter', 'VimResized', 'WinResized' }, { group = group, callback = request_refresh })
+  vim.api.nvim_create_autocmd('ModeChanged', {
+    group = group, pattern = { 'i*:n', 'ni*:n' },
+    callback = function()
+      if not refresh_after_insert then return end
+      refresh_after_insert = false
+      request_refresh()
+    end,
+  })
   vim.api.nvim_create_autocmd('WinClosed', {
     group = group,
     callback = function(event)

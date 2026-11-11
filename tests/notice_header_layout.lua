@@ -31,6 +31,30 @@ local normalized = notices.content_lines(lines(buf))
 assert(vim.deep_equal(vim.list_slice(normalized, 1, #yaml), yaml), 'YAML-witruimte werd genegeerd')
 assert(text(buf):find(table.concat(body, '\n'), 1, true), 'artikel/staartsectie gewijzigd')
 
+-- Gebruik echt o op een zichtbaar veld en geef de geplande refresh tijd
+-- voordat de eerste letter verschijnt. Ook een nieuw resultaat wacht af.
+local first_control = row(buf, 'e: B')
+vim.api.nvim_win_set_cursor(0, { first_control, 0 })
+vim.api.nvim_feedkeys('o', 'nx!', false)
+assert(vim.api.nvim_get_mode().mode == 'i')
+activity.record(buf, 'Tijdens typen.', nil, { inline = true, notice_key = 'while-editing' })
+vim.wait(40, function() return false end)
+assert(lines(buf)[first_control + 1] == '' and not row(buf, '[12:34] Tijdens typen.'))
+assert(vim.api.nvim_win_get_cursor(0)[1] == first_control + 1, 'logopmaak nam de invoerregel over')
+vim.api.nvim_feedkeys('prio: 2' .. vim.keycode('<Esc>'), 'nx!', false)
+wait(function() return row(buf, '[12:34] Tijdens typen.') end)
+assert(row(buf, 'prio: 2') == first_control + 1, 'de nieuw getypte instelling ging verloren')
+vim.api.nvim_buf_set_lines(buf, first_control, first_control + 1, false, {})
+
+-- Zelf ingevoegde witruimte blijft staan in een al geordend kopblok.
+vim.api.nvim_buf_set_lines(buf, first_control, first_control, false, { '' })
+vim.wait(40, function() return false end)
+assert(lines(buf)[first_control + 1] == '', 'een bewuste lege regel verdween')
+activity.record(buf, 'Later resultaat.', nil, { inline = true, notice_key = 'after-editing' })
+wait(function() return row(buf, '[12:34] Later resultaat.') end)
+assert(lines(buf)[first_control + 1] == '', 'een nieuw logresultaat wiste de lege regel')
+vim.api.nvim_buf_set_lines(buf, first_control, first_control + 1, false, {})
+
 -- Nieuwe metagegevens (zoals na een fotokeuze) gaan ook vóór bestaande
 -- meldingen. De cursor blijft bij de instelling die de redacteur bewerkt.
 local boundary = row(buf, '=== ARTIKEL ===')

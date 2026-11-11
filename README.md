@@ -147,17 +147,14 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 
 ## Leaders
 
-Het technische YAML-blok boven een artikel of agendapagina blijft ingeklapt
-tot **Gegevens verborgen · :ArtikelMetadata**. Met `:ArtikelMetadata` of
-**Technische artikelgegevens bekijken** in `<leader>ah` open je een apart,
-alleen-lezen kijkvenster; `q` of Escape sluit het. Dit is een momentopname:
-open het opnieuw voor de nieuwste gegevens. Zoeken of `zR` laat de technische
-gegevens niet blijvend tussen de werktekst staan. Dit werkt ook als metadata
-op de achtergrond wordt toegevoegd en na de leesbare verzendbevestiging met
-Pubble-link. `e:`, `wijk:`, fotoregels, meldingen en het leesbare `## Kalender`
-blijven zichtbaar. Het bestand bewaart alle gegevens; de weergave verandert
-niets aan opslaan, undo, verzenden of herstel. Gewone Markdownopmaak en andere
-bestanden blijven ongewijzigd.
+Voeg een werkveld zoals `e: B` toe met `o` op een zichtbare regel boven
+`=== LOG ===`. De logopmaak wacht tot je klaar bent met typen. Het technische
+YAML-blok begint ingeklapt. Open het op de vouwregel met `zo` en sluit het
+met `zc`. Voor een alleen-lezen momentopname gebruik je `:ArtikelMetadata`.
+
+Een met Escape of `q` uitgestelde verplichte vraag verschijnt opnieuw bij
+de volgende artikelactie voor dezelfde bron. Je kunt ook `:TexttoolsVraag`
+gebruiken. Beantwoord de vraag en druk daarna opnieuw op de gewenste sneltoets.
 
 **Direct plaatsen en datumcontrole:** een lege planning wordt nu als lege
 datummapping doorgegeven, ook bij hervatten met `<leader>aw` na een krantreview

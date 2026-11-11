@@ -98,7 +98,7 @@ function M.text()
   local state = windows[vim.api.nvim_get_current_win()]
   if state and state.buf == vim.api.nvim_get_current_buf()
       and vim.v.foldstart == state.first and vim.v.foldend == state.ending then
-    return 'Gegevens verborgen · :ArtikelMetadata'
+    return 'Technische gegevens · zo openen'
   end
   -- Een al bestaande custom foldtext voor andere vouwen blijft geldig.
   return state and state.previous_text ~= foldtext and vim.api.nvim_eval(state.previous_text) or vim.fn.foldtext()
@@ -134,10 +134,15 @@ function M.refresh(buf)
       if level > 1 or (level > 0 and not previous) then return end
       if not ending and not previous then return end
       local view = vim.fn.winsaveview()
+      local enabled = vim.wo.foldenable
+      local was_open = previous and level > 0 and enabled and vim.fn.foldclosed(at) == -1
       if previous and level > 0 then
+        vim.wo.foldenable = true
         vim.cmd(('silent! %dfoldclose'):format(at))
         if first and vim.fn.foldclosed(at) == first and vim.fn.foldclosedend(at) == ending then
           previous.first, previous.ending = first, ending
+          if was_open then vim.cmd(('silent! %dfoldopen'):format(at)) end
+          vim.wo.foldenable = enabled
           vim.fn.winrestview(view)
           return
         end
@@ -152,27 +157,14 @@ function M.refresh(buf)
         vim.wo.foldtext = foldtext
         vim.wo.foldenable = true
         vim.cmd(('silent! %d,%dfold'):format(first, ending))
+        if was_open then vim.cmd(('silent! %dfoldopen'):format(first)) end
       elseif previous then
         if vim.wo.foldtext == foldtext then vim.wo.foldtext = previous.previous_text end
         windows[win] = nil
       end
+      if previous then vim.wo.foldenable = enabled end
       vim.fn.winrestview(view)
     end)
-  end
-end
-
--- Zoeken, zR of cursorbeweging mogen de machinegegevens niet als werktekst
--- laten verschijnen. Voor inspectie bestaat de expliciete kijkopdracht.
-local function keep_closed()
-  local win = vim.api.nvim_get_current_win()
-  local state = windows[win]
-  if not state or state.buf ~= vim.api.nvim_get_current_buf()
-      or vim.wo.foldmethod ~= 'manual' then return end
-  if not vim.wo.foldenable then vim.wo.foldenable = true end
-  if vim.fn.foldlevel(state.first) == 1 and vim.fn.foldclosed(state.first) == -1 then
-    local view = vim.fn.winsaveview()
-    vim.cmd(('silent! %dfoldclose'):format(state.first))
-    vim.fn.winrestview(view)
   end
 end
 
@@ -217,9 +209,6 @@ function M.setup()
   vim.api.nvim_create_autocmd('WinClosed', {
     group = group,
     callback = function(event) windows[tonumber(event.match)] = nil end,
-  })
-  vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI', 'SafeState' }, {
-    group = group, callback = keep_closed,
   })
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do M.attach(buf) end
 end

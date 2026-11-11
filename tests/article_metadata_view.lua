@@ -33,7 +33,7 @@ drain()
 for row = 1, #receipt do assert(vim.fn.foldlevel(row) == 0, 'verzendbevestiging werd verborgen') end
 assert(vim.fn.foldclosed(#receipt + 1) == #receipt + 1, 'YAML na verzending bleef zichtbaar')
 assert(vim.fn.foldclosedend(#receipt + 1) == #receipt + #technical)
-assert(vim.fn.foldtextresult(#receipt + 1) == 'Gegevens verborgen · :ArtikelMetadata')
+assert(vim.fn.foldtextresult(#receipt + 1) == 'Technische gegevens · zo openen')
 vim.cmd 'ArtikelMetadata'
 view, win = vim.api.nvim_get_current_buf(), vim.api.nvim_get_current_win()
 assert(vim.deep_equal(vim.api.nvim_buf_get_lines(view, 0, -1, false), technical))
@@ -41,15 +41,15 @@ assert(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == receipt[1])
 vim.fn.maparg('<Esc>', 'n', false, true).callback()
 assert(vim.api.nvim_get_current_buf() == buf)
 
--- Native zR mag gegevens niet permanent zichtbaar maken; de body blijft gelijk.
+-- Vim-vouwcommando’s blijven van de redacteur, ook na editor-events.
 vim.cmd 'normal! zR'
 local before_close = vim.api.nvim_win_get_cursor(0)
 vim.api.nvim_exec_autocmds('SafeState', {})
-assert(vim.fn.foldclosed(#receipt + 1) == #receipt + 1)
+assert(vim.fn.foldclosed(#receipt + 1) == -1)
 assert(vim.deep_equal(vim.api.nvim_win_get_cursor(0), before_close), 'sluiten verplaatste de tekstcursor')
 vim.wo.foldenable = false
 vim.api.nvim_exec_autocmds('SafeState', {})
-assert(vim.fn.foldclosed(#receipt + 1) == #receipt + 1, 'zi liet technische gegevens open')
+assert(not vim.wo.foldenable, 'automatische opmaak zette zi terug')
 
 -- Ook een kleine editor krijgt een begrensd venster, zonder bestandsschrijfroute.
 vim.o.columns, vim.o.lines = 42, 14

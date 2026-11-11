@@ -21,7 +21,7 @@ local function source(readonly)
 end
 local buf = source()
 wait(function() return vim.fn.foldclosedend(1) == 4 end)
-assert(calls == 1 and vim.fn.foldtextresult(1) == 'Gegevens verborgen · :ArtikelMetadata')
+assert(calls == 1 and vim.fn.foldtextresult(1) == 'Technische gegevens · zo openen')
 assert(vim.api.nvim_buf_get_lines(buf, 3, 4, false)[1] == 'doublures: beoordeeld')
 local text = content(buf)
 assert(text:find('c: Jan Jansen\ne: B', 1, true), 'zichtbare instellingen raakten vermengd')

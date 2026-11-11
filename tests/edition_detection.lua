@@ -170,6 +170,69 @@ assert(buffer_text(markdown_heading):find('e: B\n', 1, true) == 1,
 assert(#duplicate_runs == 8 and duplicate_runs[8].command[5] == 'B',
   'import met Markdown-kop gebruikte niet de herkende editie')
 
+-- De normale import bevat sinds november al een leeg zichtbaar editievak.
+-- Gebruik echte Python-detectie en houd alle externe checks gestubd.
+local edition_resolutions = 0
+local system_for_import = vim.system
+vim.system = function(cmd, ...)
+  if vim.tbl_contains(cmd, '--resolve-editions') then edition_resolutions = edition_resolutions + 1 end
+  return system_for_import(cmd, ...)
+end
+for _, case in ipairs({
+  { 'ZWOLLE', 'SW', 'e:' },
+  { 'KAMPEN', 'B', 'editie:' },
+  { 'HASSELT', 'ST', 'E:' },
+  { 'STEENWIJK', 'K', 'e:' },
+  { 'DRONTEN', 'D', 'e:' },
+  { 'ZEEWOLDE', 'Z', 'e:' },
+}) do
+  local place, code, field = unpack(case)
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+    field, '', '=== LOG ===', '[20:03] Import opgeschoond (zonder AI).', '',
+    '=== ARTIKEL ===', '', 'Vuurvogel Sinfonietta geeft concert', '',
+    place .. ' – Het orkest speelt muziek van Mozart en Mendelssohn.', '',
+    'Meer informatie is verkrijgbaar in ' .. place .. '.', '',
+    '## Niet voor publicatie', '> Contact in Kampen.',
+  })
+  local before = #duplicate_runs
+  local before_resolutions = edition_resolutions
+  ai._article_autodetect(buf)
+  assert(vim.wait(3000, function() return buffer_text(buf):find('e: ' .. code .. '\n', 1, true) == 1 end, 10),
+    'de lege importregel blokkeerde de dateline ' .. place)
+  assert(vim.wait(3000, function() return ai._duplicate_check_is_current(buf) end, 10))
+  assert(#duplicate_runs == before + 1 and duplicate_runs[before + 1].command[5] == code,
+    'de importcontrole kreeg de verkeerde editie voor ' .. place)
+  assert(buffer_text(buf):find(place .. ' – Het orkest', 1, true), 'de bestaande dateline veranderde')
+  assert(buffer_text(buf):find('> Contact in Kampen.', 1, true), 'redactionele noot ging verloren')
+  assert(edition_resolutions == before_resolutions + 1, 'dezelfde editie is opnieuw bepaald')
+end
+vim.system = system_for_import
+
+local unchosen = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_lines(unchosen, 0, -1, false, {
+  'e:', '', '=== ARTIKEL ===', '', 'Campagne voor minder afval', '',
+  'Bewoners kunnen een vragenlijst invullen over hun leefomgeving.',
+})
+local before = #duplicate_runs
+local unchosen_done = false
+ai._edition_autodetect(unchosen, buffer_text(unchosen), function() unchosen_done = true end)
+assert(vim.wait(3000, function() return unchosen_done end, 10))
+assert(buffer_text(unchosen):find('e:\n', 1, true) == 1 and #duplicate_runs == before,
+  'een onzekere import kreeg ten onrechte een editie of een doublurecontrole')
+
+for _, field in ipairs({ 'e: SUGGESTIE, SW', 'e: DOUBLURE SW' }) do
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+    field, '', '=== ARTIKEL ===', '', 'Kop', '', 'ZWOLLE – Het orkest speelt.',
+  })
+  local done = false
+  ai._edition_autodetect(buf, buffer_text(buf), function() done = true end)
+  assert(vim.wait(3000, function() return done end, 10))
+  assert(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == field,
+    'de herkenning verving een bewaarde suggestie of doublure')
+end
+
 local empty = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(empty, 0, -1, false, { '=== ARTIKEL ===', '' })
 local original_system = vim.system

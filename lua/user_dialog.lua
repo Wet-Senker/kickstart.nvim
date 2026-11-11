@@ -5,7 +5,7 @@ local notifications = require('texttools_notify')
 local queue, active = {}, false
 local active_request, active_win
 local postponed, question_serial = {}, 0
-local suspend_active
+local suspend_active, next_dialog
 local manual_select_provider
 local function focus_question(buf)
   if not active_request or active_request.source_buf ~= buf
@@ -26,6 +26,26 @@ local function has_question(buf)
 end
 -- Alleen een leesvenster op de bestaande queue; geen tweede vraagregistratie.
 M.has_question = has_question
+local function resume_question(buf)
+  for index = #postponed, 1, -1 do
+    local source = postponed[index].source_buf
+    if source and not vim.api.nvim_buf_is_valid(source) then table.remove(postponed, index) end
+  end
+  for index, request in ipairs(postponed) do
+    if not buf or request.source_buf == buf then
+      table.remove(postponed, index)
+      table.insert(queue, 1, request)
+      vim.schedule(next_dialog)
+      return true
+    end
+  end
+  return false
+end
+
+local function show_question(buf)
+  return focus_question(buf) or resume_question(buf)
+end
+
 -- Bestaande stappen mogen hun besliscode behouden, maar wachten nooit op de
 -- editorhoofdthread. Alleen expliciet geregistreerde UI-acties/callbacks
 -- draaien in deze coroutine; domeinstate blijft in de bestaande workflows.
@@ -57,7 +77,7 @@ function M.action(callback)
   return function(...)
     local buf = notifications.source_buffer()
     if active_actions[buf] or has_question(buf) then
-      if not focus_question(buf) then
+      if not show_question(buf) then
         notifications.workflow('Deze handeling wacht al op een keuze. Beantwoord die vraag of hervat met :TexttoolsVraag.',
           vim.log.levels.INFO, { buf = buf })
       end
@@ -88,7 +108,7 @@ local function source_buffer(opts)
     or vim.b[buf].edition_source_buf or buf
 end
 
-local function next_dialog()
+next_dialog = function()
   if active or #queue == 0 then return end
   active = true
   local request = table.remove(queue, 1)
@@ -230,7 +250,7 @@ local function next_dialog()
       end
       postponed[#postponed + 1] = request
       notifications.workflow('Vraag uitgesteld: ' .. (opts.prompt or 'Maak een keuze')
-        .. '\nDe bijbehorende handeling wacht op je antwoord. Hervat met :TexttoolsVraag.', nil, {
+        .. '\nEen volgende artikelactie opent de vraag opnieuw. Hervatten kan ook met :TexttoolsVraag.', nil, {
           buf = request.source_buf, attention = true, kind = 'question', action = 'Vraag · ' .. request.question_id,
         })
       if restore_focus and vim.api.nvim_win_is_valid(return_win) then vim.api.nvim_set_current_win(return_win) end
@@ -290,9 +310,8 @@ local function next_dialog()
   if opts.input then vim.cmd('startinsert!') end
 end
 
--- Breng een zichtbare vraag voor deze bronbuffer terug naar voren. Een vraag
--- van een ander artikel wordt nooit overgenomen.
-M.focus = focus_question
+-- Toon de bestaande vraag voor deze bron, ook als die was uitgesteld.
+M.focus = show_question
 
 function M.select(items, opts, done)
   if #items == 0 then done(nil); return end
@@ -355,14 +374,7 @@ end
 -- Alleen de bestaande callbacks/invoerdrafts worden bewaard. Hervatten kiest
 -- nooit impliciet een antwoord en kan een verdwenen bron niet vervangen.
 function M.resume()
-  while #postponed > 0 do
-    local request = table.remove(postponed, 1)
-    if not request.source_buf or vim.api.nvim_buf_is_valid(request.source_buf) then
-      table.insert(queue, 1, request)
-      vim.schedule(next_dialog)
-      return true
-    end
-  end
+  if show_question(notifications.source_buffer()) or resume_question() then return true end
   notifications.workflow('Geen uitgestelde vragen.')
   return false
 end
