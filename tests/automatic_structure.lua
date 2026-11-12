@@ -112,5 +112,34 @@ ai.tussenkopjes_streamer({ automatic = true, streamer_only = true, buf = buf,
   done = function(ok) assert(ok); completed = true end })
 assert(vim.wait(1000, function() return completed end))
 assert(completed and #calls == 0, 'bestaande streamer veroorzaakte extra AI-werk')
+
+-- Handmatig <leader>at blijft bij een artikel onder de centrale woordgrens
+-- bruikbaar voor de kop, maar start geen tussenkopjes- of streamer-AI.
+calls, callbacks = {}, {}
+local short_body = {
+  '=== ARTIKEL ===', '', 'Bestaande korte kop', '',
+  string.rep('korte inhoud ', 20), '',
+  string.rep('meer inhoud ', 20), '',
+  string.rep('slotinhoud ', 20),
+}
+vim.api.nvim_buf_set_lines(buf, 0, -1, false, short_body)
+local original_select = vim.ui.select
+local selected_items
+vim.ui.select = function(items, _, callback)
+  selected_items = items
+  callback(items[#items])
+end
+ai.tussenkopjes_streamer({
+  buf = buf,
+  headline = { has_headline = true, automatic_structure = false },
+})
+assert(vim.wait(1000, function() return #calls == 1 end))
+assert(calls[1] == 'kopopties', 'kort handmatig artikel startte meer dan alleen kopopties')
+callbacks.kopopties({ code = 0, stdout = 'Eerste nieuwe kop\nTweede nieuwe kop' })
+assert(vim.wait(1000, function() return not vim.b[buf].article_structure_running end))
+assert(selected_items and #selected_items == 3, 'kopkeuze voor kort artikel ontbrak')
+local short_result = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+assert(not short_result:find('^>', 1), 'kort artikel kreeg toch een streamer')
+vim.ui.select = original_select
 vim.system = original_system
 print 'automatic structure: OK'

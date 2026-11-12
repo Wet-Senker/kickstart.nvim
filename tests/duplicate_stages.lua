@@ -198,9 +198,8 @@ assert(vim.deep_equal(
 ), 'nieuwe kandidaat werd niet naast de eerdere uitsluiting onthouden')
 
 
--- Een herschreven artikel moet opnieuw langs de controle. Een ruwe importmail
--- vol opmaak levert heel andere zoekwoorden op dan het afgeronde artikel, dus
--- een goedkeuring op de ruwe tekst zegt niets over de tekst die online gaat.
+-- Een handmatig gewijzigd artikel moet opnieuw langs de controle. Alleen de
+-- expliciete Texttools-herschrijfroutes hieronder mogen een akkoord erven.
 local rewritten = buffer()
 ai._check_duplicate_stage(rewritten, { 'B', 'D' }, 'importeren', function(ok) approved = ok end)
 pending(true, success)
@@ -215,13 +214,35 @@ vim.api.nvim_buf_set_lines(rewritten, 0, -1, false, {
   'e: B, D', '', '=== ARTIKEL ===', '', 'Batavia krijgt groot onderhoud', '',
   'LELYSTAD - Het schip gaat maanden in de steigers.',
 })
-assert(not ai._duplicate_check_is_current(rewritten), 'herschreven tekst gold nog als gecontroleerd')
+assert(not ai._duplicate_check_is_current(rewritten), 'handmatig gewijzigde tekst gold nog als gecontroleerd')
 
 ai._check_duplicate_stage(rewritten, { 'B', 'D' }, 'verzenden', function(ok) approved = ok end)
-assert(runs == before_rewrite + 1, 'herschreven artikel ging ongecontroleerd naar verzenden')
+assert(runs == before_rewrite + 1, 'handmatig gewijzigd artikel ging ongecontroleerd naar verzenden')
 pending(true, success)
 settled(rewritten)
-assert(ai._duplicate_check_is_current(rewritten), 'controle op de nieuwe tekst werd niet onthouden')
+assert(ai._duplicate_check_is_current(rewritten), 'controle op de handmatig gewijzigde tekst werd niet onthouden')
+
+-- Een door Texttools zelf afgeleide herschrijving erft de afgeronde controle
+-- zolang de editieomvang gelijk blijft. De gewone handmatige wijziging hierboven
+-- blijft juist ongeldig.
+local transformed = buffer()
+ai._mark_duplicate_check_done(transformed, { 'B', 'D' })
+local review = ai._duplicate_review_snapshot(
+  transformed,
+  vim.api.nvim_buf_get_lines(transformed, 0, -1, false)
+)
+vim.api.nvim_buf_set_lines(transformed, 4, -1, false, {
+  'Batavia krijgt groot onderhoud', '',
+  'LELYSTAD - Het schip gaat maanden in de steigers.',
+})
+assert(ai._inherit_duplicate_review(transformed, review, { 'B', 'D' }),
+  'AI-herschrijving erfde de afgeronde controle niet')
+local before_inherited_send = runs
+ai._check_duplicate_stage(transformed, { 'B', 'D' }, 'herschrijven', function(ok) approved = ok end)
+assert(approved and runs == before_inherited_send, 'AI-herschrijving startte opnieuw een doublurescan')
+vim.api.nvim_buf_set_lines(transformed, 0, 1, false, { 'e: B' })
+assert(not ai._inherit_duplicate_review(transformed, review, { 'B' }),
+  'gewijzigde editieomvang erfde ten onrechte de eerdere controle')
 
 ai.cancel_ai = original_cancel
 ai._duplicate_stage_runner = original_runner

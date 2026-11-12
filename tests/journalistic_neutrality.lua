@@ -32,13 +32,16 @@ local function response(source, article, issues)
     status = #issues > 0 and 'needs_review' or 'ready', article = article, issues = issues })
 end
 
+local first_callback
 vim.system = function(cmd, opts, callback)
   table.insert(calls, { cmd = cmd, opts = opts })
-  callback {
-    code = 0,
-    stdout = response(opts.stdin, 'Feestelijk concert\n\nKAMPEN - Het concert begint om 20.00 uur.\n'),
-    stderr = '',
-  }
+  first_callback = function()
+    callback {
+      code = 0,
+      stdout = response(opts.stdin, 'Feestelijk concert\n\nKAMPEN - Het concert begint om 20.00 uur.\n'),
+      stderr = '',
+    }
+  end
   return { kill = function() end }
 end
 
@@ -55,6 +58,10 @@ vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
 })
 
 ai.journalistic_neutralize()
+assert(first_callback, 'neutraliteitsactie startte niet')
+-- Praktijksituatie: de importcontrole wordt afgerond terwijl AN al loopt.
+ai._mark_duplicate_check_done(buf, { 'B' })
+first_callback()
 assert(
   vim.wait(1000, function() return vim.api.nvim_buf_get_lines(buf, 4, 5, false)[1] == 'Feestelijk concert' end, 10),
   'neutraliteitsresultaat werd niet in de body geplaatst'
@@ -70,6 +77,9 @@ assert(post_rewrite_calls[1].controls[1] == 'e: B', 'nacontrole kreeg de control
 assert(post_rewrite_calls[1].document:find('Feestelijk concert', 1, true), 'nacontrole kreeg de nieuwe tekst niet')
 assert(post_rewrite_calls[1].original_content:find('Fantastisch feestelijk concert', 1, true),
   'nacontrole kreeg de oorspronkelijke tekst niet')
+assert(post_rewrite_calls[1].duplicate_review
+    and vim.deep_equal(post_rewrite_calls[1].duplicate_review.editions, { 'B' }),
+  'AN gaf de afgeronde doublurecontrole niet door aan de nacontrole')
 
 -- Een resultaat dat na een nieuwere gebruikersbewerking arriveert, blijft weg.
 vim.system = function(_, opts, callback)

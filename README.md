@@ -129,7 +129,7 @@ Clipboard → pastevim() → `Pubble Inbox/werk` → cleantext → `=== ARTIKEL 
 <leader>ac    Kalendermetadata + ## Kalender sectie
 <leader>ao    Tekstcheck: spelling/grammatica + ## Suggesties
 <leader>an    Behoudend publicatieklaar: neutrale tekst, praktische info als proza
-<leader>at    Tussenkopjes + optionele streamer + 2 kopopties
+<leader>at    2 kopopties; vanaf 350 woorden ook tussenkopjes + streamer
 <leader>af    Facebook-post genereren → ## Facebook sectie
 <leader>al    LinkedIn-post genereren → ## LinkedIn sectie
 <leader>aV    Krantversies en reviewstatus openen
@@ -253,7 +253,7 @@ Details: [schrijfprofielen](/Users/nickdevries/workspace/texttools/docs/schrijfp
 | *onderdeel van `<leader>ar`* | **Plaatsencontrole.** Wijzen plaatsen in de tekst naar kranten die nog niet gekozen zijn, dan volgt eenmalig de vraag of die mee moeten. Die vraag komt alleen wanneer de controle bij import niet heeft plaatsgevonden — een zelf getypte of geplakte buffer komt niet langs de importroute — of wanneer de tekst sindsdien naar andere kranten is gaan wijzen. Een provincie is context en levert geen voorstel op. |
 | `<leader>ao` | Tekstcheck: objectieve correcties en twijfelgevallen onder `## Suggesties`. |
 | `<leader>an` | Behoudend publicatieklaar maken: bronruis verwijderen, kop/lead zo nodig herstellen, schrijverssubjectiviteit en ik-/wij-/u-taal buiten citaten neutraliseren en praktische lijstjes omzetten in lopende tekst. Goede bodytekst blijft staan. Daarna dezelfde nacontrole als bij `<leader>ar`. |
-| `<leader>at` | Tussenkopjes, een streamer (als er nog geen eigen `>` staat) en twee kopopties. Een gekozen kop vervangt alleen een bestaande korte kop; bij een dateline, auteursregel of eerste alinea van meer dan tien woorden wordt zij vóór de lead ingevoegd. |
+| `<leader>at` | Altijd twee kopopties; vanaf 350 artikelwoorden ook tussenkopjes en een streamer (als er nog geen eigen `>` staat). Een gekozen kop vervangt alleen een bestaande korte kop; bij een dateline, auteursregel of eerste alinea van meer dan tien woorden wordt zij vóór de lead ingevoegd. |
 | `<leader>af` | Facebook-post genereren → bewerkbare `## Facebook` sectie. Zijn er krantversies, dan hoort de tekst bij de versie en niet bij de bron: die blijft het onherschreven importbericht. Op de bron vraagt Neovim of hij voor iedere unieke versie een eigen tekst maakt, elk uit het afgeronde artikel daarvan; in een krantbuffer maakt hij alleen die ene. Een gedeelde buffer krijgt geen enkele krant als sitecontext mee. Bij 112-detectie: zakelijke prompt (één feitelijke zin). |
 | `<leader>al` | LinkedIn-post genereren → bewerkbare `## LinkedIn` sectie. In een krantreview geldt de tekst alleen voor die krant. |
 | `<leader>aV` / `:Krantversies` | Overzicht van de gedeelde bron en alle afzonderlijke krantversiebuffers openen. |

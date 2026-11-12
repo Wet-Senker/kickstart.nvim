@@ -1497,13 +1497,12 @@ end
 -- dezelfde runner en dezelfde bufferstate; alleen een werkelijk afgeronde
 -- controle wordt onthouden. Python beperkt de zoeksites tot de gekozen en
 -- zichtbaar voorgestelde kranten, los van publicatierechten.
--- De controle wordt onthouden per artikeltekst, niet per buffer. Zo beschermt de
--- controle bij import tegen een zinloze herschrijving, zonder een latere
--- controle te blokkeren: zodra de tekst verandert — en na een herschrijving is
--- dat altijd zo — telt het oude resultaat niet meer. Dat is nodig omdat een ruwe
--- importmail vol opmaak heel andere zoekwoorden oplevert dan het afgeronde
--- artikel; de ruis verdringt dan juist de woorden waarmee je het verhaal vindt.
--- De garantie is daarmee: de tekst die gepubliceerd wordt, is gecontroleerd.
+-- De controle wordt onthouden voor de exact beoordeelde artikeltekst. Een door
+-- Texttools zelf uitgevoerde volledige AI-herschrijving erft dat akkoord als
+-- dezelfde edities gekozen blijven: het nieuwsfeit komt uit die gecontroleerde
+-- bron en een tweede vraag zou steeds dezelfde redactionele beslissing vragen.
+-- Een handmatige inhoudswijziging of nieuwe editieomvang erft niets en wordt
+-- vóór publicatie opnieuw gecontroleerd.
 function M._duplicate_scope_hint(lines)
   local _, controls = split_article_parts(lines)
   for _, line in ipairs(controls) do
@@ -1523,14 +1522,50 @@ end
 
 M._duplicate_check_is_current = duplicate_check_is_current
 
+-- Een afgeronde controle mag een door Texttools zelf herschreven versie volgen:
+-- het nieuwsfeit en de gekozen doelgroep zijn al beoordeeld. Handmatige
+-- inhoudswijzigingen erven niets, omdat de gecontroleerde bronbody dan niet
+-- meer exact overeenkomt. De editiecodes voorkomen hergebruik voor nieuwe
+-- publicatiedoelen; oudere buffers zonder die codes vallen veilig terug op de
+-- zichtbare e:-scope.
+local function duplicate_review_snapshot(buf, source_lines)
+  if not vim.api.nvim_buf_is_valid(buf) then return nil end
+  local checked = vim.b[buf].pubble_duplicate_checked_body
+  if type(checked) ~= 'string' or checked ~= editorial_body_text(source_lines) then return nil end
+  local scope = vim.b[buf].pubble_duplicate_checked_scope
+  local source_scope = M._duplicate_scope_hint(source_lines)
+  if scope ~= nil and scope ~= source_scope then return nil end
+  local editions = vim.b[buf].pubble_duplicate_checked_editions
+  return {
+    scope = source_scope,
+    editions = type(editions) == 'table' and vim.deepcopy(editions) or nil,
+  }
+end
+M._duplicate_review_snapshot = duplicate_review_snapshot
+
+local function inherit_duplicate_review(buf, review, codes)
+  if type(review) ~= 'table' or not vim.api.nvim_buf_is_valid(buf) then return false end
+  local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local same_targets = type(review.editions) == 'table'
+    and same_edition_codes(review.editions, codes)
+  if not same_targets and review.editions ~= nil then return false end
+  if review.editions == nil and review.scope ~= M._duplicate_scope_hint(current_lines) then return false end
+  vim.b[buf].pubble_duplicate_checked_body = editorial_body_text(current_lines)
+  vim.b[buf].pubble_duplicate_checked_scope = M._duplicate_scope_hint(current_lines)
+  vim.b[buf].pubble_duplicate_checked_editions = vim.deepcopy(codes or {})
+  return true
+end
+M._inherit_duplicate_review = inherit_duplicate_review
+
 -- Markeer de huidige artikeltekst als gecontroleerd. Bedoeld voor tests die een
 -- latere fase willen bereiken zonder de controle zelf na te spelen.
-M._mark_duplicate_check_done = function(buf)
+M._mark_duplicate_check_done = function(buf, codes)
   buf = buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
   vim.b[buf].pubble_duplicate_checked_body =
     editorial_body_text(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
   vim.b[buf].pubble_duplicate_checked_scope = M._duplicate_scope_hint(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+  vim.b[buf].pubble_duplicate_checked_editions = type(codes) == 'table' and vim.deepcopy(codes) or nil
 end
 
 local function ignored_duplicate_keys(buf)
@@ -1706,6 +1741,7 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
           -- Alleen de werkelijk doorzochte tekst krijgt deze markering.
           vim.b[buf].pubble_duplicate_checked_body = checked_body
           vim.b[buf].pubble_duplicate_checked_scope = M._duplicate_scope_hint(accepted_snapshot)
+          vim.b[buf].pubble_duplicate_checked_editions = vim.deepcopy(codes)
         end
         settle_duplicate_calendar_gate(buf, approved == true or continue_editing)
       end
@@ -3158,6 +3194,7 @@ local function post_full_article_rewrite(options)
         settle_duplicate_calendar_gate(buf, false)
         return
       end
+      inherit_duplicate_review(buf, options.duplicate_review, codes)
       check_duplicate_stage(buf, codes, "herschrijven", function(checked)
         if not checked then return end
         start_metadata_and_facebook_after_duplicate()
@@ -3338,6 +3375,7 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
       -- ## Kalender-/## Facebook-sectie hebben laten toevoegen. Beide blijven behouden
       -- in plaats van overschreven door de volledige buffer-vervanging hieronder.
       local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      local duplicate_review = duplicate_review_snapshot(buf, current_lines)
       local current_fm, current_ctrl, _, current_sections, current_boundary =
         split_article_parts(current_lines)
       local final_fm = current_fm
@@ -3378,6 +3416,7 @@ function M.rewrite_article_buffer(force_general, calendar_reconciled)
         seo_context = seo_context,
         edit_mode = edit_mode,
         is_112_template = is_112_template ~= nil,
+        duplicate_review = duplicate_review,
       })
     end)
   end
@@ -3837,6 +3876,7 @@ function M.recheck_duplicates(buf)
       return
     end
     vim.b[buf].pubble_duplicate_checked_body = nil
+    vim.b[buf].pubble_duplicate_checked_editions = nil
     vim.b[buf].pubble_duplicate_editing_review = nil
     -- De gedeelde runner toont de echte kanaaluitkomst; geen tweede generieke
     -- 'opnieuw gedraaid'-melding die succes suggereert na uitstel/deelfout.
@@ -8879,13 +8919,15 @@ function M.journalistic_neutralize()
     if not is_current() then return end
     -- Buiten de artikeltekst bezit deze taak niets: lees de nieuwste kopdata
     -- en staartsecties terug, ook bij een later geaccepteerd AN-voorstel.
-    local current_fm, current_ctrl, _, current_sections, boundary =
-      split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+    local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local duplicate_review = duplicate_review_snapshot(buf, current_lines)
+    local current_fm, current_ctrl, _, current_sections, boundary = split_article_parts(current_lines)
     local new_lines = reassemble_article(current_fm, current_ctrl, new_body, current_sections, boundary)
     require('article_notices').replace_content(buf, new_lines)
     M._post_full_article_rewrite({
       buf = buf, document = table.concat(new_lines, '\n'),
       body = table.concat(new_body, '\n'), controls = current_ctrl, original_content = original_content,
+      duplicate_review = duplicate_review,
       after_start = function()
         if vim.api.nvim_buf_is_valid(buf) then mark_ai_neutrality_completed(buf) end
       end,
@@ -9133,6 +9175,7 @@ function M.tussenkopjes_streamer(options)
   if automatic and not headline.automatic_structure then complete(true); return end
   vim.b[buf].article_structure_running = true
   local has_headline = headline.has_headline == true
+  local structure_allowed = headline.automatic_structure == true
   local paras = scan_paragraphs(body)
 
   -- De herschrijf-AI mag zelf al tussenkopjes hebben geleverd. Binnen het
@@ -9170,8 +9213,8 @@ function M.tussenkopjes_streamer(options)
   local results = { koppen = nil, streamer = nil, kopopties = nil }
   -- Slots voor uitsluitend ontbrekende structuuronderdelen. In de handmatige
   -- route blijven kopopties beschikbaar, ook als de body al tussenkopjes heeft.
-  local pending = (has_subheadings and 0 or 1)
-    + (has_streamer and 0 or 1)
+  local pending = ((not structure_allowed or has_subheadings) and 0 or 1)
+    + ((not structure_allowed or has_streamer) and 0 or 1)
     + (automatic and 0 or 1)
 
   if pending == 0 then
@@ -9201,11 +9244,11 @@ function M.tussenkopjes_streamer(options)
       end
     end
 
-    local new_body = has_subheadings
+    local new_body = (not structure_allowed or has_subheadings)
         and vim.deepcopy(body)
         or insert_headings(body, koppen, paras, has_headline)
     local headings_added = not vim.deep_equal(new_body, body)
-    if not has_subheadings and #koppen == 0 then
+    if structure_allowed and not has_subheadings and #koppen == 0 then
       notify_workflow(
         "Geen tussenkopjes toegevoegd (artikel te kort of AI gaf niets terug).",
         vim.log.levels.INFO
@@ -9248,7 +9291,7 @@ function M.tussenkopjes_streamer(options)
             { buf = buf, kind = 'success', inline = true, notice_key = 'text-structure', resolved = true })
         end
       end
-      if has_streamer then
+      if structure_allowed and has_streamer then
         notify_workflow(
           "Tussenkopjes toegevoegd; eigen > streamer blijft staan.",
           vim.log.levels.INFO
@@ -9317,11 +9360,11 @@ function M.tussenkopjes_streamer(options)
     )
   end
 
-  if has_streamer then
+  if has_streamer or not structure_allowed then
     launch_kopopties(existing_streamer)
   end
 
-  if not has_subheadings then
+  if structure_allowed and not has_subheadings then
     ai_system(
       { aitext, "tussenkopjes" },
       { text = true, stdin = numbered_text },
@@ -9342,7 +9385,7 @@ function M.tussenkopjes_streamer(options)
     )
   end
 
-  if not has_streamer then
+  if structure_allowed and not has_streamer then
     ai_system(
       { aitext, "streamer" },
       { text = true, stdin = body_text },
@@ -9372,7 +9415,7 @@ function M.tussenkopjes_streamer(options)
 end
 
 require("user_dialog").keymap("n", "<leader>at", M.tussenkopjes_streamer, {
-  desc = "Tussenkopjes + streamer + 2 kopopties (streamer alleen als er nog geen > staat)",
+  desc = "Vanaf 350 woorden tussenkopjes + streamer; altijd 2 kopopties",
 })
 
 M._inspect_article_headline = inspect_article_headline
@@ -9528,6 +9571,7 @@ function M.ai_prompt_rewrite()
           return
         end
         local new_body = vim.split(output, "\n", { plain = true })
+        local duplicate_review = duplicate_review_snapshot(buf, article_lines)
         local current_fm, current_ctrl, _, current_sections, boundary =
           split_article_parts(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
         require('article_notices').replace_content(buf,
@@ -9541,6 +9585,7 @@ function M.ai_prompt_rewrite()
           controls = current_ctrl,
           original_content = original_content,
           is_112_template = is_112_template ~= nil,
+          duplicate_review = duplicate_review,
         })
         notify_workflow("Herschreven met eigen instructie (<leader>ap). Controleer de tekst.", vim.log.levels.INFO,
           { buf = buf, kind = 'success', inline = true, notice_key = 'rewrite-method',

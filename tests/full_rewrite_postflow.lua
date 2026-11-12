@@ -35,10 +35,13 @@ end
 
 local buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(buf)
-vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+local source_lines = {
   'e: SW', '@ Boodschap voor Teams.', 'Foto: Eigen foto', 'wijk: Heel Zwolle', '', '=== ARTIKEL ===', '', 'Oorspronkelijke kop', '',
-  'Oorspronkelijke body.', '', '***', 'Maak de lead concreter.',
-})
+  'Oorspronkelijke body.',
+}
+vim.api.nvim_buf_set_lines(buf, 0, -1, false, source_lines)
+ai._mark_duplicate_check_done(buf, { 'SW' })
+vim.api.nvim_buf_set_lines(buf, -1, -1, false, { '', '***', 'Maak de lead concreter.' })
 
 ai.ai_prompt_rewrite()
 assert(vim.wait(1000, function() return post_options ~= nil end, 20),
@@ -51,6 +54,9 @@ end
 assert(post_options.document:find('Nieuwe kop', 1, true), 'nacontrole kreeg de nieuwe tekst niet')
 assert(post_options.original_content:find('Oorspronkelijke kop', 1, true),
   'nacontrole kreeg de oorspronkelijke tekst niet')
+assert(post_options.duplicate_review
+    and vim.deep_equal(post_options.duplicate_review.editions, { 'SW' }),
+  'vrije herschrijving gaf de afgeronde doublurecontrole niet door')
 assert(post_options.streamer_only == nil and post_options.format == nil,
   'vrije herschrijving vroeg nog om automatische opmaak')
 
