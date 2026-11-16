@@ -24,18 +24,21 @@ end
 
 local file = '/tmp/print-timing-dry-run-test.md'
 
-local function run_prepare(responses, setup_buf, editions)
+local function run_prepare(responses, setup_buf, editions, during_check)
   local calls = {}
   local index = 0
+  local buf = new_buf()
   vim.system = function(cmd, opts, callback)
     index = index + 1
     table.insert(calls, cmd)
     local response = responses[index]
     assert(response, 'onverwachte extra subprocesaanroep #' .. index)
-    vim.schedule(function() callback(response) end)
+    vim.schedule(function()
+      if during_check then during_check(buf) end
+      callback(response)
+    end)
     return { kill = function() end }
   end
-  local buf = new_buf()
   if setup_buf then setup_buf(buf) end
   local done_args
   ai._temporal_print_prepare(buf, file, {}, editions or { 'B' }, function(...)
@@ -64,6 +67,15 @@ assert(#calls == 1, 'meer dan één aanroep zonder aanleiding: ' .. #calls)
 assert(vim.tbl_contains(calls[1], '--dry-run'), 'de enige aanroep was geen dry-run')
 assert(done_args[1] == true and done_args[3] == false,
   'zonder aanleiding hoort er niets te wijzigen')
+
+calls, done_args = run_prepare({ ok_result {} }, nil, nil, function(buf)
+  vim.api.nvim_buf_set_lines(buf, 1, 1, false, { '=== LOG ===', '[07:29] Doublurekeuze bewaard.' })
+end)
+assert(done_args[1] == true, 'een logregel brak de kranttijdcontrole af')
+calls, done_args = run_prepare({ ok_result {} }, nil, nil, function(buf)
+  vim.api.nvim_buf_set_lines(buf, -1, -1, false, { 'Nieuwe artikelinformatie.' })
+end)
+assert(done_args[1] == false, 'krantcontrole ging door met verouderde artikeltekst')
 
 -- 2. Wel nodig, redacteur kiest "Alleen website": geen tweede aanroep, dus
 -- geen AI-kosten gemaakt. De keuze-dialoog krijgt de dry-run-aanleiding te zien.

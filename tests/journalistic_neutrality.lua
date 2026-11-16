@@ -60,8 +60,17 @@ vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
 ai.journalistic_neutralize()
 assert(first_callback, 'neutraliteitsactie startte niet')
 -- Praktijksituatie: de importcontrole wordt afgerond terwijl AN al loopt.
-ai._mark_duplicate_check_done(buf, { 'B' })
+local original_runner = ai._duplicate_stage_runner
+local finish_import
+ai._duplicate_stage_runner = function(_, done) finish_import = done end
+ai._check_duplicate_stage(buf, { 'B' }, 'importeren', function() end)
 first_callback()
+assert(vim.wait(1000, function() return ai._pending_duplicate_neutralizations[buf] ~= nil end, 5),
+  'AN wachtte niet op de lopende doublurecontrole')
+assert(vim.api.nvim_buf_get_lines(buf, 4, 5, false)[1] == 'Fantastisch feestelijk concert',
+  'AN wijzigde de bron die nog wordt gecontroleerd')
+finish_import(true, { version = 1, performed = true, candidates = {} })
+ai._duplicate_stage_runner = original_runner
 assert(
   vim.wait(1000, function() return vim.api.nvim_buf_get_lines(buf, 4, 5, false)[1] == 'Feestelijk concert' end, 10),
   'neutraliteitsresultaat werd niet in de body geplaatst'

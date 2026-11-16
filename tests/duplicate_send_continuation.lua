@@ -98,6 +98,24 @@ for index, mode in ipairs { 'all-different', 'duplicate', 'edited', 'cancel' } d
   end
   assert(scans == before_scans + 1, 'one send performed multiple scans')
 end
+
+-- Een fotocredit kan binnenkomen terwijl de vroege beoordeling openstaat.
+-- De keuze voor dezelfde artikeltekst en e:-scope moet ook bij aw gelden.
+source = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_set_current_buf(source)
+vim.api.nvim_buf_set_lines(source, 0, -1, false, {
+  'e: B, SW', 'agenda: nee', '', '=== ARTIKEL ===', '', 'Kop', '', 'KAMPEN - Bericht.' })
+local before_scans = scans
+ai._check_duplicate_stage(source, { 'B', 'SW' }, 'herschrijven', function() end)
+wait(function() return vim.api.nvim_buf_get_name(0):find('Pubble doublurecontrole', 1, true) ~= nil end)
+local early_dialog = vim.api.nvim_get_current_buf()
+vim.api.nvim_buf_set_lines(source, 1, 1, false, { 'c: Testfotograaf' })
+key(early_dialog, 'n')
+wait(function() return not vim.api.nvim_buf_is_valid(early_dialog) end)
+assert(ai._duplicate_check_is_current(source), 'fotocredit maakte de goedgekeurde webcontrole ongeldig')
+local reused
+ai._check_duplicate_stage(source, { 'B', 'SW' }, 'verzenden', function(ok) reused = ok end)
+assert(reused and scans == before_scans + 1, 'verzenden herhaalde de goedgekeurde webcontrole')
 vim.system = native_system
 vim.fn.delete(directory, 'rf')
 print('duplicate send continuation: OK')
