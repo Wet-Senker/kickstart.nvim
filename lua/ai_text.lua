@@ -1537,21 +1537,23 @@ local function duplicate_review_snapshot(buf, source_lines)
   if scope ~= nil and scope ~= source_scope then return nil end
   local editions = vim.b[buf].pubble_duplicate_checked_editions
   return {
+    body = checked,
     scope = source_scope,
     editions = type(editions) == 'table' and vim.deepcopy(editions) or nil,
   }
 end
 M._duplicate_review_snapshot = duplicate_review_snapshot
 
-local function inherit_duplicate_review(buf, review, codes)
+local function inherit_duplicate_review(buf, review, codes, rewritten_body)
   if type(review) ~= 'table' or not vim.api.nvim_buf_is_valid(buf) then return false end
+  if vim.b[buf].pubble_duplicate_checked_body ~= review.body then return false end
+  if review.editions ~= nil and not vim.deep_equal(review.editions, codes) then return false end
   local current_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local same_targets = type(review.editions) == 'table'
-    and same_edition_codes(review.editions, codes)
-  if not same_targets and review.editions ~= nil then return false end
-  if review.editions == nil and review.scope ~= M._duplicate_scope_hint(current_lines) then return false end
-  vim.b[buf].pubble_duplicate_checked_body = editorial_body_text(current_lines)
-  vim.b[buf].pubble_duplicate_checked_scope = M._duplicate_scope_hint(current_lines)
+  local current_body = editorial_body_text(current_lines)
+  if rewritten_body ~= nil and current_body ~= rewritten_body then return false end
+  if review.scope ~= M._duplicate_scope_hint(current_lines) then return false end
+  vim.b[buf].pubble_duplicate_checked_body = current_body
+  vim.b[buf].pubble_duplicate_checked_scope = review.scope
   vim.b[buf].pubble_duplicate_checked_editions = vim.deepcopy(codes or {})
   return true
 end
@@ -3099,6 +3101,9 @@ local function post_full_article_rewrite(options)
   local rewritten_body_str = options.body or editorial_body_text(
     vim.split(rewritten_str, "\n", { plain = true })
   )
+  local checked_rewrite_body = options.duplicate_review and editorial_body_text(
+    vim.split(rewritten_str, "\n", { plain = true })
+  )
   local controls = options.controls or {}
   local edition_mode = options.edition_mode or "single"
 
@@ -3194,7 +3199,7 @@ local function post_full_article_rewrite(options)
         settle_duplicate_calendar_gate(buf, false)
         return
       end
-      inherit_duplicate_review(buf, options.duplicate_review, codes)
+      inherit_duplicate_review(buf, options.duplicate_review, codes, checked_rewrite_body)
       check_duplicate_stage(buf, codes, "herschrijven", function(checked)
         if not checked then return end
         start_metadata_and_facebook_after_duplicate()
