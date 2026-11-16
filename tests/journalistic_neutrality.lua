@@ -49,6 +49,7 @@ local buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(buf)
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
   'e: B',
+  'rubriek: sport',
   '',
   '=== ARTIKEL ===',
   '',
@@ -67,22 +68,26 @@ ai._check_duplicate_stage(buf, { 'B' }, 'importeren', function() end)
 first_callback()
 assert(vim.wait(1000, function() return ai._pending_duplicate_neutralizations[buf] ~= nil end, 5),
   'AN wachtte niet op de lopende doublurecontrole')
-assert(vim.api.nvim_buf_get_lines(buf, 4, 5, false)[1] == 'Fantastisch feestelijk concert',
+assert(vim.api.nvim_buf_get_lines(buf, 5, 6, false)[1] == 'Fantastisch feestelijk concert',
   'AN wijzigde de bron die nog wordt gecontroleerd')
 finish_import(true, { version = 1, performed = true, candidates = {} })
 ai._duplicate_stage_runner = original_runner
 assert(
-  vim.wait(1000, function() return vim.api.nvim_buf_get_lines(buf, 4, 5, false)[1] == 'Feestelijk concert' end, 10),
+  vim.wait(1000, function() return vim.api.nvim_buf_get_lines(buf, 5, 6, false)[1] == 'Feestelijk concert' end, 10),
   'neutraliteitsresultaat werd niet in de body geplaatst'
 )
 assert(#calls == 1, 'neutraliteitsactie startte niet exact één AI-call')
 assert(calls[1].cmd[2] == 'journalistiek_neutraliseren', 'verkeerde prompt gestart')
 assert(calls[1].cmd[3] == '--review-json', 'AN vraagt het getypeerde voorstel niet op')
+assert(calls[1].cmd[4] == '--rubric' and calls[1].cmd[5] == 'sport',
+  'AN gaf het bestaande sportrubrieklabel niet door')
 assert(calls[1].opts.stdin:find('Fantastisch feestelijk concert', 1, true), 'artikelbody ontbrak in AI-input')
 assert(not calls[1].opts.stdin:find('e: B', 1, true), 'controlecode kwam in AI-input terecht')
+assert(not calls[1].opts.stdin:find('rubriek: sport', 1, true), 'rubriekcode kwam in AI-input terecht')
 assert(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == 'e: B', 'controlecode ging verloren bij neutraliseren')
 assert(#post_rewrite_calls == 1, 'neutraliseren startte de gedeelde herschrijfnacontrole niet')
 assert(post_rewrite_calls[1].controls[1] == 'e: B', 'nacontrole kreeg de controleregels niet')
+assert(post_rewrite_calls[1].controls[2] == 'rubriek: sport', 'sportrubriek ging verloren na neutraliseren')
 assert(post_rewrite_calls[1].document:find('Feestelijk concert', 1, true), 'nacontrole kreeg de nieuwe tekst niet')
 assert(post_rewrite_calls[1].original_content:find('Fantastisch feestelijk concert', 1, true),
   'nacontrole kreeg de oorspronkelijke tekst niet')
@@ -92,13 +97,13 @@ assert(post_rewrite_calls[1].duplicate_review
 
 -- Een resultaat dat na een nieuwere gebruikersbewerking arriveert, blijft weg.
 vim.system = function(_, opts, callback)
-  vim.api.nvim_buf_set_lines(buf, 4, 5, false, { 'Eigen nieuwere kop' })
+  vim.api.nvim_buf_set_lines(buf, 5, 6, false, { 'Eigen nieuwere kop' })
   callback { code = 0, stdout = response(opts.stdin, 'Oude AI-kop\n'), stderr = '' }
   return { kill = function() end }
 end
 ai.journalistic_neutralize()
 assert(
-  vim.wait(1000, function() return vim.api.nvim_buf_get_lines(buf, 4, 5, false)[1] == 'Eigen nieuwere kop' end, 10),
+  vim.wait(1000, function() return vim.api.nvim_buf_get_lines(buf, 5, 6, false)[1] == 'Eigen nieuwere kop' end, 10),
   'laat AI-resultaat overschreef een nieuwere bufferbewerking'
 )
 assert(#post_rewrite_calls == 1, 'verouderd neutraliteitsresultaat startte toch nacontroles')

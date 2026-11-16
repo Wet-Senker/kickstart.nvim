@@ -766,6 +766,19 @@ local function split_article_parts(lines)
   return fm, ctrl, body, sections, has_boundary
 end
 
+-- Lees alleen het expliciete, zichtbare rubrieklabel. De client beslist niet
+-- welk promptbeleid daarbij hoort; zij transporteert het label naar Python.
+function M._rubric_from_controls(controls)
+  for _, line in ipairs(controls or {}) do
+    local key, value = vim.trim(line):match("^([%a][%a%d_]*)%s*:%s*(.-)%s*$")
+    key = key and key:lower() or nil
+    if (key == "rubriek" or key == "r") and value and vim.trim(value) ~= "" then
+      return vim.trim(value):lower()
+    end
+  end
+  return nil
+end
+
 -- Een import mag niet per ongeluk vrijwel onbewerkt naar Pubble. Vergelijk
 -- uitsluitend de artikelbody: editiecodes, metadata, foto's, kalender- en
 -- socialsecties zijn workflowdata en tellen niet als redactionele bewerking.
@@ -8975,6 +8988,10 @@ function M.journalistic_neutralize()
   end
 
   local neutrality_command = { aitext, "journalistiek_neutraliseren", '--review-json' }
+  local rubric = M._rubric_from_controls(ctrl)
+  if rubric then
+    vim.list_extend(neutrality_command, { '--rubric', rubric })
+  end
   append_reference_date(neutrality_command, buf)
   ai_system(
     neutrality_command,
