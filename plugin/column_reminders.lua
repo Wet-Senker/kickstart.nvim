@@ -283,6 +283,7 @@ function M.overview(series, items)
 
   vim.ui.select(choices, {
     prompt = 'Planningsoverzicht voor:',
+    searchable = true,
     format_item = function(choice) return choice.label end,
   }, function(choice)
     if not choice then return end

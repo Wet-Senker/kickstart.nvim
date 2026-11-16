@@ -55,7 +55,11 @@ local function pack(...) return { n = select('#', ...), ... } end
 local function interactive() return #vim.api.nvim_list_uis() > 0 end
 local function resume_workflow(thread, ...)
   local result = pack(coroutine.resume(thread, ...))
-  if not result[1] then error(result[2], 0) end
+  if not result[1] then
+    workflows[thread] = nil
+    if notifications.report_system_error(result[2]) then return end
+    error(result[2], 0)
+  end
   if coroutine.status(thread) == 'suspended' then
     assert(result[2] == waiting, 'Onverwachte yield buiten een UI-keuze')
     return

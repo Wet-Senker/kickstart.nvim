@@ -223,6 +223,7 @@ local function choose_variant(candidate, callback)
   if #variants == 1 then callback(variants[1]); return end
   vim.ui.select(variants, {
     prompt = 'Welke krantversie wil je bekijken?',
+    searchable = true,
     format_item = function(variant)
       return publication_name(variant.publication or variant.edition)
         .. ' — ' .. candidate_date(candidate, variant)

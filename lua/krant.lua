@@ -233,11 +233,12 @@ local function image_files(path)
   return images
 end
 
-local function require_empty_inbox(inbox)
-  local images = image_files(inbox)
+local function require_empty_inbox(photo_dir)
+  vim.fn.mkdir(photo_dir, 'p')
+  local images = image_files(photo_dir)
   if #images == 0 then return true end
   notifications.notify(
-    'Pubble Inbox bevat al foto\'s: ' .. table.concat(images, ', ')
+    'Pubble-foto bevat al foto\'s: ' .. table.concat(images, ', ')
       .. '\nVerwijder deze eerst om verwarring te voorkomen.',
     vim.log.levels.WARN
   )
@@ -639,7 +640,7 @@ end
 local function copy_to_inbox(source, destination)
   local ok, error_message = vim.uv.fs_copyfile(source, destination)
   if not ok then
-    notifications.notify('Foto kopiëren naar Pubble Inbox mislukt: ' .. (error_message or source), vim.log.levels.ERROR)
+    notifications.notify('Foto kopiëren naar Pubble-foto mislukt: ' .. (error_message or source), vim.log.levels.ERROR)
     return false
   end
   return true
@@ -682,7 +683,7 @@ local function choose_person(items, prompt, context, preferred, callback)
       callback(M._choose_detected_person(items, prompt))
     end
   else
-    vim.ui.select(items, { prompt = prompt }, callback)
+    vim.ui.select(items, { prompt = prompt, searchable = true }, callback)
   end
 end
 
@@ -837,7 +838,7 @@ function M.raadspraat_menu(target_buf, context, done)
 
       local naam = vim.fn.fnamemodify(photo_file, ':r')
       local photo_src = party_dir .. '/' .. photo_file
-      local inbox = require('texttools_paths').inbox()
+      local inbox = require('texttools_paths').photos()
       if not require_empty_inbox(inbox) then return end
 
       local bijschrift = 'Deze editie van Raadspraat is geschreven door ' .. naam .. ' van ' .. partij_in_bijschrift(party) .. '.'
@@ -904,7 +905,7 @@ function M.raadspraat_menu(target_buf, context, done)
       local party_slug = party:gsub('[^%w]+', '_'):gsub('^_+', ''):gsub('_+$', '')
       local export_base = '1.raadspraat_' .. party_slug .. 'FOTO'
 
-      -- Copy photo to Pubble Inbox dropzone so <leader>aw picks it up automatically.
+      -- Kopieer naar de schone fotomap zodat <leader>aw het beeld meeneemt.
       if not copy_to_inbox(photo_src, inbox .. '/' .. photo_file) then return end
       if not prepare_layout_export(target_buf, {
         dir = gn_dir,
@@ -919,7 +920,7 @@ function M.raadspraat_menu(target_buf, context, done)
         'Raadspraat: ' .. naam .. ' (' .. party .. ')\n'
         .. '→ ' .. week_prefix .. '_gemeentenieuws/' .. export_base .. '.txt\n'
         .. '→ ' .. week_prefix .. '_gemeentenieuws/' .. export_base .. '.' .. photo_ext .. '\n'
-        .. '→ Pubble Inbox/' .. photo_file .. '\n'
+        .. '→ Pubble-foto/' .. photo_file .. '\n'
         .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
         vim.log.levels.INFO,
         { annote = 'Rubriek', ttl = 12 }
@@ -1048,8 +1049,8 @@ function M.ondernemen_menu(target_buf, context, done)
         .. 'publiceren we op [www.brugnieuws.nl](https://www.brugnieuws.nl) of eventueel in de volgende krant.',
     }
 
-    -- Waarschuw als er al foto's in de inbox staan (voorkomt verwarring met oude foto's).
-    local inbox = require('texttools_paths').inbox()
+    -- Waarschuw als er al foto's in Pubble-foto staan.
+    local inbox = require('texttools_paths').photos()
     if not require_empty_inbox(inbox) then return end
 
     local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
@@ -1066,7 +1067,7 @@ function M.ondernemen_menu(target_buf, context, done)
       if done then done(success and prepared) end
     end)
 
-    -- Kopieer foto naar Pubble Inbox.
+    -- Kopieer foto naar Pubble-foto.
     if not copy_to_inbox(photo_src, inbox .. '/' .. photo_file) then return end
 
     -- Sla exportinfo op in buffervariabele; het txt-bestand wordt geschreven bij <leader>aw
@@ -1084,7 +1085,7 @@ function M.ondernemen_menu(target_buf, context, done)
     prepared = true
     notifications.workflow(
       'Ondernemen in Kampen: ' .. naam .. '\n'
-      .. '→ Pubble Inbox/' .. photo_file .. '\n'
+      .. '→ Pubble-foto/' .. photo_file .. '\n'
       .. '→ ' .. week_prefix .. '_ondernemen_in_kampen/1.ondernemen_in_kampenFOTO.' .. photo_ext .. '\n'
       .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
       vim.log.levels.INFO,
@@ -1419,9 +1420,9 @@ end
 function M.stock_rubriek_flow(config, target_buf, candidate, done)
   target_buf = target_buf or vim.api.nvim_get_current_buf()
   local stock_src = M.config.stock_images .. '/' .. config.stock_image
-  local inbox = require('texttools_paths').inbox()
+  local inbox = require('texttools_paths').photos()
 
-  -- Waarschuw als er al foto's in de inbox staan.
+  -- Waarschuw als er al foto's in Pubble-foto staan.
   if not require_empty_inbox(inbox) then return false, 'inbox_not_empty' end
   if vim.fn.filereadable(stock_src) ~= 1 then
     notifications.notify('Stockfoto niet gevonden: ' .. stock_src, vim.log.levels.ERROR)
@@ -1485,7 +1486,7 @@ function M.stock_rubriek_flow(config, target_buf, candidate, done)
   prepared = true
   notifications.workflow(
     config.name .. '\n'
-    .. '→ Pubble Inbox/' .. config.stock_image .. '\n'
+    .. '→ Pubble-foto/' .. config.stock_image .. '\n'
     .. '→ ' .. week_prefix .. '_lezersnieuws/' .. img_name .. '\n'
     .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
     vim.log.levels.INFO,

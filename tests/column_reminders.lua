@@ -52,6 +52,10 @@ assert(captured.items[1] == early[1] and captured.items[2] == early[2],
   'zonder actuele week is de oorspronkelijke volgorde veranderd')
 assert(captured.opts.default == 1, 'zonder actuele marker hoort de eerste week geselecteerd te zijn')
 
+reminders.overview('ondernemen', early)
+assert(captured.opts.searchable == true and not captured.opts.native,
+  'planningsoverzicht per persoon is niet doorzoekbaar')
+
 -- De echte overlay moet de opgegeven beginindex toepassen, niet alleen doorgeven.
 local dialog = require('user_dialog')
 dialog.setup({ manual_select = function() error('reminder opende toch de fuzzy picker') end })

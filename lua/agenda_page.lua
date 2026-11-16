@@ -420,6 +420,7 @@ function M.send(buf)
   active_send[buf] = true
   vim.ui.select(editions_source.list(), {
     prompt = 'Agendapagina versturen naar welke krant?',
+    searchable = true,
     format_item = function(item) return item.label end,
   }, function(edition)
     if not edition or not vim.api.nvim_buf_is_valid(buf) then

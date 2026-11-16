@@ -302,6 +302,7 @@ end
 local function pick_edition(callback)
   vim.ui.select(editions_source.list(), {
     prompt = 'Voor welke editie?',
+    searchable = true,
     format_item = function(item) return item.label end,
   }, function(edition)
     if edition then callback(edition.code) end
@@ -611,6 +612,7 @@ end
 function M.weekendbericht()
   vim.ui.select(weekend_editions(), {
     prompt = 'Weekendbericht maken voor welke krant?',
+    searchable = true,
     format_item = function(item) return item.label end,
   }, function(choice)
     if not choice then return end
@@ -861,6 +863,7 @@ function M.menu()
   }
   vim.ui.select(items, {
     prompt = 'Agenda online',
+    searchable = true,
     format_item = function(item) return item.label end,
   }, function(choice)
     if choice then choice.fn() end

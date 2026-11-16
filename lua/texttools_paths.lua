@@ -15,4 +15,9 @@ function M.work()
   return M.inbox() .. '/werk'
 end
 
+---Return the clean folder that contains only photos for the next article.
+function M.photos()
+  return M.inbox() .. '/Pubble-foto'
+end
+
 return M

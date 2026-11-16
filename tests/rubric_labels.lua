@@ -8,7 +8,9 @@ for _, template in ipairs(krant.templates) do
 end
 local tmp = vim.fn.tempname()
 local inbox = tmp .. '/inbox'
+local publication_photos = inbox .. '/Pubble-foto'
 vim.fn.mkdir(inbox, 'p')
+vim.fn.mkdir(publication_photos, 'p')
 vim.env.TEXTTOOLS_INBOX_DIR = inbox
 krant.config.desktop = tmp .. '/Desktop'
 krant.config.photo_root = tmp .. '/photos'
@@ -28,7 +30,7 @@ krant._choose_detected_person = function(items) return items[1] end
 vim.ui.select = function() error('importflow mag geen fzf-menu openen') end
 local function text(buf) return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n') end
 local function run(label, id, author)
-  for _, path in ipairs(vim.fn.glob(inbox .. '/*', false, true)) do vim.fn.delete(path) end
+  for _, path in ipairs(vim.fn.glob(publication_photos .. '/*', false, true)) do vim.fn.delete(path) end
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_set_current_buf(buf)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
@@ -42,10 +44,10 @@ local function run(label, id, author)
 end
 local council = run('Raadspraat', 'raadspraat')
 assert(text(council):find('Raadspraat CDA:', 1, true))
-assert(vim.fn.filereadable(inbox .. '/Ada Raadslid.jpg') == 1)
+assert(vim.fn.filereadable(publication_photos .. '/Ada Raadslid.jpg') == 1)
 local business = run('Ondernemen in Kampen', 'ondernemen')
 assert(text(business):find('Column Ondernemen in Kampen: Een actuele titel', 1, true))
-assert(vim.fn.filereadable(inbox .. '/Bert Ondernemer.jpg') == 1)
+assert(vim.fn.filereadable(publication_photos .. '/Bert Ondernemer.jpg') == 1)
 local nature = run('Natuurvereniging IJsseldelta', 'natuurvereniging')
 assert(text(nature):find('Column Natuurvereniging: Een actuele titel', 1, true))
 local emergency = run('112 nieuws', '112')
@@ -59,7 +61,7 @@ vim.fn.writefile({ 'stock' }, krant.config.stock_images .. '/nog-even-dit.jpg')
 for _, case in ipairs({
   { 'e:', 'e: B' }, { 'editie:  ', 'editie: B' }, { 'e: SW, B', 'e: SW, B' },
 }) do
-  for _, path in ipairs(vim.fn.glob(inbox .. '/*', false, true)) do vim.fn.delete(path) end
+  for _, path in ipairs(vim.fn.glob(publication_photos .. '/*', false, true)) do vim.fn.delete(path) end
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_set_current_buf(buf)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, { case[1], '', '=== ARTIKEL ===', '', 'Knorrige Sint', '', 'Eigen tekst.' })
@@ -87,7 +89,7 @@ local personal = run('Een actuele titel', 'ondernemen', 'Bert Ondernemer')
 assert(text(personal):find('Bert Ondernemer', 1, true))
 
 -- Een andere actieve buffer mag niet het doel worden van een latere persoonskeuze.
-for _, path in ipairs(vim.fn.glob(inbox .. '/*', false, true)) do vim.fn.delete(path) end
+for _, path in ipairs(vim.fn.glob(publication_photos .. '/*', false, true)) do vim.fn.delete(path) end
 local target = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(target, 0, -1, false, { '=== ARTIKEL ===', '', 'Titel', '', 'Eigen body.' })
 local other = vim.api.nvim_create_buf(false, true)

@@ -5,11 +5,13 @@ local layout_export = require('layout_export')
 local tmp = vim.fn.tempname()
 local photo_root = tmp .. '/photos'
 local inbox = tmp .. '/inbox'
+local publication_photos = inbox .. '/Pubble-foto'
 local desktop = tmp .. '/Desktop'
 vim.fn.mkdir(photo_root .. '/raadspraat/CDA', 'p')
 vim.fn.mkdir(photo_root .. '/raadspraat/Hart voor Kampen', 'p')
 vim.fn.mkdir(photo_root .. '/ondernemen_in_kampen', 'p')
 vim.fn.mkdir(inbox, 'p')
+vim.fn.mkdir(publication_photos, 'p')
 vim.fn.mkdir(desktop, 'p')
 vim.fn.writefile({ 'foto' }, photo_root .. '/raadspraat/CDA/Niek Teune.png')
 vim.fn.writefile({ 'foto' }, photo_root .. '/raadspraat/Hart voor Kampen/Nardus Koster.png')
@@ -78,8 +80,8 @@ local function text(buf)
 end
 
 local function clear_inbox()
-  vim.fn.delete(inbox, 'rf')
-  vim.fn.mkdir(inbox, 'p')
+  vim.fn.delete(publication_photos, 'rf')
+  vim.fn.mkdir(publication_photos, 'p')
 end
 
 local function wait_for(predicate, message)
@@ -107,7 +109,7 @@ assert(decision_seen and #decision_seen.candidates == 1, 'unieke naam gaf geen g
 assert(jan_text:find('z - OIK Jan Groen', 1, true), 'Ondernemen-werktitel ontbreekt')
 assert(jan_text:find('Column Ondernemen in Kampen: Een aangeleverde kop', 1, true), 'Ondernemen-template ontbreekt')
 assert(layout_export.pending(jan_buf), 'Ondernemen-exportplan ontbreekt')
-assert(vim.fn.filereadable(inbox .. '/Jan Groen.jpg') == 1, 'gevonden persoonsfoto is niet voorbereid')
+assert(vim.fn.filereadable(publication_photos .. '/Jan Groen.jpg') == 1, 'gevonden persoonsfoto is niet voorbereid')
 assert(text(sentinel) == 'niet wijzigen', 'persoonsherkenning wijzigde de actieve verkeerde buffer')
 
 -- Nee wordt voor deze buffersessie onthouden en laat tekst, foto en exportplan
@@ -126,7 +128,7 @@ ai._article_autodetect(rejected)
 assert(confirm_count == 1, 'afgewezen persoonsherkenning vroeg opnieuw')
 assert(text(rejected) == before_reject, 'afwijzing wijzigde de artikeltekst')
 assert(not layout_export.pending(rejected), 'afwijzing maakte toch een exportplan')
-assert(#vim.fn.glob(inbox .. '/*', false, true) == 0, 'afwijzing kopieerde toch een foto')
+assert(#vim.fn.glob(publication_photos .. '/*', false, true) == 0, 'afwijzing kopieerde toch een foto')
 
 -- Nardus Koster komt in beide fotomappen voor. De keuze bepaalt expliciet
 -- welke gespecialiseerde flow draait.
@@ -159,7 +161,7 @@ assert(seen_roles.raadspraat, 'Raadspraatkandidaat ontbreekt')
 assert(seen_roles.ondernemen, 'Ondernemenkandidaat ontbreekt')
 assert(nardus_text:find('z - OIK Nardus Koster', 1, true), 'gekozen Nardus-rol is niet toegepast')
 assert(not nardus_text:find('z - RAADSPRAAT', 1, true), 'niet-gekozen Nardus-rol is toegepast')
-assert(vim.fn.filereadable(inbox .. '/Nardus Koster.jpg') == 1, 'verkeerde Nardus-foto voorbereid')
+assert(vim.fn.filereadable(publication_photos .. '/Nardus Koster.jpg') == 1, 'verkeerde Nardus-foto voorbereid')
 
 -- Een core-uitkomst voor een inmiddels gewijzigde buffer mag de oude
 -- kandidaat niet meer toepassen.

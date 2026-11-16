@@ -3,9 +3,11 @@ local krant = require('krant')
 
 local tmp = vim.fn.tempname()
 local inbox = tmp .. '/inbox'
+local publication_photos = inbox .. '/Pubble-foto'
 local photo_root = tmp .. '/krant-fotos'
 local desktop = tmp .. '/Desktop'
 vim.fn.mkdir(inbox, 'p')
+vim.fn.mkdir(publication_photos, 'p')
 vim.fn.mkdir(photo_root, 'p')
 vim.fn.mkdir(desktop, 'p')
 vim.env.TEXTTOOLS_INBOX_DIR = inbox
@@ -32,8 +34,8 @@ local function choose_first(items, _, callback)
 end
 
 local function clear_inbox()
-  vim.fn.delete(inbox, 'rf')
-  vim.fn.mkdir(inbox, 'p')
+  vim.fn.delete(publication_photos, 'rf')
+  vim.fn.mkdir(publication_photos, 'p')
 end
 
 -- Raadspraat: foto nu, definitieve tekst pas na <leader>aw.
@@ -42,7 +44,7 @@ vim.fn.mkdir(raad_dir, 'p')
 vim.fn.writefile({ 'foto' }, raad_dir .. '/Ada Raadslid.jpg')
 local raad_buf = article('Eigen Raadspraatkop', 'Aangeleverde Raadspraattekst.')
 vim.ui.select = choose_first
-vim.fn.writefile({ 'oude foto' }, inbox .. '/oud.jpg')
+vim.fn.writefile({ 'oude foto' }, publication_photos .. '/oud.jpg')
 krant.raadspraat_menu()
 assert(layout_export.pending(raad_buf) == nil, 'Raadspraat accepteerde een vervuilde Inbox')
 clear_inbox()
@@ -63,7 +65,7 @@ assert(table.concat(vim.fn.readfile(raad_path), '\n'):find('Correctie na <leader
 
 -- Kamper Kiek: uitsluitend gemeentenieuws, nooit de generieke lezersnieuwsmap.
 clear_inbox()
-vim.fn.writefile({ 'foto' }, inbox .. '/weekfoto.jpg')
+vim.fn.writefile({ 'foto' }, publication_photos .. '/weekfoto.jpg')
 local kiek_buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(kiek_buf)
 vim.api.nvim_buf_set_lines(kiek_buf, 0, -1, false, {

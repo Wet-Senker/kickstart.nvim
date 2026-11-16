@@ -23,7 +23,22 @@ assert(selected.edition == 'B' and calls == 1)
 for _, template in ipairs(krant.templates) do
   assert(template.edition == 'B', 'rubriek mist De Brug: ' .. template.name)
 end
+
+-- De handmatige persoonsstap gebruikt dezelfde zoekpresentatie; automatische
+-- importkeuzes blijven via _choose_detected_person expliciet genummerd.
+local photo_root = vim.fn.tempname()
+vim.fn.mkdir(photo_root .. '/ondernemen_in_kampen', 'p')
+vim.fn.writefile({ 'test' }, photo_root .. '/ondernemen_in_kampen/Zoekbare Persoon.jpg')
+local original_photo_root = krant.config.photo_root
+krant.config.photo_root = photo_root
+local person_options
+vim.ui.select = function(_, opts) person_options = opts end
+krant.ondernemen_menu()
+assert(person_options and person_options.searchable == true,
+  'handmatige persoonskeuze is niet doorzoekbaar')
+krant.config.photo_root = original_photo_root
 -- Other selection lists retain their native numbered display.
+vim.ui.select = dialog.select
 dialog.select({ 'Ja', 'Nee' }, { prompt = 'Controle', default = 2 }, function(item) question = item end)
 assert(vim.wait(1000, function()
   return vim.api.nvim_win_get_config(vim.api.nvim_get_current_win()).relative == 'editor'

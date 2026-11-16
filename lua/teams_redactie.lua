@@ -53,7 +53,7 @@ function M.open()
       items[#items + 1] = { kind = 'edition', code = code, label = (entry.krant or code) .. ' → ' .. prefix .. label(config, entry.email) .. duration }
     end
     table.sort(items, function(a, b) if a.kind == 'toggle' then return true elseif b.kind == 'toggle' then return false else return a.code < b.code end end)
-    dialog.select(items, { prompt = 'Teams-meldingen eindredactie:', native = true, format_item = function(item) return item.label end }, function(chosen)
+    dialog.select(items, { prompt = 'Teams-meldingen eindredactie:', searchable = true, format_item = function(item) return item.label end }, function(chosen)
       if not chosen then finish(); return end
       local function saved(data)
         finish()
@@ -91,7 +91,7 @@ function M.open()
           M._call(args, saved)
         end)
       end
-      dialog.select(choices, { prompt = 'Teams-ontvanger voor ' .. (entry.krant or code) .. ':', native = true, format_item = function(item) return item.label end }, function(choice)
+      dialog.select(choices, { prompt = 'Teams-ontvanger voor ' .. (entry.krant or code) .. ':', searchable = true, format_item = function(item) return item.label end }, function(choice)
         if not choice then finish()
         elseif choice.kind == 'back' then finish(); vim.schedule(M.open)
         elseif choice.kind == 'default' then save_recipient(email(entry.default_email))

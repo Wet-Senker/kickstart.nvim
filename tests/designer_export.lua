@@ -33,6 +33,7 @@ assert(command[2] == '-m' and command[3] == 'texttools.layout_designer_bundle_cl
 assert(command[4] == vim.fn.expand('~/Desktop'), 'Bureaublad ontbreekt')
 assert(command[5] == 'mijn artikel.docx', 'gekozen naam ontbreekt')
 assert(command[6] == '--inbox' and type(command[7]) == 'string', 'Inboxpad ontbreekt')
+assert(command[7]:match('/Pubble%-foto$'), 'documentexport gebruikt niet de schone fotomap')
 assert(options.stdin:find('=== ARTIKEL ===', 1, true), 'buffersnapshot ontbreekt')
 assert(notice:find('mijn artikel.docx', 1, true), 'resultaatnaam ontbreekt in melding')
 assert(notice:find('+ foto', 1, true), 'foto ontbreekt in melding')

@@ -8,7 +8,11 @@ teams._call = function(args, done) requests[#requests + 1] = args; done(args[1] 
 dialog.select = function(items, opts, done) menus[#menus + 1] = { items = items, opts = opts, done = done } end
 vim.notify = function(message) notifications[#notifications + 1] = message end
 teams.open()
+assert(menus[1].opts.searchable == true and not menus[1].opts.native,
+  'krantenoverzicht is niet doorzoekbaar')
 menus[1].done(menus[1].items[2])
+assert(menus[2].opts.searchable == true and not menus[2].opts.native,
+  'ontvangerslijst is niet doorzoekbaar')
 menus[2].done(menus[2].items[2])
 assert(menus[3].items[1].value == '2026-10-20', 'Python-datumvoorstel niet gebruikt')
 menus[3].done(menus[3].items[1])

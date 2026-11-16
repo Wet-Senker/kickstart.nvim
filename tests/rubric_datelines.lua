@@ -1,11 +1,13 @@
 local krant = require('krant')
 local tmp = vim.fn.tempname()
 local inbox = tmp .. '/inbox'
+local publication_photos = inbox .. '/Pubble-foto'
 vim.env.TEXTTOOLS_INBOX_DIR = inbox
 krant.config.desktop = tmp .. '/Desktop'
 krant.config.stock_images = tmp .. '/stock'
 krant.config.photo_root = tmp .. '/photos'
 vim.fn.mkdir(inbox, 'p')
+vim.fn.mkdir(publication_photos, 'p')
 vim.fn.mkdir(krant.config.stock_images, 'p')
 vim.fn.mkdir(krant.config.photo_root .. '/raadspraat/CDA', 'p')
 vim.fn.mkdir(krant.config.photo_root .. '/ondernemen_in_kampen', 'p')
@@ -42,7 +44,7 @@ local function clean(buf)
   assert(result:find('e: B', 1, true), 'editie verdwenen')
 end
 local function clear_inbox()
-  for _, path in ipairs(vim.fn.glob(inbox .. '/*', false, true)) do vim.fn.delete(path) end
+  for _, path in ipairs(vim.fn.glob(publication_photos .. '/*', false, true)) do vim.fn.delete(path) end
 end
 
 -- All ordinary templates, including explicit buffer 0, use the shared action.
@@ -83,7 +85,7 @@ for _, name in ipairs({ 'Open Hof', 'Nog Even Dit' }) do
   clean(buf)
 end
 clear_inbox()
-vim.fn.writefile({ 'foto' }, inbox .. '/kiek.jpg')
+vim.fn.writefile({ 'foto' }, publication_photos .. '/kiek.jpg')
 local kiek = source()
 local hook_called = false
 krant.on_kamper_kiek_applied = function(buf)

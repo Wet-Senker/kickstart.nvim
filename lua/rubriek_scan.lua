@@ -248,6 +248,7 @@ end
 function M.menu()
   vim.ui.select(choices, {
     prompt = 'Welke krant(en) op rubriek scannen?',
+    searchable = true,
     format_item = function(item) return item.label end,
   }, function(choice)
     if choice then M.run(choice.code) end

@@ -3,6 +3,7 @@ local krant = require 'krant'
 local layout = require 'layout_export'
 local tmp = vim.fn.tempname()
 vim.fn.mkdir(tmp .. '/inbox', 'p')
+vim.fn.mkdir(tmp .. '/inbox/Pubble-foto', 'p')
 vim.env.TEXTTOOLS_INBOX_DIR = tmp .. '/inbox'
 krant.config.desktop = tmp .. '/Desktop'
 local day = tonumber(os.date('%u'))
@@ -40,7 +41,7 @@ assert(plan.img_name == '2.kamperkiek.jpg')
 assert(vim.fn.filereadable(plan.dir .. '/' .. plan.img_name) == 0, 'te vroege fotokopie')
 assert(vim.fn.filereadable(plan.dir .. '/' .. plan.txt_name) == 0, 'te vroege tekstexport')
 -- A photo added afterwards is used by the existing post-publication media export.
-vim.fn.writefile({ 'later toegevoegde foto' }, tmp .. '/inbox/late.png')
+vim.fn.writefile({ 'later toegevoegde foto' }, tmp .. '/inbox/Pubble-foto/late.png')
 local original_system = vim.system
 local command, callback
 vim.system = function(cmd, _, done) command, callback = cmd, done; return {} end
@@ -53,7 +54,7 @@ assert(vim.wait(1000, function() return finished ~= nil end, 5))
 assert(finished[1] == plan.dir .. '/' .. plan.txt_name and not finished[2])
 vim.system = original_system
 -- Multiple files do not block preparing the text either; publication resolves media.
-vim.fn.writefile({ 'andere foto' }, tmp .. '/inbox/another.jpg')
+vim.fn.writefile({ 'andere foto' }, tmp .. '/inbox/Pubble-foto/another.jpg')
 local second = fresh()
 assert(krant.kamperkiek_flow(template, second))
 assert(vim.wait(5000, function() return topic_calls == 2 end, 10))

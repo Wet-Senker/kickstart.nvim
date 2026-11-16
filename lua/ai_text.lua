@@ -5398,7 +5398,7 @@ require("user_dialog").keymap("n", "<leader>av", M.prepare_article, {
 
 -- Documentexport: de gedeelde Python-actie maakt de DOCX én kiest de
 -- gezaghebbende fotobron. Een expliciete <leader>pf-keuze wordt als origineel
--- uit Pubble gedownload; anders blijven de losse Pubble Inbox-foto's leidend.
+-- uit Pubble gedownload; anders blijven de losse Pubble-foto-bestanden leidend.
 function M.export_designer_text(buf)
   buf = buf or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(buf) then return end
@@ -5425,7 +5425,7 @@ function M.export_designer_text(buf)
       desktop,
       name,
       "--inbox",
-      texttools_paths.inbox(),
+      texttools_paths.photos(),
     }
     notifications.system(command, { stdin = content, text = true }, function(result)
       notifications.schedule(function()
@@ -9964,6 +9964,7 @@ end
 function M.show_meta_cheatsheet()
   vim.ui.select(help_categories, {
     prompt = "Texttools hulp:",
+    searchable = true,
     format_item = function(i) return i.label end,
   }, function(category)
     if not category then return end
@@ -9976,6 +9977,7 @@ function M.show_meta_cheatsheet()
     table.insert(submenu, { label = "← Terug naar hoofdmenu", back = true })
     vim.ui.select(submenu, {
       prompt = category.prompt,
+      searchable = true,
       format_item = function(i) return i.label end,
     }, function(item)
       if not item then return end

@@ -4,6 +4,33 @@ local context
 local serial = 0
 local function pack(...) return { n = select('#', ...), ... } end
 
+local function system_error_message(value)
+  local error_text = tostring(value or '')
+  if error_text:lower():find('no space left on device', 1, true) then
+    return table.concat({
+      'Systeemfout: macOS kon niet schrijven omdat er onvoldoende vrije opslagruimte beschikbaar was.',
+      'De lopende Texttools-actie is afgebroken. Maak ruimte vrij, sla je artikel op en controleer de Pubble-status '
+        .. 'of het technische logboek voordat je opnieuw verzendt.',
+    }, '\n')
+  end
+end
+M.system_error_message = system_error_message
+
+-- Deze terugval mag zelf geen artikelbuffer, statusbestand of technisch log
+-- schrijven: juist dat schrijven is bij ENOSPC onbetrouwbaar. Alleen bekende
+-- systeemfouten worden vertaald; programmeerfouten behouden hun stacktrace.
+function M.report_system_error(value)
+  local message = system_error_message(value)
+  if not message then return false end
+  local shown = pcall(vim.notify, message, vim.log.levels.ERROR, {
+    title = 'Texttools · systeemfout',
+  })
+  if not shown then
+    pcall(vim.api.nvim_echo, { { message, 'ErrorMsg' } }, true, {})
+  end
+  return true
+end
+
 function M.source_buffer()
   return context and context.buf or activity.source(vim.api.nvim_get_current_buf())
     or vim.api.nvim_get_current_buf()

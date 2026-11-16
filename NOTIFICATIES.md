@@ -303,6 +303,14 @@ verzending of tweede vraag. Registratie is expliciet, zonder globale override
 van Neovim-API's. Een vergeten interactieve adapter geeft een programmeerfout,
 geen stille terugval naar een prompt onderaan.
 
+Een door macOS gemelde volle opslag (`no space left on device`) wordt aan deze
+centrale coroutinegrens als Nederlandse systeemfout getoond. Die noodmelding
+schrijft bewust niet naar de artikelbuffer of het technische logboek, omdat
+juist lokale writes op dat moment onbetrouwbaar zijn. Zij adviseert eerst
+ruimte vrij te maken, het artikel op te slaan en de Pubble-status te
+controleren. Andere callback- en programmeerfouten behouden hun gewone
+stacktrace en worden niet onder deze systeemmelding verborgen.
+
 Regressies gebruiken echte overlays met een gesimuleerd aangesloten UI,
 verbieden `vim.fn.confirm` en bewijzen responsiviteit, uitstellen/hervatten,
 nummerkeuze, dubbel indienen en bronrevisiecontrole. De echte `PubbleSend`- en

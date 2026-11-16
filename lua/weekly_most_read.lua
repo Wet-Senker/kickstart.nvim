@@ -331,6 +331,7 @@ function M.run()
   end
   vim.ui.select(editions_source.list(), {
     prompt = 'Meestgelezen weekoverzicht voor welke krant?',
+    searchable = true,
     format_item = function(item) return item.label end,
   }, function(choice)
     if choice then M.prepare(choice.code) end

@@ -202,6 +202,7 @@ function M.toevoegen()
     url = vim.trim(url)
     vim.ui.select(editions_source.list(), {
       prompt = 'Voor welke editie?',
+      searchable = true,
       format_item = function(item) return item.label end,
     }, function(edition)
       if not edition then return end

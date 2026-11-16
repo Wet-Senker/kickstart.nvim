@@ -800,6 +800,7 @@ local function show_selector(source_buf, workspace)
   end
   vim.ui.select(items, {
     prompt = "Krantversies:",
+    searchable = true,
     format_item = function(item) return item.label end,
   }, function(choice)
     if not choice then return end

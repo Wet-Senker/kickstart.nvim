@@ -17,6 +17,7 @@ local paths = require("texttools_paths")
 local ai = require("ai_text")
 
 assert(paths.work() == linked_inbox .. "/werk", "de pv-werkmap volgt TEXTTOOLS_INBOX_DIR niet")
+assert(paths.photos() == linked_inbox .. "/Pubble-foto", "de fotomap volgt TEXTTOOLS_INBOX_DIR niet")
 assert(
   vim.tbl_contains(ai._import_patterns, paths.work() .. "/*.md"),
   "de werkmap activeert de importherkenning niet"

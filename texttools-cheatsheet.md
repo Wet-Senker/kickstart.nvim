@@ -114,12 +114,12 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>ag` | AI gesprek — typ `***` + vraag, antwoord verschijnt eronder |
 | `<leader>aa` | **Archiefzoeker** — eerder geschreven over dit onderwerp, uit het hele archief. Vijf per keer, per jaar gegroepeerd; nogmaals drukken geeft de volgende vijf |
 | `<leader>as` | **Achtergrond** — in de archieflijst: vat samen wat je liet staan tot `## Achtergrond` onderaan je artikel; die gaat vóór verzending weer weg |
-| `<leader>ah` | Hiërarchisch hulpmenu voor codes, rubrieken, acties en cheatsheet |
+| `<leader>ah` | Doorzoekbaar hiërarchisch hulpmenu voor codes, rubrieken, acties en cheatsheet |
 | `<leader>kh` | Contextuele workflowhulp — toont de actuele status, de aanbevolen volgende stap, andere hoofdopties en wat daarna gebeurt |
 | `:TexttoolsLog` | Veilige tijdlijn voor het huidige artikel; `:TexttoolsLog!` toont de laatste workflow ongeacht de buffer |
-| `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen en Kamper Kiek |
+| `<leader>kt` | Handmatig rubriektemplate kiezen; typ om rubriek, partij of persoon te filteren |
 | `<leader>kq` | Quicktemplate Advanced in de browser openen; kies daar de Pubble-editie en gebruik **Verversen** |
-| `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten |
+| `<leader>kp` | Rubriekplanning: reminders en doorzoekbare planningsoverzichten |
 | `<leader>ka` | Ruwe papieren agendapagina voorbereiden voor eigen tekstcontrole |
 | `<leader>km` | Agendapagina opnieuw meten: alinea’s tegen richtgrens 166 en geschat aantal te verwijderen agendapunten. Zonder AI en zonder opslaan |
 | `<leader>kr` | Rubriekscan (read-only): online webartikelen die waarschijnlijk onder een rubriek vallen maar niet in die categorie staan. In het scherm: `Enter` details, `o` in browser (handmatig corrigeren), `m` afgehandeld, `r` afgehandelde tonen/verbergen, `q` sluiten |

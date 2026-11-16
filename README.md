@@ -1043,6 +1043,8 @@ Gedefinieerd in `~/.config/nvim/lua/krant.lua`. De gewone templates staan in
 hetzelfde menu. De eerste twee gebruiken een dynamische flow voor persoon,
 foto, bijschrift en template; Kamper Kiek gebruikt de ene foto uit Pubble
 Inbox. Een expliciete rubriekkop start de flow voor Raadspraat of Ondernemen.
+In de handmatige flow kun je zowel de rubriek als de partij/persoon filteren
+door een deel van de zichtbare naam te typen en daarna Enter te drukken.
 Zonder zo'n kop kan een volledige naam uit de fotomap de rubriek alleen als
 bevestigingskeuze voorstellen; er wordt nooit stil geclassificeerd. Een unieke
 persoon wordt direct in dezelfde flow gebruikt, zonder een tweede personenmenu.
@@ -1053,6 +1055,11 @@ Kamper Kiek kan behalve via dit handmatige menu ook automatisch worden
 toegepast wanneer de importherkenning de vaste naam plus nummering 1–3 vindt.
 Hondenhoek kan automatisch worden toegepast bij twee sterke tekstsignalen en
 gebruikt dan dezelfde stockrubriekflow als de handmatige keuze.
+
+Andere langere handmatige catalogi, zoals kranten, agenda-/hulpacties,
+planningdeelnemers en Teams-ontvangers, gebruiken hetzelfde zoekveld.
+Controlevragen, herstelkeuzes, verplichte importvragen en menu's met een
+aanbevolen beginselectie blijven bewust genummerd.
 
 Alle vormgevingsrubrieken gebruiken dezelfde tweestapsflow:
 

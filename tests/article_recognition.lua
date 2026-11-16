@@ -133,9 +133,11 @@ assert(#conflict_decision.candidates == 2, 'conflictmenu bevat niet beide rubrie
 -- Integratie: één centrale importcall past Kamper Kiek zonder keuzemenu toe.
 local tmp = vim.fn.tempname()
 local inbox = tmp .. '/inbox'
+local publication_photos = inbox .. '/Pubble-foto'
 local desktop = tmp .. '/Desktop'
 local stock = tmp .. '/stock'
 vim.fn.mkdir(inbox, 'p')
+vim.fn.mkdir(publication_photos, 'p')
 vim.fn.mkdir(desktop, 'p')
 vim.fn.mkdir(stock, 'p')
 vim.env.TEXTTOOLS_INBOX_DIR = inbox
@@ -200,7 +202,7 @@ assert(prepared_without_photo:find('## Facebook', 1, true), 'vaste socialtekst o
 assert(require('layout_export').pending(missing_photo_buf), 'gemeentenieuwsplan ontbreekt zonder foto')
 assert(vim.b[missing_photo_buf].rubric_recognition_pending ~= 'kamper_kiek:photo_missing')
 
-vim.fn.writefile({ 'foto' }, inbox .. '/kiek.jpg')
+vim.fn.writefile({ 'foto' }, publication_photos .. '/kiek.jpg')
 local buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(buf)
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
@@ -301,7 +303,7 @@ assert(honden_output:find('Bert Nieuwenhuis.', 1, true), 'aangeleverde Hondenhoe
 assert(vim.b[honden_buf].recognized_rubric == 'hondenhoek', 'Hondenhoekstatus ontbreekt')
 assert(vim.b[honden_buf].recognized_rubric_score == 100, 'Hondenhoekscore ontbreekt')
 assert(require('layout_export').pending(honden_buf), 'Hondenhoek verloor de vormgevingsexport')
-assert(vim.fn.filereadable(inbox .. '/hondenhoek.jpg') == 1, 'Hondenhoekstockfoto ontbreekt in de Inbox')
+assert(vim.fn.filereadable(publication_photos .. '/hondenhoek.jpg') == 1, 'Hondenhoekstockfoto ontbreekt in Pubble-foto')
 assert(table.concat(vim.api.nvim_buf_get_lines(sentinel_buf, 0, -1, false), '\n') == 'niet wijzigen', 'verkeerde buffer is gewijzigd')
 
 local honden_once = honden_output
