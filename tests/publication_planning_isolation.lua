@@ -99,7 +99,9 @@ local function run(selected, failure, duplicate_case)
   for _, code in ipairs(codes) do
     data[code] = { counts = { [today] = code == 'SW' and 4 or 7, ['2099-10-28'] = 0 },
       suggested = code == 'SW' and today or '2099-10-28', latest_date = vim.NIL,
-      publication_dates = {} }
+      -- Ook op een gemarkeerde krantendag moet de bezetting naar Python; de
+      -- client mag die niet meer vervangen door de oude marker `:krant`.
+      publication_dates = code == 'SW' and { today } or {} }
   end
   response = failure and { code = 1, stdout = '', stderr = 'Onvolledige telling.' }
     or { code = 0, stdout = vim.json.encode(data), stderr = '' }

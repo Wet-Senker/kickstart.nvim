@@ -7675,12 +7675,12 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
           -- handmatig kiesbaar; er wordt dan geen aanbeveling gemarkeerd.
           local count_label = info and tostring(c) or '?'
           local label = d .. "  " .. dow .. "  (" .. count_label .. ")"
-          local val
+          -- Python bepaalt met editie + datum of dit een krantendag is. Geef
+          -- altijd de bezetting door, zodat de tijd ook op krantendagen kan
+          -- roteren naar vroegmiddag, namiddag of avond.
+          local val = d .. ":" .. tostring(c)
           if krant_set[d] then
             label = label .. " 🗞"
-            val = d .. ":krant"
-          else
-            val = d .. ":" .. tostring(c)
           end
           if d == suggested then
             label = label .. " ← aanbevolen"
@@ -7806,13 +7806,9 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
             )
           end
         else
-          local is_krant = false
-          for _, publication_date in ipairs(optional_table(info and info.publication_dates)) do
-            if publication_date == suggested then is_krant = true; break end
-          end
           local count = optional_table(info and info.counts)[suggested] or 0
           recommended[code] = embargo_publication_at
-              or (suggested .. ":" .. (is_krant and "krant" or tostring(count)))
+              or (suggested .. ":" .. tostring(count))
           local date_label
           if embargo_publication_at then
             date_label = embargo_publication_at:sub(9, 10)
