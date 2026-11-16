@@ -114,13 +114,15 @@ assert(
   'Kieknummering staat niet op eigen regels:\n' .. kiek_text
 )
 local nette_kiek = krant._normalize_kamper_kiek({
-  'De Kamper Kiek op de wîêk',
+  'De Kamper Kiek op de Wîêk van burgemeester Sander de Rouwe',
   '',
   'In De Brug kijkt burgemeester Sander de Rouwe wekelijks in fotovorm terug op de afgelopen week.',
   '',
   '1. Eerste onderdeel staat al goed.',
   '2. Tweede onderdeel staat ook goed.',
 })
+assert(not table.concat(nette_kiek, '\n'):find('van burgemeester Sander de Rouwe', 1, true),
+  'volledige vaste Kiek-titel lekte bij opnieuw toepassen de body in')
 assert(
   table.concat(nette_kiek, '\n') == '1. Eerste onderdeel staat al goed.\n2. Tweede onderdeel staat ook goed.',
   'al nette Kamper-Kieknummering werd onnodig veranderd'

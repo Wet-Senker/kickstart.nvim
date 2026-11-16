@@ -678,7 +678,10 @@ betrouwbare plaats-/regiodetectie vóór en na de rewrite gelijk is. Alleen als
 de rewrite die detectie verandert, beslis je zelf welke bestemming blijft. Bij
 `<leader>aw` wordt alleen gevraagd om de bestemming te bevestigen wanneer nog
 geen expliciete `e:` bestaat. Na Ja wordt de regel in de buffer gezet, zodat de
-vraag niet terugkomt.
+vraag niet terugkomt. Als alle gevonden fysieke verspreidingsplaatsen naar
+precies één editie wijzen, geldt die enige editie ook als betrouwbare detectie;
+provinciale en configureerbare onderwerpverwijzingen of fysieke plaatsen uit
+meerdere edities blijven suggesties.
 
 Heeft de definitieve `e:` meer dan één gekozen krant, dan vraagt `<leader>ar`
 bij onderscheidende gebiedssignalen of je **Gerichte varianten** of **Eén
@@ -966,7 +969,9 @@ werkbestand blijft staan en de buffer blijft bewerkbaar, met een duidelijke
 waarschuwing dat deze wijzigingen **niet** zijn meegepubliceerd. Een duurzame
 blokkade voorkomt opnieuw plaatsen, ook na heropenen. `<leader>aw` biedt dan
 alleen de gepubliceerde archiefversie ter vergelijking aan, in een apart
-alleen-lezen venster. Verwerk gewenste correcties bewust in Pubble.
+alleen-lezen venster. De conflictontvangst en directe Pubble-link blijven boven
+het ingeklapte technische deel zichtbaar. Verwerk gewenste correcties bewust
+in Pubble.
 
 Na volledig succes bewaart `~/Documents/Pubble Archief/<jaar>/<maand>/` een
 leesbare versie met titel en weblinks, zonder technische frontmatter.
@@ -1067,7 +1072,9 @@ Kamper Kiek mag rechtstreeks in de gebruikelijke aangeleverde vorm worden
 geplakt: `De Kamper kiek op de wîêk: 1). ... 2). ...`. De speciale flow
 verwijdert die aangeleverde rubriekkop, zet de vaste kop en intro erboven en
 normaliseert ieder genummerd onderdeel naar een eigen regel (`1.`, `2.`,
-enzovoort). De tekst van de onderdelen zelf blijft ongewijzigd.
+enzovoort). De vaste openbare titel wordt `De Kamper Kiek op de Wîêk van
+burgemeester Sander de Rouwe`. De tekst van de onderdelen zelf blijft
+ongewijzigd.
 
 Hondenhoek wordt doorgaans als lopende tekst met `Bert Nieuwenhuis.` onderaan
 aangeleverd. De template behoudt de volledige eerste alinea en auteursregel.

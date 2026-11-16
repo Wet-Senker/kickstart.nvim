@@ -161,11 +161,19 @@ vim.api.nvim_buf_set_lines(changed_buf, 0, -1, false, newer)
 local archive = test_root .. '/gepubliceerd.md'
 vim.fn.writefile({ '# Gepubliceerde versie', '', 'Oorspronkelijke tekst' }, archive)
 local safe, _, cleaned, preserved = ai._finalize_published_buffer(
-  changed_buf, changed_source, { '**Verstuurd**' }, archive, tick
+  changed_buf, changed_source,
+  { '**Verstuurd naar Pubble op 16-11-2026 12:20**', 'https://example.test/gepubliceerd' },
+  archive, tick
 )
 assert(safe and not cleaned and preserved, 'nieuwe edits werden opgeruimd na publicatie')
-assert(vim.deep_equal(vim.api.nvim_buf_get_lines(changed_buf, 0, -1, false), newer),
-  'succesroute wijzigde nieuwere tekst/agenda/foto')
+local conflict_lines = vim.api.nvim_buf_get_lines(changed_buf, 0, -1, false)
+assert(conflict_lines[1]:find('Pubble-versie gepubliceerd op 16-11-2026 12:20', 1, true)
+    and conflict_lines[1]:find('nieuwere niet-gepubliceerde wijzigingen', 1, true),
+  'publicatieconflict mist een eerlijke zichtbare bevestiging')
+assert(conflict_lines[2] == 'https://example.test/gepubliceerd',
+  'publicatieconflict verbergt de Pubble-link')
+assert(vim.deep_equal(vim.list_slice(conflict_lines, 4), newer),
+  'succesroute wijzigde nieuwere tekst/agenda/foto buiten de zichtbare bevestiging')
 assert(vim.bo[changed_buf].modifiable and not vim.bo[changed_buf].readonly and vim.bo[changed_buf].modified,
   'nieuwere edits zijn niet meer bewerkbaar of staan ten onrechte als opgeslagen')
 assert(vim.fn.filereadable(changed_source) == 1, 'nieuwer werkbestand is verwijderd')

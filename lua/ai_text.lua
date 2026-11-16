@@ -5909,12 +5909,28 @@ local function add_sent_marker(buf, marker_block)
   vim.api.nvim_buf_set_lines(buf, 0, 0, false, prepend)
 end
 
+function M._published_conflict_marker(marker_block)
+  local result = vim.deepcopy(marker_block)
+  local sent_at = type(result[1]) == 'string'
+    and result[1]:match('^%*%*Verstuurd naar Pubble op (.-)%*%*$')
+  result[1] = sent_at
+    and ('**Pubble-versie gepubliceerd op ' .. sent_at
+      .. '; onderstaande buffer bevat nieuwere niet-gepubliceerde wijzigingen**')
+    or '**Pubble-versie gepubliceerd; onderstaande buffer bevat nieuwere niet-gepubliceerde wijzigingen**'
+  return result
+end
+
 -- Verwijder een beheerde pv-bron en verander de zichtbare tekst daarna in een
 -- niet-opslagbare nacontrolebuffer. Daardoor kan :w of :wq het verwijderde
 -- werkbestand niet opnieuw aanmaken. Niet-beheerde bestanden krijgen alleen de
 -- verzendmarker en blijven gewone bestanden.
 local function finalize_published_buffer(buf, file_path, marker_block, archive_path, expected_tick)
   if expected_tick and not require('buffer_revision').matches(buf, expected_tick) then
+    -- De actuele tekst mag niet als gepubliceerd worden gemarkeerd, maar de
+    -- bewezen publicatie en directe Pubble-link horen wel zichtbaar boven het
+    -- technische vouwblok te blijven. De afwijkende tekst maakt expliciet dat
+    -- de open buffer niet volledig de gepubliceerde versie vertegenwoordigt.
+    add_sent_marker(buf, M._published_conflict_marker(marker_block))
     publication_recovery.preserve_published_edits(buf, archive_path)
     return true, nil, false, true
   end

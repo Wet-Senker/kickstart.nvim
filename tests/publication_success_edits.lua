@@ -96,7 +96,7 @@ local function run_case(stage)
   if stage == 'notice' then
     vim.api.nvim_buf_set_lines(buf, 3, 3, false, { 'Melding: Facebook-tekst toegevoegd.' })
   end
-  callback({ code = 0, signal = 0, stderr = '', stdout = (timing and 'Pubble article: https://example.test/123\n' or '') .. 'PUBBLE_RESULT_JSON: '
+  callback({ code = 0, signal = 0, stderr = '', stdout = 'Pubble article: https://example.test/123\nPUBBLE_RESULT_JSON: '
     .. vim.json.encode({ mode = 'published', outcome = 'success', phases = {
       { name = 'web', status = 'succeeded' },
     } }) })
@@ -108,8 +108,14 @@ local function run_case(stage)
   assert(#calls == expected_calls and hooks == 1, 'extra calls of ontbrekende succes-hook')
   if timing then assert(timing_calls == 2, 'timingaanroep ontbreekt') end
   if stage and stage ~= 'approval' and stage ~= 'notice' and stage ~= 'timing' then
-    assert(vim.deep_equal(vim.api.nvim_buf_get_lines(buf, 0, -1, false), newer),
-      'nieuwere tekst/agenda/controleregels gewijzigd: ' .. stage)
+    local conflict_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    assert(conflict_lines[1]:find('Pubble-versie gepubliceerd', 1, true)
+        and conflict_lines[1]:find('nieuwere niet-gepubliceerde wijzigingen', 1, true),
+      'eerlijke conflictbevestiging ontbreekt: ' .. stage)
+    assert(conflict_lines[2] == 'https://example.test/123' and conflict_lines[3] == '',
+      'Pubble-link staat niet zichtbaar boven de nieuwere buffer: ' .. stage)
+    assert(vim.deep_equal(vim.list_slice(conflict_lines, 4), newer),
+      'nieuwere tekst/agenda/controleregels gewijzigd buiten de bevestiging: ' .. stage)
     assert(vim.bo[buf].modified and vim.bo[buf].modifiable and not vim.bo[buf].readonly)
     assert(vim.fn.filereadable(file) == 1, 'werkbestand verwijderd: ' .. stage)
     require('user_dialog').confirm = function() return 2 end

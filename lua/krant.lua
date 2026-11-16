@@ -11,7 +11,7 @@ local editions = require('editions')
 local layout_export = require('layout_export')
 local notifications = require('texttools_notify')
 local ARTICLE_BOUNDARY = '=== ARTIKEL ==='
-local KAMPER_KIEK_TITLE = 'De Kamper Kiek op de Wîêk'
+local KAMPER_KIEK_TITLE = 'De Kamper Kiek op de Wîêk van burgemeester Sander de Rouwe'
 local KAMPER_KIEK_INTRO = 'In De Brug kijkt burgemeester Sander de Rouwe wekelijks in fotovorm terug op de afgelopen week.'
 
 -- ============================================================
@@ -1205,17 +1205,22 @@ end
 
 local function normalize_kamper_kiek(content)
   local text = vim.trim(table.concat(content or {}, '\n'))
-  local title_pattern = '^[Dd]e%s+[Kk]amper%s+[Kk]iek%s+op%s+de%s+wîêk'
+  local short_title_pattern = '^[Dd]e%s+[Kk]amper%s+[Kk]iek%s+op%s+de%s+[Ww]îêk'
+  local full_title_pattern = short_title_pattern
+    .. '%s+[Vv]an%s+burgemeester%s+[Ss]ander%s+de%s+[Rr]ouwe'
 
   -- De burgemeester levert de Kiek doorgaans als één doorlopende regel aan:
   -- "De Kamper kiek op de wîêk: 1). ... 2). ...". De vaste rubriekkop staat
   -- al in het template en mag daarom niet nogmaals in de artikelbody komen.
   local removed
-  text, removed = text:gsub(title_pattern .. '%s*:%s*', '', 1)
+  text, removed = text:gsub(full_title_pattern .. '%s*:%s*', '', 1)
+  if removed == 0 then text, removed = text:gsub(short_title_pattern .. '%s*:%s*', '', 1) end
   if removed == 0 then
     -- Maakt opnieuw toepassen veilig voor een tekst die al in de goede vorm
     -- staat: vaste kop en intro worden niet dubbel gestapeld.
-    text = text:gsub(title_pattern .. '%s*\n%s*', '', 1)
+    local full_removed
+    text, full_removed = text:gsub(full_title_pattern .. '%s*\n%s*', '', 1)
+    if full_removed == 0 then text = text:gsub(short_title_pattern .. '%s*\n%s*', '', 1) end
     if text:sub(1, #KAMPER_KIEK_INTRO) == KAMPER_KIEK_INTRO then
       text = vim.trim(text:sub(#KAMPER_KIEK_INTRO + 1))
     end
