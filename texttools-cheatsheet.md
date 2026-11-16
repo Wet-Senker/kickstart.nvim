@@ -120,6 +120,7 @@ pubble-batch > ~/Desktop/pubble-batch.log 2>&1 &
 | `<leader>kt` | Handmatig rubriektemplate kiezen; typ om rubriek, partij of persoon te filteren |
 | `<leader>kq` | Quicktemplate Advanced in de browser openen; kies daar de Pubble-editie en gebruik **Verversen** |
 | `<leader>kp` | Rubriekplanning: reminders en doorzoekbare planningsoverzichten |
+| `<leader>ks` | Kandidaten voor Ondernemen in Kampen/Gemeentenieuws zoeken in uitsluitend de aanstaande De Brug-editie (read-only) |
 | `<leader>ka` | Ruwe papieren agendapagina voorbereiden voor eigen tekstcontrole |
 | `<leader>km` | Agendapagina opnieuw meten: alinea’s tegen richtgrens 166 en geschat aantal te verwijderen agendapunten. Zonder AI en zonder opslaan |
 | `<leader>kr` | Rubriekscan (read-only): online webartikelen die waarschijnlijk onder een rubriek vallen maar niet in die categorie staan. In het scherm: `Enter` details, `o` in browser (handmatig corrigeren), `m` afgehandeld, `r` afgehandelde tonen/verbergen, `q` sluiten |

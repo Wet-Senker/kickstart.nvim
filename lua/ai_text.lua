@@ -9812,6 +9812,7 @@ local help_categories = {
     items = {
       { label = "Rubriektemplate handmatig kiezen (<leader>kt)", action = function() require("krant").menu() end },
       { label = "Planning Raadspraat/Ondernemen (<leader>kp)", action = function() vim.cmd("RubriekPlanning") end },
+      { label = "Aanstaande krant op vaste pagina’s zoeken (<leader>ks)", action = function() require("newspaper_page_search").menu() end },
       { label = "Papieren agendapagina voorbereiden (<leader>ka)", action = function() require("agenda_page").prepare() end },
       { label = "Agendapagina omvang meten (<leader>km)", action = function() require("agenda_page").measure() end },
       { label = "Meestgelezen weekoverzicht (<leader>kv)", action = function() require("weekly_most_read").run() end },

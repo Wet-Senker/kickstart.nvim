@@ -19,6 +19,7 @@ local edition_review = read("lua/edition_review.lua")
 local archive_context = read("lua/archive_context.lua")
 local article_copy = read("lua/article_copy.lua")
 local article_activity = read("lua/article_activity.lua")
+local newspaper_page_search = read("lua/newspaper_page_search.lua")
 
 local documented_mappings = {
   { key = "<leader>ar", source = ai_text, registration = 'vim.keymap.set("n", "<leader>ar"' },
@@ -41,6 +42,7 @@ local documented_mappings = {
   { key = "<leader>aq", source = ai_text, registration = 'vim.keymap.set("n", "<leader>aq"' },
   { key = "<leader>kt", source = init, registration = "vim.keymap.set('n', '<leader>kt'" },
   { key = "<leader>kp", source = reminders, registration = "vim.keymap.set('n', '<leader>kp'" },
+  { key = "<leader>ks", source = newspaper_page_search, registration = "vim.keymap.set('n', '<leader>ks'" },
   { key = "<leader>ka", source = agenda_page, registration = "vim.keymap.set('n', '<leader>ka'" },
   { key = "<leader>km", source = agenda_page, registration = "vim.keymap.set('n', '<leader>km'" },
   { key = "<leader>kd", source = site_duplicates, registration = "vim.keymap.set('n', '<leader>kd'" },
@@ -83,6 +85,7 @@ assert(
 )
 assert(ai_text:find('label = "Rubrieken"', 1, true), "Rubrieken ontbreekt in <leader>ah")
 assert(ai_text:find('vim.cmd("RubriekPlanning")', 1, true), "rubriekplanning is niet bereikbaar vanuit <leader>ah")
+assert(ai_text:find('require("newspaper_page_search").menu()', 1, true), "vaste-paginazoeker ontbreekt in <leader>ah")
 assert(ai_text:find('require("agenda_page").prepare()', 1, true), "agendapagina is niet bereikbaar vanuit <leader>ah")
 assert(ai_text:find('require("weekly_most_read").run()', 1, true), "meestgelezen ontbreekt in <leader>ah")
 assert(

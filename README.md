@@ -273,6 +273,7 @@ Details: [schrijfprofielen](/Users/nickdevries/workspace/texttools/docs/schrijfp
 | `<leader>kt` | Handmatig rubriektemplate kiezen, inclusief Raadspraat, Ondernemen in Kampen en Kamper Kiek. |
 | `<leader>kq` | Quicktemplate Advanced veilig lokaal starten en in de browser openen; editie kiezen en Pubble-artikelen verversen gebeurt daar. |
 | `<leader>kp` | Rubriekplanning: reminders en planningsoverzichten voor Raadspraat en Ondernemen in Kampen. |
+| `<leader>ks` / `:KrantPaginaZoek` | Beoordeelt uitsluitend de aanstaande De Brug-kranteditie op kandidaten voor Ondernemen in Kampen en Gemeentenieuws. Toont sterke/mogelijke voorstellen met reden; wijzigt niets in Pubble. |
 | `<leader>ka` | Ruwe papieren agendapagina structureren en gewone items redigeren; daarna zelf de tekst controleren. |
 | `<leader>km` / `:AgendaPaginaOmvang` | Tel de actuele agendablokken tegen ongeveer 166 alinea’s en schat hoeveel agendapunten nog weg moeten. Alleen-lezen, zonder AI. |
 | `<leader>kg` | Agenda-onlinemenu. Bij **Websiteartikelen zonder agenda-item zoeken** maakt Enter een bewerkbaar voorstel, opent `o` het bronartikel en markeert `x` een artikel duurzaam als geen agenda nodig. Afwijzingen synchroniseren via de gedeelde Texttools-map. |
@@ -1121,6 +1122,7 @@ De 112-disclaimer in het 112-template is de enige bron — `ai_text.lua` leest h
 | `lua/pubble_duplicates.lua` | koppen per krant, detailweergave van de gekozen krantversie en expliciete keuze bij mogelijke Pubble-doublures |
 | `lua/site_duplicates.lua` | dunne client en keuzemenu voor interne webartikel-doublures (`<leader>kd`) |
 | `lua/weekly_most_read.lua` | dunne reviewclient voor het meestgelezen weekoverzicht en hoofdfoto's (`<leader>kv`, buffer-lokaal `<leader>kf`) |
+| `lua/newspaper_page_search.lua` | dunne read-only client voor vaste-paginapresets in de aanstaande De Brug-editie (`<leader>ks`) |
 | `lua/context_help.lua` | generieke bufferafhankelijke schermhulp (`<leader>kh`) |
 | `lua/ordered_browser.lua` | opent gerelateerde Pubble-links in een stabiele, niet-blokkerende volgorde |
 | `plugin/agenda_page.lua` | laadt de afzonderlijke agendapagina-UI |
