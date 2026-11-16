@@ -261,7 +261,7 @@ Details: [schrijfprofielen](/Users/nickdevries/workspace/texttools/docs/schrijfp
 | `<leader>aK` / `:ArtikelKopie` | Huidige artikeltekst als zelfstandige `Kopie-…`-buffer openen. Vul de nieuwe `e:` in en herschrijf met `<leader>ar`. Origineel blijft intact; oude metadata, Pubble-ID's, planning, fotokeuze, socialtekst, agenda en gekoppelde krantversies gaan niet mee. Kies opnieuw een foto. Ook beschikbaar onder **Acties** in `<leader>ah`. |
 | `<leader>c` | Schone eigenlijke artikeltekst als Markdown naar het klembord. Zichtbare fotocredit en fotobijschrift komen bovenaan; technische bufferstate en digitale werksecties blijven weg. Visueel `<leader>c` kopieert de bewuste selectie letterlijk. |
 | `<leader>m` | Dezelfde schone artikeltekst via Pandoc/TextUtil als rich text naar het klembord. |
-| `<leader>ax` | Dezelfde schone artikeltekst als DOCX naar het Bureaublad, met losse gelijknamige foto. Bij meerdere foto's worden alle bestanden genummerd. |
+| `<leader>ax` | Dezelfde schone artikeltekst als DOCX naar het Bureaublad. Met foto's: `naamFOTO.docx`, `naamFOTO1.jpg`, `naamFOTO2.jpg`, enzovoort. |
 | `<leader>f` | Algemene Conform-codeformatter; geen artikeluitvoer en normaal niet nodig in een artikelbuffer. |
 | `<leader>aw` | Versturen naar Pubble. Vanuit bron of reviewbuffer is dit één centrale verzending voor alle kranten: iedere krant krijgt haar eigen artikel- en socialtekst; dezelfde foto wordt eenmaal geüpload en aan alle doelen gekoppeld. Vanaf twee meegezonden foto's eindigt de web- en krantenkop in Pubble op `(n foto's)`; 112-koppen zijn uitgezonderd. Socialtekst wordt alleen in het bijbehorende Pubble-webartikel opgeslagen, niet automatisch op Facebook of LinkedIn geplaatst. Bij een import vraagt een extra safeguard alleen om bevestiging wanneer de body nog nauwelijks afwijkt van de import. Een substantiële handmatige bewerking is dus voldoende; AI is niet verplicht. Vóór de eerste Pubble-write volgt zo nodig de doublurecontrole volgens het Python-branchbeleid, tenzij die al bij import of herschrijven is afgerond. `codex/doublure-altijd` controleert ook alleen De Brug; `codex/doublure-voorwaardelijk` controleert zodra een andere krant is gekozen, ook alleen De Kop. Een incompleet agenda-item geeft de keuze om eerst aan te vullen of alleen web/print te plaatsen. Wanneer de eerstvolgende krant in een andere evenementfase valt, toont de eerste druk alleen voor die editie een `## Kranttijdsversies`-tekst. Eventvervolgen verschijnen in dezelfde reviewstap; de tweede druk publiceert alles samen. |
 | `<leader>ap` | Ad-hoc herschrijven — typ `***` + instructie, buffer wordt vervangen en krijgt daarna dezelfde nacontrole als `<leader>ar`. |
@@ -936,9 +936,9 @@ vormgevingsexport één extra asynchroon Python-proces plus lokale fotokopieën.
 De losse directe actie `<leader>ax` maakt een DOCX van dezelfde schone
 artikelbron als `<leader>c` en `<leader>m`. Bij een eerdere
 `<leader>pf`-keuze gebruikt zij het originele Pubble-beeld en downloadt dit als
-los bestand onder dezelfde basisnaam. Zonder zo'n selectie blijven de losse
-Pubble Inbox-foto's de bron. Eén foto blijft ongenummerd; bij meerdere foto's
-worden alle bestanden genummerd. De downloadroute doet drie read-only
+los bestand onder dezelfde `FOTO`-basisnaam. Zonder zo'n selectie blijven de losse
+Pubble Inbox-foto's de bron. Zodra een foto meegaat, heet het document
+`naamFOTO.docx` en worden alle foto's vanaf `naamFOTO1.ext` genummerd. De downloadroute doet drie read-only
 netwerkacties en geen AI- of Pubble-write; NeoVim blijft tijdens de asynchrone
 export bruikbaar.
 
