@@ -5396,7 +5396,7 @@ require("user_dialog").keymap("n", "<leader>av", M.prepare_article, {
   desc = "Zelf getikt artikel voorbereiden voor verzending (geen rewrite)",
 })
 
--- Vormgevingsexport: de gedeelde Python-actie maakt de tekst én kiest de
+-- Documentexport: de gedeelde Python-actie maakt de DOCX én kiest de
 -- gezaghebbende fotobron. Een expliciete <leader>pf-keuze wordt als origineel
 -- uit Pubble gedownload; anders blijven de losse Pubble Inbox-foto's leidend.
 function M.export_designer_text(buf)
@@ -5407,9 +5407,9 @@ function M.export_designer_text(buf)
     notifications.notify("Buffer is leeg.", vim.log.levels.WARN)
     return
   end
-  vim.ui.input({ prompt = "Bestandsnaam vormgeving (Bureaublad): " }, function(input)
+  vim.ui.input({ prompt = "Bestandsnaam DOCX (Bureaublad): " }, function(input)
     if not input or vim.trim(input) == "" then
-      notify_workflow("Vormgevingsexport geannuleerd.", vim.log.levels.INFO)
+      notify_workflow("Documentexport geannuleerd.", vim.log.levels.INFO)
       return
     end
     local name = vim.trim(input)
@@ -5432,7 +5432,7 @@ function M.export_designer_text(buf)
         if result.code ~= 0 then
           local message = vim.trim(result.stderr or "")
           notifications.notify(
-            "Vormgevingsexport mislukt: " .. (message ~= "" and message or "onbekende fout"),
+            "Documentexport mislukt: " .. (message ~= "" and message or "onbekende fout"),
             vim.log.levels.ERROR
           )
           return
@@ -5441,14 +5441,15 @@ function M.export_designer_text(buf)
         if not ok
             or type(payload) ~= "table"
             or payload.schema_version ~= 1
-            or type(payload.text_path) ~= "string"
+            or type(payload.document_path or payload.text_path) ~= "string"
             or type(payload.image_paths) ~= "table"
         then
-          notifications.notify("Vormgevingsexport gaf geen geldig resultaat terug.", vim.log.levels.ERROR)
+          notifications.notify("Documentexport gaf geen geldig resultaat terug.", vim.log.levels.ERROR)
           return
         end
         local photos = #payload.image_paths
-        local message = "Vormgeving opgeslagen: " .. vim.fn.fnamemodify(payload.text_path, ":t")
+        local document_path = payload.document_path or payload.text_path
+        local message = "Document opgeslagen: " .. vim.fn.fnamemodify(document_path, ":t")
         if photos == 1 then
           message = message .. " + foto"
         elseif photos > 1 then
@@ -5461,7 +5462,7 @@ function M.export_designer_text(buf)
 end
 
 require("user_dialog").keymap("n", "<leader>ax", M.export_designer_text, {
-  desc = "Artikel als vormgevingstekst (+foto) naar Bureaublad",
+  desc = "Schone artikeltekst als DOCX (+foto's) naar Bureaublad",
 })
 
 -- Lokale upvalue voor de eventvoorbereiding. De verzendflow gebruikt bewust
@@ -9772,6 +9773,21 @@ local help_categories = {
       { label = "Fotograaf foto 2 (c2:)", insert = "c2: " },
       { label = "Foto's: nummer ze foto1/foto2 → koppelt aan b1/c1, b2/c2 (Inbox)", insert = "" },
       { label = "Eigen streamer op cursorpositie invoeren", action = function() M.insert_streamer_at_cursor() end },
+    },
+  },
+  {
+    label = "Exporteren",
+    prompt = "Artikel uitvoeren:",
+    items = {
+      { label = "Schone Markdown naar klembord (<leader>c)", action = function() require('article_export').copy_markdown() end },
+      { label = "Schone rich text naar klembord (<leader>m)", action = function() require('article_export').copy_rich_text() end },
+      { label = "Schone DOCX met losse foto's naar Bureaublad (<leader>ax)", action = function() M.export_designer_text() end },
+      { label = "Uitleg: <leader>f formatteert code en exporteert geen artikel", action = function()
+        notifications.notify(
+          "<leader>f is de algemene codeformatter van NeoVim. Gebruik voor artikelen <leader>c, <leader>m of <leader>ax.",
+          vim.log.levels.INFO
+        )
+      end },
     },
   },
   {

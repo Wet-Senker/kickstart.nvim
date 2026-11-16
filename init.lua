@@ -805,7 +805,8 @@ do
     },
   }
 
-  vim.keymap.set({ 'n', 'v' }, '<leader>f', function() require('conform').format { async = true } end, { desc = '[F]ormat buffer' })
+  vim.keymap.set({ 'n', 'v' }, '<leader>f', function() require('conform').format { async = true } end,
+    { desc = 'Code automatisch formatteren (geen tekstexport)' })
 end
 
 -- ============================================================
@@ -1232,14 +1233,14 @@ require('zen-mode').setup({
 
 vim.keymap.set('n', '<leader>z', '<cmd>ZenMode<cr>', { desc = 'Toggle Zen (rustige tekstkolom)' })
 
--- Copy to system clipboard
-vim.keymap.set('n', '<leader>c', '<cmd>%y+<cr>', { desc = 'Copy whole buffer to clipboard' })
+-- Artikeluitvoer gebruikt één gedeelde Python-opschoning. De visuele mapping
+-- blijft een letterlijke, bewust gekozen selectie kopiëren.
+vim.keymap.set('n', '<leader>c', function() require('article_export').copy_markdown() end,
+  { desc = 'Schone artikel-Markdown naar klembord' })
 vim.keymap.set('x', '<leader>c', '"+y', { desc = 'Copy selection to clipboard' })
 
-vim.keymap.set('n', '<leader>m',
-  [[<cmd>w !LC_CTYPE=UTF-8 pandoc -f markdown-smart -t html --ascii | textutil -stdin -stdout -format html -convert rtf -encoding UTF-8 | pbcopy -Prefer rtf<cr>]],
-  { desc = 'Markdown buffer to rich-text clipboard' }
-)
+vim.keymap.set('n', '<leader>m', function() require('article_export').copy_rich_text() end,
+  { desc = 'Schone artikeltekst als rich text naar klembord' })
 
 vim.keymap.set('n', '<leader>kt', function() require('krant').menu() end, { desc = '[K]rant [T]emplate kiezen' })
 vim.keymap.set('n', '<leader>kq', function() require('quicktemplate').open() end,
