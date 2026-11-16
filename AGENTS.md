@@ -31,5 +31,30 @@ Mandatory working rules:
 Run the headless NeoVim suite for relevant changes and the Texttools Python
 suite when shared contracts or publication behavior are affected.
 
+## Git branch policy
+
+`develop` is the default working branch for all new features, ordinary fixes,
+documentation changes, and work shared with Texttools. Before editing, inspect
+the current branch and worktree. Unless the user explicitly requests another
+branch, start or continue on `develop`; do not begin ordinary development
+directly on `master`.
+
+- Keep `master` as the stable integration/release branch. Merge or fast-forward
+  `develop` to `master` only after the relevant tests pass and the user
+  explicitly asks to integrate or release it.
+- Push ordinary development commits to `origin/develop`. A request to “commit
+  and push” means the current development work goes to `develop`, not silently
+  to `master`.
+- Merge an explicit emergency hotfix on `master` back into `develop` after
+  verification.
+- Cross-repository changes use `develop` in both repositories.
+- Temporary `codex/*` branches are only for isolated experiments or worktrees
+  and are removed after integration when their worktree is clean.
+- Never switch a dirty worktree merely to satisfy this policy; preserve the
+  user's changes and separate them safely.
+
+The canonical rationale is recorded in the Texttools `DECISIONS.md` entry
+“Nieuwe ontwikkeling gebeurt standaard op `develop`”.
+
 When the user asks for `git pull`, follow the canonical Texttools
 `AGENTS.md` section "User-requested git pull" for the local entrypoints.
