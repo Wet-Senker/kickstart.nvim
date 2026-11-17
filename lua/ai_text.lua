@@ -1525,12 +1525,18 @@ function M._duplicate_scope_hint(lines)
   return ''
 end
 
-local function duplicate_check_is_current(buf)
+function M._web_duplicate_review_status(buf)
   local checked = vim.b[buf].pubble_duplicate_checked_body
-  if type(checked) ~= "string" then return false end
+  if type(checked) ~= "string" then return 'no_completed_review' end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local scope = vim.b[buf].pubble_duplicate_checked_scope
-  return checked == editorial_body_text(lines) and (scope == nil or scope == M._duplicate_scope_hint(lines))
+  if checked ~= editorial_body_text(lines) then return 'article_changed' end
+  if scope ~= nil and scope ~= M._duplicate_scope_hint(lines) then return 'edition_control_changed' end
+  return 'current_review'
+end
+
+local function duplicate_check_is_current(buf)
+  return M._web_duplicate_review_status(buf) == 'current_review'
 end
 
 M._duplicate_check_is_current = duplicate_check_is_current
@@ -1699,7 +1705,16 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
     '--with-agenda',
   }
   if stage == 'hercontroleren' then table.insert(command, '--review-all') end
-  if stage ~= 'hercontroleren' and duplicate_check_is_current(buf) then table.insert(command, '--skip-web') end
+  if stage ~= 'hercontroleren' then
+    local web_status = M._web_duplicate_review_status(buf)
+    if web_status == 'current_review' then
+      table.insert(command, '--skip-web')
+    elseif stage == 'verzenden' then
+      workflow_log.diagnostic(buf, 'Doublurecontrole · Web', {
+        status = 'checking', reason = web_status, request_mode = stage,
+      })
+    end
+  end
   if existing_file then table.insert(command, '--skip-agenda') end
   for _, key in ipairs(stage ~= 'hercontroleren' and ignored_duplicate_keys(buf) or {}) do
     table.insert(command, "--ignore-key")
@@ -1868,17 +1883,14 @@ local function check_duplicate_stage(buf, codes, stage, done, existing_file, rev
 end
 M._check_duplicate_stage = check_duplicate_stage
 
--- Bij import beide controles achter elkaar, vóór elke verwerking: eerst of het
--- artikel zelf al bestaat, daarna of het evenement al in de agenda staat. Het
--- Een bewuste n-keuze laat alleen het agenda-item vervallen. q breekt de
--- huidige voorbereiding af; het mag geen impliciete toestemming worden.
+-- De gecombineerde controle behandelt ook de agenda. Als het kalenderblok
+-- nog ontbreekt, controleert write_calendar_section het uitgewerkte voorstel.
 local function check_import_duplicates(buf, codes, complete)
   check_duplicate_stage(buf, codes, "importeren", function(approved)
-    if not approved then
-      complete(false)
-      return
+    if approved and vim.api.nvim_buf_is_valid(buf) then
+      vim.b[buf].agenda_duplicate_editions = codes
     end
-    M._check_agenda_duplicates(buf, codes, function(approved) complete(approved == true) end)
+    complete(approved == true)
   end)
 end
 
@@ -4363,6 +4375,7 @@ function M._calendar_transition(buf, action, values, done, guard, attempt)
           require('article_notices').replace_content(buf, vim.split(data.markdown, '\n', { plain = true }))
           vim.b[buf].calendar_transition_tick = vim.api.nvim_buf_get_changedtick(buf)
           vim.b[buf].calendar_transition_revision = require('buffer_revision').capture(buf)
+          require('agenda_duplicate_display').show(buf, data.agenda_skipped)
           if data.status == 'removed' or data.status == 'declined' or data.status == 'skipped' or data.status == 'allowed' then
             vim.b[buf].cached_calendar_metadata = nil
             vim.b[buf].cached_calendar_metadata_source = nil
@@ -7022,9 +7035,10 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
               )
             end
 
-            -- Open na plaatsing geen browser of applicatie. De URL staat in
-            -- de bevestigingsbuffer en kan bewust worden geopend wanneer dat
-            -- uitkomt; de huidige app en focus blijven hierdoor ongemoeid.
+            -- Open op macOS pas na archivering, met behoud van appfocus.
+            if article_url and vim.fn.has('mac') == 1 then
+              require('ordered_browser').open_urls({ article_url })
+            end
 
             notify_workflow('Publicatie afgerond. ' .. msg, message_level,
               { buf = buf, kind = message_level == nil and 'success' or nil, status = 'Publicatie verwerkt en gearchiveerd' })

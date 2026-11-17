@@ -116,6 +116,15 @@ assert(ai._duplicate_check_is_current(source), 'fotocredit maakte de goedgekeurd
 local reused
 ai._check_duplicate_stage(source, { 'B', 'SW' }, 'verzenden', function(ok) reused = ok end)
 assert(reused and scans == before_scans + 1, 'verzenden herhaalde de goedgekeurde webcontrole')
+vim.api.nvim_buf_set_lines(source, -1, -1, false, {
+  '', '---', '', '## Kalender', '', 'Titel: Open dag', '',
+})
+assert(ai._duplicate_check_is_current(source), 'kalendervoorstel maakte de webcontrole ongeldig')
+ai.reject_calendar(source)
+assert(ai._duplicate_check_is_current(source), 'agenda uitzetten maakte de webcontrole ongeldig')
+vim.api.nvim_buf_set_lines(source, -1, -1, false, { 'Een nieuwe alinea.' })
+assert(ai._web_duplicate_review_status(source) == 'article_changed',
+  'echte tekstwijziging kreeg geen verklaarbare hercontrole')
 vim.system = native_system
 vim.fn.delete(directory, 'rf')
 print('duplicate send continuation: OK')

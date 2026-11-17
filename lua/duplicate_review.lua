@@ -27,6 +27,7 @@ function M.apply(buf, report, selections, done, reviewed_markdown, allow_source_
         done(false); return
       end
       require('article_notices').replace_content(buf, vim.split(data.markdown, '\n', { plain = true }))
+      require('agenda_duplicate_display').show(buf, data.agenda_skipped)
       local summaries = data.summaries or {}
       local summary = #summaries > 0 and table.concat(summaries, '; ')
         or 'Geen onderdelen overgeslagen wegens bevestigde doublures.'

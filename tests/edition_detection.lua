@@ -4,7 +4,9 @@ local ai = require 'ai_text'
 local original_agenda_candidates = ai._agenda_duplicate_candidates
 local original_column_runner = ai._column_recognition_runner
 local original_rubriek_runner = ai._rubriek_check_runner
+local separate_agenda_checks = 0
 ai._agenda_duplicate_candidates = function(_, _, done)
+  separate_agenda_checks = separate_agenda_checks + 1
   vim.schedule(function() done({ performed = true, candidates = {} }) end)
 end
 ai._column_recognition_runner = function(_, _, done) done({}) end
@@ -328,6 +330,7 @@ assert(
   'import bereikte de doublurecontrole niet'
 )
 assert(calendar_starts == 0, 'kalender-AI startte vóór het doublurebesluit')
+local before_separate_agenda_checks = separate_agenda_checks
 held_duplicate_callback(true, {
   performed = true,
   candidates = { { headline = 'Mogelijke bestaande versie' } },
@@ -336,6 +339,10 @@ assert(
   vim.wait(1000, function() return calendar_starts == 1 end, 20),
   'kalender-AI startte niet na het doublurebesluit'
 )
+assert(separate_agenda_checks == before_separate_agenda_checks,
+  'import herhaalde de agendacontrole vóór de kalender-AI')
+assert(vim.deep_equal(vim.b[calendar_event].agenda_duplicate_editions, { 'B' }),
+  'de uitgewerkte kalender verloor de edities voor de agendacontrole')
 
 held_duplicate_callback = nil
 local rejected_calendar_event = vim.api.nvim_create_buf(false, true)

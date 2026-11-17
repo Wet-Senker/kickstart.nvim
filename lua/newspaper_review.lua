@@ -50,32 +50,27 @@ function M.collect(plan, opts, done)
     end
     if index > #items then finish(staged); return end
     local item = items[index]
-    local labels, actions, shortcuts = {}, {}, {}
-    local keys = { website = 'w', rewrite = 'h', use_web = 'b' }
+    local labels, actions = {}, {}
+    local allowed = { website = true, rewrite = true, use_web = true }
     for _, choice in ipairs(item.choices or {}) do
-      local key = keys[choice.id]
-      if not key or type(choice.label) ~= 'string' then
+      if not allowed[choice.id] or type(choice.label) ~= 'string' then
         finish(nil, 'Onbekende krantkeuze; werk Texttools en Neovim samen bij.')
         return
       end
-      labels[#labels + 1] = choice.label .. ' [' .. key .. ']'
+      labels[#labels + 1] = choice.label
       actions[#actions + 1] = choice.id
-      shortcuts[key], shortcuts[key:upper()] = #labels, #labels
     end
     if #labels == 0 or type(item.edition) ~= 'string' then
       finish(nil, 'Onvolledig krantkeuzeplan; start opnieuw.')
       return
     end
     if item.editions and #item.editions > 1 then
-      labels[#labels + 1], actions[#actions + 1] = 'Per krant kiezen [p]', 'split'
-      shortcuts.p, shortcuts.P = #labels, #labels
+      labels[#labels + 1], actions[#actions + 1] = 'Per krant kiezen', 'split'
     end
     if index > 1 then
-      labels[#labels + 1], actions[#actions + 1] = 'Terug [t]', 'back'
-      shortcuts.t, shortcuts.T = #labels, #labels
+      labels[#labels + 1], actions[#actions + 1] = 'Terug', 'back'
     end
-    labels[#labels + 1], actions[#actions + 1] = 'Hele keuzeronde annuleren [a]', 'cancel'
-    shortcuts.a, shortcuts.A = #labels, #labels
+    labels[#labels + 1], actions[#actions + 1] = 'Hele keuzeronde annuleren', 'cancel'
     local issue = type(item.newspaper_date) == 'string'
       and item.newspaper_date:gsub('^(%d%d%d%d)%-(%d%d)%-(%d%d)$', '%3-%2-%1') or 'onbekend'
     local prompt = (item.heading and (item.heading .. '\nKeuze ' .. index .. ' van ' .. #items)
@@ -83,7 +78,7 @@ function M.collect(plan, opts, done)
         .. ' — ' .. index .. ' van ' .. #items)) .. '\n\n' .. tostring(item.reason or '')
       .. '\n\nEerst alle keuzes; daarna pas uitvoeren.'
     require('user_dialog').select(labels, {
-      prompt = prompt, native = true, source_buf = opts.buf, shortcuts = shortcuts,
+      prompt = prompt, native = true, source_buf = opts.buf,
       default = staged[item.edition] and (function()
         for i, action in ipairs(actions) do if action == staged[item.edition] then return i end end
       end)() or 1,

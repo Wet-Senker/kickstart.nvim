@@ -51,12 +51,17 @@ local function run_case(stage)
   end
   local export_done
   require('layout_export').finalize_with_media = function(_, _, done) export_done = done end
-  local calls, callback, sending_file, timing_calls = {}, nil, nil, 0
+  local calls, callback, sending_file, timing_calls, browser_calls = {}, nil, nil, 0, 0
   local archive = directory .. '/archief-' .. serial .. '.md'
   local old_system = vim.system
   vim.system = function(command, opts, done)
     if command[1] == '/usr/bin/open' then
-      error('geslaagde publicatie mag de browser niet automatisch openen')
+      browser_calls = browser_calls + 1
+      assert(command[2] == '-g' and command[3] == 'https://example.test/123',
+        'publicatie moet de artikellink op de achtergrond openen')
+      assert(vim.fn.filereadable(archive) == 1, 'browser opende vóór archivering')
+      vim.schedule(function() done({ code = 0 }) end)
+      return {}
     end
     table.insert(calls, command)
     if command[1]:match('pubble%-print%-timing$') then
@@ -106,6 +111,7 @@ local function run_case(stage)
   assert(vim.wait(1000, function() return vim.b[buf].publication_in_progress == false end))
   local expected_calls = timing and 4 or 2
   assert(#calls == expected_calls and hooks == 1, 'extra calls of ontbrekende succes-hook')
+  assert(browser_calls == vim.fn.has('mac'), 'onverwacht aantal browseropeningen')
   if timing then assert(timing_calls == 2, 'timingaanroep ontbreekt') end
   if stage and stage ~= 'approval' and stage ~= 'notice' and stage ~= 'timing' then
     local conflict_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
