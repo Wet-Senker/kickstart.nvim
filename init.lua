@@ -264,6 +264,19 @@ do
   vim.pack.add { gh 'NMAC427/guess-indent.nvim' }
   require('guess-indent').setup {}
 
+  vim.pack.add { gh 'folke/flash.nvim' }
+
+  require("flash").setup({
+    modes = {
+      char = { enabled = false },
+      search = {enabled = true },
+    },
+  })
+
+  vim.keymap.set({ "n", "x", "o" }, "gs", function()
+  require("flash").jump()
+  end, { desc = "Flash: Jump to text" })
+
   -- Because lua is a real programming language, you can also have some logic to your installation -
   -- like only installing a plugin if a condition is met.
   --
