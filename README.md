@@ -1040,7 +1040,10 @@ geen focus en neemt de app waarin je werkt dus niet over.
 ## Rubriek-templates (`<leader>kt`)
 
 Gedefinieerd in `~/.config/nvim/lua/krant.lua`. De gewone templates staan in
-`M.templates`. Raadspraat, Ondernemen in Kampen en Kamper Kiek staan bovenaan
+`M.templates`. Bij Raadspraat staat het fotobijschrift als `b:` bij de gegevens
+boven `=== ARTIKEL ===`. De eerste artikelregel combineert de rubriek en de
+aangeleverde kop: `Raadspraat <partij>: <kop>`.
+Raadspraat, Ondernemen in Kampen en Kamper Kiek staan bovenaan
 hetzelfde menu. De eerste twee gebruiken een dynamische flow voor persoon,
 foto, bijschrift en template; Kamper Kiek gebruikt de ene foto uit Pubble
 Inbox. Een expliciete rubriekkop start de flow voor Raadspraat of Ondernemen.
@@ -1063,6 +1066,20 @@ Controlevragen, herstelkeuzes, verplichte importvragen en menu's met een
 aanbevolen beginselectie blijven bewust genummerd.
 
 Alle vormgevingsrubrieken gebruiken dezelfde tweestapsflow:
+
+De weekmap wordt eerst op `~/Desktop` gezocht, daarna onder
+`~/Documents/1.Brugmedia/Brug`. Hetzelfde berekende weeknummer geldt voor beide
+locaties. Ontbreekt de map op beide plekken, dan wordt zij op het bureaublad
+aangemaakt. Dit geldt voor `WW_gemeentenieuws`, `WW_lezersnieuws` en
+`WW_ondernemen_in_kampen`; de bestaande naam `WW Gemeentenieuws` wordt ook
+herkend. De gekozen map blijft voor foto en definitieve tekst dezelfde.
+De tweede zoeklocatie is instelbaar met `TEXTTOOLS_BRUG_EXPORT_ROOT`.
+
+Ook zonder template maakt de websiterubriek Ondernemen in Kampen bij
+`<leader>aw` een exportplan voor deze weekmap. `r: ondernemen` of een uniek
+fragment zoals `r: nem` boven de artikelgrens is voldoende. Tekst en gekoppelde
+foto's worden na succesvolle publicatie geëxporteerd met een eigen
+artikelbestandsnaam. Een bestaand template-exportplan blijft behouden.
 
 1. Automatische zekere herkenning of `<leader>kt` vult het template in, kopieert de gekozen foto naar Pubble
    Inbox en de juiste weekmap, en registreert het exportdoel. Er wordt nog geen

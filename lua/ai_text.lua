@@ -7426,6 +7426,12 @@ function M.pubble_send(target_buf, calendar_reconciled, agenda_reviewed)
       -- starten; anders kreeg publication_dates ten onrechte --editions "".
       resolved_editions = resolved.editions
       editie = table.concat(resolved_editions, ", ")
+      local export_ok, export_error = require('krant').ensure_category_export(buf, resolved.layout_export)
+      if not export_ok then
+        discard_unpublished_temp()
+        notifications.notify(export_error or 'Rubriekexport kon niet worden voorbereid.', vim.log.levels.ERROR)
+        return
+      end
       -- Vang ook een later handmatig of fuzzy ingevulde e:-keuze op. De
       -- centrale resolver levert hier canonieke codes; voeg de configureerbare
       -- 112-creditkeuzes zichtbaar toe en laat de redacteur eerst één regel

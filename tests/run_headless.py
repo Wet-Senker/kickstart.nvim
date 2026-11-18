@@ -33,6 +33,7 @@ def main():
                 "PUBBLE_TOKEN": "", "PUBBLE_DATADB": "", "OPENAI_API_KEY": "",
                 "TEAMS_WEBHOOK_URL": "", "TEXTTOOLS_SOCIAL_POSTS": "legacy",
                 "TEXTTOOLS_LOG_DIR": state + "/log",
+                "TEXTTOOLS_BRUG_EXPORT_ROOT": state + "/Brug",
                 "TEXTTOOLS_SHARED_DIR": state + "/shared",
                 "TEXTTOOLS_PUBLICATION_LINKS_FILE": state + "/links.yaml",
                 "XDG_STATE_HOME": state + "/state", "XDG_CACHE_HOME": state + "/cache",

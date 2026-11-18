@@ -22,6 +22,12 @@ M.config = {
   stock_images = vim.fn.expand('~/krant-fotos/stock'),
   photo_root = vim.fn.expand('~/krant-fotos'),
   desktop = vim.fn.expand('~/Desktop'),
+  brug = vim.fn.expand(vim.env.TEXTTOOLS_BRUG_EXPORT_ROOT or '~/Documents/1.Brugmedia/Brug'),
+  export_folders = {
+    gemeentenieuws = { ' Gemeentenieuws', '_gemeentenieuws' },
+    lezersnieuws = { '_lezersnieuws' },
+    ondernemen_in_kampen = { '_ondernemen_in_kampen' },
+  },
 }
 
 -- ============================================================
@@ -571,10 +577,20 @@ local function publication_week()
   return os.date('%V', ref_time)
 end
 
-local function gemeentenieuws_directory(week)
-  local existing = M.config.desktop .. '/' .. week .. ' Gemeentenieuws'
-  if vim.fn.isdirectory(existing) == 1 then return existing end
-  return M.config.desktop .. '/' .. week .. '_gemeentenieuws'
+local function export_directory(week, section)
+  local command = {
+    texttools_commands.bin('python'), '-m', 'texttools.layout_directory',
+    '--desktop', M.config.desktop, '--alternate', M.config.brug,
+    '--default-name', week .. '_' .. section,
+  }
+  for _, suffix in ipairs(M.config.export_folders[section]) do
+    vim.list_extend(command, { '--name', week .. suffix })
+  end
+  local result = vim.fn.system(command)
+  if vim.v.shell_error ~= 0 then
+    error('Vormgevingsmap kiezen mislukt: ' .. vim.trim(result))
+  end
+  return vim.trim(result)
 end
 
 local function template_values(content, vars)
@@ -635,6 +651,21 @@ local function prepare_layout_export(buf, options)
     return nil
   end
   return plan
+end
+
+-- De kern levert categorie en bestandsnaam; de client gebruikt dezelfde
+-- weekmap als de templates en exporteert pas na succesvolle publicatie.
+function M.ensure_category_export(buf, spec)
+  if type(spec) ~= 'table' or layout_export.pending(buf) then return true end
+  if not M.config.export_folders[spec.section] then
+    return false, 'Onbekende vormgevingsmap voor deze rubriek.'
+  end
+  local ok, directory = pcall(export_directory, publication_week(), spec.section)
+  if not ok then return false, tostring(directory) end
+  local plan, err = layout_export.prepare(buf, {
+    dir = directory, txt_name = spec.txt_name, label = spec.label,
+  })
+  return plan ~= nil, err
 end
 
 local function copy_to_inbox(source, destination)
@@ -858,9 +889,7 @@ function M.raadspraat_menu(target_buf, context, done)
 
       -- Template ({{body}} seam: existing buffer content stays in between)
       local template = {
-        'FOTOBIJSCHRIFT: ' .. bijschrift,
-        '',
-        'Raadspraat ' .. party .. ':',
+        'Raadspraat ' .. party .. ': {{title}}',
         '',
         '{{body}}',
         '',
@@ -876,12 +905,19 @@ function M.raadspraat_menu(target_buf, context, done)
       if context and context.normalized_body then article_lines = vim.split(context.normalized_body, '\n', { plain = true }) end
       local new_lines = {}
       for _, l in ipairs(fm_lines) do table.insert(new_lines, l) end
-      local article = render_template(template, article_lines, {
-        -- Raadspraat houdt de aangeleverde kop bewust in de artikelbody onder
-        -- de vaste partijregel.
-        body = table.concat(article_lines, '\n'),
-      })
-      append_visible_article(new_lines, with_default_edition(existing_header, 'B'), article)
+      local article = render_template(template, article_lines)
+      local header = with_default_edition(existing_header, 'B')
+      -- Het zichtbare bijschrift hoort bij de fotogegevens, boven de grens.
+      -- Vervang een oud algemeen bijschrift door dat van de gekozen auteur.
+      for index = #header, 1, -1 do
+        local key = header[index]:match('^%s*([%a%d_]+)%s*:')
+        key = key and key:lower()
+        if key == 'b' or key == 'bijschrift' or key == 'fotobijschrift' then
+          table.remove(header, index)
+        end
+      end
+      table.insert(header, 'b: ' .. bijschrift)
+      append_visible_article(new_lines, header, article)
 
       vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, new_lines)
       started = true
@@ -894,7 +930,7 @@ function M.raadspraat_menu(target_buf, context, done)
 
       -- Foto's worden nu voorbereid; de actuele tekst wordt pas na een
       -- succesvolle <leader>aw door layout_export geschreven.
-      local gn_dir = gemeentenieuws_directory(week_prefix)
+      local gn_dir = export_directory(week_prefix, 'gemeentenieuws')
       local photo_ext = photo_file:match('%.([^%.]+)$') or 'jpg'
 
       -- Zet de partij in de exportnaam. Anders krijgt elke raadspraat dezelfde
@@ -918,8 +954,8 @@ function M.raadspraat_menu(target_buf, context, done)
       prepared = true
       notifications.workflow(
         'Raadspraat: ' .. naam .. ' (' .. party .. ')\n'
-        .. '→ ' .. week_prefix .. '_gemeentenieuws/' .. export_base .. '.txt\n'
-        .. '→ ' .. week_prefix .. '_gemeentenieuws/' .. export_base .. '.' .. photo_ext .. '\n'
+        .. '→ ' .. gn_dir .. '/' .. export_base .. '.txt\n'
+        .. '→ ' .. gn_dir .. '/' .. export_base .. '.' .. photo_ext .. '\n'
         .. '→ Pubble-foto/' .. photo_file .. '\n'
         .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
         vim.log.levels.INFO,
@@ -1073,7 +1109,7 @@ function M.ondernemen_menu(target_buf, context, done)
     -- Sla exportinfo op in buffervariabele; het txt-bestand wordt geschreven bij <leader>aw
     -- zodat de volledig ingevulde buffer (inclusief columntekst) wordt geëxporteerd.
     local week_prefix = publication_week()
-    local gn_dir = M.config.desktop .. '/' .. week_prefix .. '_ondernemen_in_kampen'
+    local gn_dir = export_directory(week_prefix, 'ondernemen_in_kampen')
     if not prepare_layout_export(target_buf, {
       dir = gn_dir,
       txt_name = '1.ondernemen_in_kampenFOTO.txt',
@@ -1086,7 +1122,7 @@ function M.ondernemen_menu(target_buf, context, done)
     notifications.workflow(
       'Ondernemen in Kampen: ' .. naam .. '\n'
       .. '→ Pubble-foto/' .. photo_file .. '\n'
-      .. '→ ' .. week_prefix .. '_ondernemen_in_kampen/1.ondernemen_in_kampenFOTO.' .. photo_ext .. '\n'
+      .. '→ ' .. gn_dir .. '/1.ondernemen_in_kampenFOTO.' .. photo_ext .. '\n'
       .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
       vim.log.levels.INFO,
       { annote = 'Rubriek', ttl = 12 }
@@ -1180,7 +1216,7 @@ local function apply(t, vars, target_buf, done)
   if not t.no_export then
     local slug = t.name:lower():gsub('[^%a%d]+', '_'):gsub('^_+', ''):gsub('_+$', '')
     local week_prefix = publication_week()
-    local ln_dir = M.config.desktop .. '/' .. week_prefix .. '_lezersnieuws'
+    local ln_dir = export_directory(week_prefix, 'lezersnieuws')
     prepare_layout_export(target_buf, {
       dir = ln_dir,
       txt_name = '1.' .. slug .. '.txt',
@@ -1288,7 +1324,7 @@ function M.kamperkiek_flow(template, target_buf, candidate, done)
   -- Bereid één gemeentenieuwsexport voor; de tekst volgt pas na een
   -- succesvolle <leader>aw en komt daardoor altijd uit de actuele buffer.
   local week_prefix = publication_week()
-  local gn_dir = gemeentenieuws_directory(week_prefix)
+  local gn_dir = export_directory(week_prefix, 'gemeentenieuws')
   if not prepare_layout_export(target_buf, {
     dir = gn_dir,
     txt_name = '2.kamperkiekFOTO.txt',
@@ -1473,7 +1509,7 @@ function M.stock_rubriek_flow(config, target_buf, candidate, done)
 
   -- Bereid één lezersnieuwsexport voor; de actuele tekst volgt bij <leader>aw.
   local week_prefix = publication_week()
-  local ln_dir = M.config.desktop .. '/' .. week_prefix .. '_lezersnieuws'
+  local ln_dir = export_directory(week_prefix, 'lezersnieuws')
   local img_name = config.txt_name:gsub('%.txt$', '.jpg')
   if not prepare_layout_export(target_buf, {
     dir = ln_dir,
@@ -1487,7 +1523,7 @@ function M.stock_rubriek_flow(config, target_buf, candidate, done)
   notifications.workflow(
     config.name .. '\n'
     .. '→ Pubble-foto/' .. config.stock_image .. '\n'
-    .. '→ ' .. week_prefix .. '_lezersnieuws/' .. img_name .. '\n'
+    .. '→ ' .. ln_dir .. '/' .. img_name .. '\n'
     .. 'Tekst wordt na succesvolle <leader>aw definitief weggeschreven.',
     vim.log.levels.INFO,
     { annote = 'Rubriek', ttl = 12 }
@@ -1554,7 +1590,7 @@ function M.ensure_detected_rubric_edition(rubric_id, target_buf, restore_templat
     if not template.no_export and not layout_export.pending(target_buf) then
       local slug = template.name:lower():gsub('[^%a%d]+', '_'):gsub('^_+', ''):gsub('_+$', '')
       prepare_layout_export(target_buf, {
-        dir = M.config.desktop .. '/' .. publication_week() .. '_lezersnieuws',
+        dir = export_directory(publication_week(), 'lezersnieuws'),
         txt_name = '1.' .. slug .. '.txt', label = template.name,
       })
     end

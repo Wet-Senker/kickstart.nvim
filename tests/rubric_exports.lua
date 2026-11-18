@@ -14,6 +14,12 @@ vim.env.TEXTTOOLS_INBOX_DIR = inbox
 krant.config.photo_root = photo_root
 krant.config.stock_images = photo_root .. '/stock'
 krant.config.desktop = desktop
+krant.config.brug = tmp .. '/Documents/1.Brugmedia/Brug'
+local week = os.date('%V', tonumber(os.date('%u')) == 1 and os.time() or os.time() + 7 * 86400)
+local alternate_council = krant.config.brug .. '/' .. week .. '_gemeentenieuws'
+local alternate_business = krant.config.brug .. '/' .. week .. '_ondernemen_in_kampen'
+vim.fn.mkdir(alternate_council, 'p')
+vim.fn.mkdir(alternate_business, 'p')
 
 local function article(title, body)
   local buf = vim.api.nvim_create_buf(false, true)
@@ -52,7 +58,14 @@ krant.raadspraat_menu()
 local raad_plan = assert(layout_export.pending(raad_buf), 'Raadspraat exportplan ontbreekt')
 local raad_text = table.concat(vim.api.nvim_buf_get_lines(raad_buf, 0, -1, false), '\n')
 assert(raad_text:find('\ne: B\n', 1, true), 'Raadspraat kreeg niet automatisch editie B')
+assert(raad_text:find('\nb: Deze editie van Raadspraat is geschreven door Ada Raadslid', 1, true),
+  'Raadspraatbijschrift ontbreekt boven de artikelgrens')
+local raad_body = raad_text:match('=== ARTIKEL ===%s*\n(.*)')
+assert(raad_body:find('Raadspraat CDA: Eigen Raadspraatkop', 1, true) == 1,
+  'partijregel en aangeleverde kop staan niet samen op de eerste artikelregel')
+assert(not raad_body:find('FOTOBIJSCHRIFT:', 1, true), 'fotobijschrift bleef in de artikeltekst staan')
 assert(raad_plan.dir:match('_gemeentenieuws$'), 'Raadspraat gaat niet naar gemeentenieuws')
+assert(raad_plan.dir == alternate_council, 'Raadspraat hergebruikte de Brug-weekmap niet')
 -- De partij staat in de naam zodat twee raadspraten in dezelfde week elkaar
 -- niet overschrijven.
 assert(raad_plan.txt_name == '1.raadspraat_CDAFOTO.txt', 'verkeerde Raadspraattekstnaam')
@@ -86,6 +99,7 @@ assert(kiek_template and kiek_template.no_export, 'Kiek-template onderdrukt gene
 krant.kamperkiek_flow(kiek_template)
 local kiek_plan = assert(layout_export.pending(kiek_buf), 'Kiek-exportplan ontbreekt')
 assert(kiek_plan.dir:match('_gemeentenieuws$'), 'Kamper Kiek gaat niet naar gemeentenieuws')
+assert(kiek_plan.dir == alternate_council, 'Kamper Kiek koos een andere weekmap dan Raadspraat')
 assert(kiek_plan.txt_name == '2.kamperkiekFOTO.txt', 'verkeerde Kiek-tekstnaam')
 assert(vim.fn.filereadable(kiek_plan.dir .. '/' .. kiek_plan.txt_name) == 0, 'Kiektekst is te vroeg geschreven')
 assert(vim.fn.glob(desktop .. '/*_lezersnieuws') == '', 'Kamper Kiek maakte toch lezersnieuws aan')
@@ -145,6 +159,7 @@ vim.ui.select = choose_first
 krant.ondernemen_menu()
 local ondernemen_plan = assert(layout_export.pending(ondernemen_buf), 'Ondernemen-exportplan ontbreekt')
 assert(ondernemen_plan.dir:match('_ondernemen_in_kampen$'), 'Ondernemen gaat naar verkeerde map')
+assert(ondernemen_plan.dir == alternate_business, 'Ondernemen hergebruikte de Brug-weekmap niet')
 assert(vim.fn.filereadable(ondernemen_plan.dir .. '/' .. ondernemen_plan.txt_name) == 0, 'Ondernementekst is te vroeg geschreven')
 local ondernemen_text = table.concat(vim.api.nvim_buf_get_lines(ondernemen_buf, 0, -1, false), '\n')
 assert(ondernemen_text:find('\ne: B\n', 1, true), 'Ondernemen kreeg niet automatisch editie B')
@@ -152,10 +167,13 @@ assert(ondernemen_text:find('Column Ondernemen in Kampen: Een ondernemende kop',
 assert(not ondernemen_text:find('{{titel}}', 1, true), 'Ondernemen liet een titelplaceholder staan')
 
 -- Gewone template: historische {{title}} wordt uit de bestaande kop gevuld.
+vim.fn.mkdir(krant.config.brug .. '/' .. week .. '_lezersnieuws', 'p')
+vim.fn.mkdir(desktop .. '/' .. week .. '_lezersnieuws', 'p')
 local generic_buf = article('Titel uit bron', 'Tekst uit bron.')
 assert(krant.apply_template_by_name('Column Natuurvereniging', {}, generic_buf))
 local generic_plan = assert(layout_export.pending(generic_buf), 'generiek exportplan ontbreekt')
 assert(generic_plan.dir:match('_lezersnieuws$'), 'gewone template gaat niet naar lezersnieuws')
+assert(generic_plan.dir == desktop .. '/' .. week .. '_lezersnieuws', 'bestaande bureaubladmap kreeg geen voorrang')
 local generic_text = table.concat(vim.api.nvim_buf_get_lines(generic_buf, 0, -1, false), '\n')
 assert(generic_text:find('\ne: B\n', 1, true), 'gewone column kreeg niet automatisch editie B')
 assert(generic_text:find('Column Natuurvereniging: Titel uit bron', 1, true), '{{title}} is niet automatisch ingevuld')
