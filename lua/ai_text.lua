@@ -8958,7 +8958,7 @@ require("user_dialog").keymap("n", "<leader>ao", M.tekstcheck, {
 -- daarna behoudend publicatieklaar, inclusief praktische lijstjes naar proza.
 -- De centrale Python-validatie bewaakt citaten en concrete waarden. Een laat resultaat mag nieuwere
 -- bufferbewerkingen nooit overschrijven.
-function M.journalistic_neutralize()
+function M.journalistic_neutralize(attribution_source)
   local buf = vim.api.nvim_get_current_buf()
   if vim.b[buf].texttools_proposal_review or vim.b[buf].texttools_pending_quote_review then
     notifications.notify('Beoordeel eerst het openstaande voorstel: <leader>aY overnemen, q origineel behouden.', vim.log.levels.WARN)
@@ -9008,6 +9008,9 @@ function M.journalistic_neutralize()
   end
 
   local neutrality_command = { aitext, "journalistiek_neutraliseren", '--review-json' }
+  if type(attribution_source) == 'string' and vim.trim(attribution_source) ~= '' then
+    vim.list_extend(neutrality_command, { '--attribution-source', vim.trim(attribution_source) })
+  end
   local rubric = M._rubric_from_controls(ctrl)
   if rubric then
     vim.list_extend(neutrality_command, { '--rubric', rubric })
@@ -9044,7 +9047,21 @@ function M.journalistic_neutralize()
             .. 'Je tekst is behouden; probeer opnieuw met <leader>an.', vim.log.levels.ERROR)
           return
         end
-        if report.status == 'needs_review' then
+        if report.source_required == true then
+          if attribution_source then
+            notifications.notify('De bron blijft onduidelijk na je antwoord. De oorspronkelijke tekst is behouden.', vim.log.levels.WARN)
+            return
+          end
+          vim.ui.input({ prompt = 'Wie is de bron van deze tekst? (persoon of organisatie): ' }, function(answer)
+            if not is_current() then return end
+            if not answer or vim.trim(answer) == '' then
+              notify_workflow('Bronvraag geannuleerd; de oorspronkelijke tekst is behouden.', vim.log.levels.INFO,
+                { buf = buf, task_outcome = 'not_applied' })
+              return
+            end
+            vim.api.nvim_buf_call(buf, function() M.journalistic_neutralize(vim.trim(answer)) end)
+          end)
+        elseif report.status == 'needs_review' then
           review.open({ source_buf = buf, original = body, report = report,
             is_current = is_current, on_accept = function(new_body) apply(new_body, true) end })
           notify_workflow('AN-voorstel staat naast het origineel ter controle. Er is nog niets overgenomen.',
