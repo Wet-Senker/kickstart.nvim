@@ -16,6 +16,33 @@ function M.valid_report(report, source)
   return (report.status == 'ready') == (#report.issues == 0)
 end
 
+function M.open_points(source_buf, points, show_comparison)
+  local source_win = vim.fn.bufwinid(source_buf)
+  vim.cmd('tabnew')
+  local buf = vim.api.nvim_get_current_buf()
+  vim.bo[buf].buftype, vim.bo[buf].bufhidden, vim.bo[buf].swapfile = 'nofile', 'wipe', false
+  vim.b[buf].texttools_proposal_review = true
+  vim.b[buf].texttools_activity_source = source_buf
+  local lines = { 'AN · Te beoordelen', 'd  Artikel vergelijken    q  Origineel behouden', '' }
+  for _, point in ipairs(points) do
+    vim.list_extend(lines, vim.split(point, '\n', { plain = true }))
+    lines[#lines + 1] = ''
+  end
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+  vim.wo.wrap = true
+  local function close()
+    vim.cmd('tabclose')
+    if vim.api.nvim_win_is_valid(source_win) then vim.api.nvim_set_current_win(source_win) end
+  end
+  vim.keymap.set('n', 'q', close, { buffer = buf, desc = 'Origineel behouden' })
+  vim.keymap.set('n', 'd', function()
+    close()
+    show_comparison()
+  end, { buffer = buf, desc = 'Artikel naast het voorstel leggen' })
+  return buf
+end
+
 function M.open(options)
   serial = serial + 1
   local source_win = vim.fn.bufwinid(options.source_buf)

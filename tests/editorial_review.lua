@@ -85,3 +85,20 @@ session.accept()
 assert(not session.closed and accepted == 1, 'voorstel ging naar een verdwenen bron')
 session.keep()
 print('editorial review: OK')
+
+-- AN toont eerst uitsluitend het concrete beslispunt. Het artikelvergelijk
+-- opent pas als de gebruiker d kiest.
+local origin = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_set_current_buf(origin)
+vim.api.nvim_buf_set_lines(origin, 0, -1, false, { 'Oorspronkelijk bericht.' })
+local shown = false
+local points = require('editorial_review').open_points(origin, {
+  'Regel 1: wie is de bron?\nBron: Oorspronkelijk bericht.',
+}, function()
+  shown = true
+  assert(vim.api.nvim_get_current_buf() == origin)
+end)
+assert(not shown)
+assert(vim.api.nvim_buf_get_lines(points, 3, 4, false)[1]:find('wie is de bron?', 1, true))
+vim.api.nvim_feedkeys('d', 'xt', false)
+assert(shown and vim.api.nvim_get_current_buf() == origin)

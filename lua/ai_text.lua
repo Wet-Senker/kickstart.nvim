@@ -8954,8 +8954,7 @@ require("user_dialog").keymap("n", "<leader>ao", M.tekstcheck, {
   desc = "Tekstcheck: alleen taalfouten; tekst blijft verder gelijk (twijfel → ## Suggesties)",
 })
 
--- <leader>an — laat Python eerst bronruis deletion-only verwijderen en maak
--- daarna behoudend publicatieklaar, inclusief praktische lijstjes naar proza.
+-- <leader>an — laat Python plaatselijke redactie en bronopschoning beoordelen.
 -- De centrale Python-validatie bewaakt citaten en concrete waarden. Een laat resultaat mag nieuwere
 -- bufferbewerkingen nooit overschrijven.
 function M.journalistic_neutralize(attribution_source)
@@ -9052,7 +9051,8 @@ function M.journalistic_neutralize(attribution_source)
             notifications.notify('De bron blijft onduidelijk na je antwoord. De oorspronkelijke tekst is behouden.', vim.log.levels.WARN)
             return
           end
-          vim.ui.input({ prompt = 'Wie is de bron van deze tekst? (persoon of organisatie): ' }, function(answer)
+          local detail = report.issues[1] and report.issues[1].message or ''
+          vim.ui.input({ prompt = 'Wie is de bron van deze tekst? (persoon of organisatie): ' .. detail }, function(answer)
             if not is_current() then return end
             if not answer or vim.trim(answer) == '' then
               notify_workflow('Bronvraag geannuleerd; de oorspronkelijke tekst is behouden.', vim.log.levels.INFO,
@@ -9062,9 +9062,18 @@ function M.journalistic_neutralize(attribution_source)
             vim.api.nvim_buf_call(buf, function() M.journalistic_neutralize(vim.trim(answer)) end)
           end)
         elseif report.status == 'needs_review' then
-          review.open({ source_buf = buf, original = body, report = report,
-            is_current = is_current, on_accept = function(new_body) apply(new_body, true) end })
-          notify_workflow('AN-voorstel staat naast het origineel ter controle. Er is nog niets overgenomen.',
+          local function show_comparison()
+            if not is_current() then return end
+            review.open({ source_buf = buf, original = body, report = report,
+              is_current = is_current, on_accept = function(new_body) apply(new_body, true) end })
+          end
+          if type(report.diagnostics) == 'table' and report.diagnostics.planned_edit_count then
+            local points = vim.tbl_map(function(issue) return issue.message end, report.issues)
+            review.open_points(buf, points, show_comparison)
+          else
+            show_comparison()
+          end
+          notify_workflow('AN vraagt een redactionele beslissing. De artikeltekst blijft staan.',
             vim.log.levels.INFO, { buf = buf, task_outcome = 'not_applied' })
         else
           apply(vim.split(vim.trim(report.article), '\n', { plain = true }), false)
