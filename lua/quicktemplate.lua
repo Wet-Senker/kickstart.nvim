@@ -30,7 +30,7 @@ function M.open()
   local root = vim.env.QUICKTEMPLATE_ROOT or vim.fn.expand '~/workspace/quicktemplate'
   local script = root .. '/tools/quicktemplate_server.py'
   if vim.fn.filereadable(script) ~= 1 then
-    notify('Quicktemplate ontbreekt in ~/workspace/quicktemplate.', vim.log.levels.ERROR)
+    notify('Quicktemplate ontbreekt in ' .. root .. '.', vim.log.levels.ERROR)
     return
   end
 
